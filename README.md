@@ -7,7 +7,22 @@ I built this because I thought it would be enjoyable and a good way to battletes
 The idea behind Helm is to be flexible and powerful but with a syntax that is simple to understand.
 
 ## Table of Contents
+- [Design Philosophy](#design-philosophy)
 - [Syntax](#syntax)
+
+## Design Philosophy
+
+Helm is built on a ruthless separation of concerns: **Helm orchestrates, it does not execute.**
+
+Build configurations often degrade into unmaintainable technical debt when developers blur the line between dependency graph management and raw shell scripting. Helm prevents this by enforcing structural best practices directly at the compiler level. The goal is to guarantee that your build graph remains universally readable, even at 2:00 AM during a critical deployment failure.
+
+Our core design tenets are:
+
+* **Flat Dependency Graphs:** Deeply nested, inline execution chains are by design impossible. Orchestration must be readable top-to-bottom. Parallel and sequential executions are declared in explicit, linear blocks rather than dense micro-DSLs.
+* **Hostile to Complexity:** Inline commands (via `run`) are strictly limited to single-line executions. Shell control flow operators (`&&`, `||`, `|`, `;`) and loops are explicitly rejected by the semantic analyzer. If a build step requires complex logic or piping, it belongs in a dedicated, testable shell script executed via `run_script`. 
+* **Predictability Over Cleverness:** The syntax minimizes visual noise. Newlines act as significant tokens to terminate statements without the clutter of semicolons, and assignment operators are universally standardized. 
+
+Helm exists to be a transparent map of *what* happens and *when*, aggressively offloading the *how* to standard scripts where it belongs.
 
 ## Syntax
 
