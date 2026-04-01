@@ -21,14 +21,38 @@ target test(NAME, AGE?) {
         bypass = true
     }
 
-    // A flat, un-nestable if-block. 
-    // The compiler must throw a fatal error if an 'if' is placed inside an 'if'.
-    if defined(AGE) {
-        run "echo 'hello ${NAME} of ${AGE} years!'"
-        run "echo 'saving age data...'"
-    } else {
-        run "echo 'hello ${NAME}!'"
-    }
+    // A flat, un-nestable when-block. 
+    // The compiler must throw a fatal error if a 'when' is placed inside a 'when'.
+
+    /*
+    When cannot be nested and cannot contain complex logic.
+
+    Else is also not possible, it would be the inverse (not_defined)
+
+    You can also check for example:
+
+    when equals(AGE, 12)
+
+    or
+
+    when not_equals(AGE, 12)
+
+    BUT you cannot combine like:
+    when defined(AGE) && equals(AGE, 12) ; this is impossible.
+
+    If you want complex logic either:
+    - Resolve in a previous target
+    - Move it to a shell script
+    */
+
+	when defined(AGE) {
+	    run "echo 'hello ${NAME} of ${AGE} years!'"
+	    run "echo 'saving age data...'"
+	}
+
+	when not_defined(AGE) {
+	    run "echo 'hello ${NAME}!'"
+	}
 
     run "echo 'finished task'"
     run_script "./id_gen.sh"
