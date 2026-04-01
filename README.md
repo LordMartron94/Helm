@@ -18,9 +18,9 @@ Build configurations often degrade into unmaintainable technical debt when devel
 
 Our core design tenets are:
 
-* **Flat Dependency Graphs:** Deeply nested, inline execution chains are by design impossible. Orchestration must be readable top-to-bottom. Parallel and sequential executions are declared in explicit, linear blocks rather than dense micro-DSLs.
-* **Hostile to Complexity:** Inline commands (via `run`) are strictly limited to single-line executions. Shell control flow operators (`&&`, `||`, `|`, `;`) and loops are explicitly rejected by the semantic analyzer. If a build step requires complex logic or piping, it belongs in a dedicated, testable shell script executed via `run_script`. 
-* **Predictability Over Cleverness:** The syntax minimizes visual noise. Newlines act as significant tokens to terminate statements without the clutter of semicolons, and assignment operators are universally standardized. 
+- **Flat Dependency Graphs:** Deeply nested, inline execution chains are by design impossible. Orchestration must be readable top-to-bottom. Parallel and sequential executions are declared in explicit, linear blocks rather than dense micro-DSLs.
+- **Hostile to Complexity:** Inline commands (via `run`) are strictly limited to single-line executions. Shell control flow operators (`&&`, `||`, `|`, `;`) and loops are explicitly rejected by the semantic analyzer. If a build step requires complex logic or piping, it belongs in a dedicated, testable shell script executed via `run_script`. 
+- **Predictability Over Cleverness:** The syntax minimizes visual noise. Newlines act as significant tokens to terminate statements without the clutter of semicolons, and assignment operators are universally standardized. 
 
 Helm exists to be a transparent map of *what* happens and *when*, aggressively offloading the *how* to standard scripts where it belongs.
 
