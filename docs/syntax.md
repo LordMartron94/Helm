@@ -15,29 +15,29 @@ TEST_DIR  = "libs/test"
 target test(NAME, AGE?) {
     help = "Prints your name and optionally your age."
 
-	cache {
-	    inputs = glob(TEST_DIR, exclude="*.go")
-	    output = path(CACHE_DIR, "testing")
-	    bypass = true // if user runs the target, can bypass cache-check with --bypass-cache
-	}
+    cache {
+        inputs = glob(TEST_DIR, exclude="*.go")
+        output = path(CACHE_DIR, "testing")
+        bypass = true
+    }
 
-	// No imperative logic (if-branching)...
-	// We do allow conditional execution using simple when statements.
-
-	run "echo 'hello ${NAME}!'" {
-	    when = not_defined(AGE)
-	}
-
-	run "echo 'hello ${NAME} of ${AGE} years!'" {
-	    when = defined(AGE)
-	}
+    // A flat, un-nestable if-block. 
+    // The compiler must throw a fatal error if an 'if' is placed inside an 'if'.
+    if defined(AGE) {
+        run "echo 'hello ${NAME} of ${AGE} years!'"
+        run "echo 'saving age data...'"
+    } else {
+        run "echo 'hello ${NAME}!'"
+    }
 
     run "echo 'finished task'"
     run_script "./id_gen.sh"
 
+    // Standardize dependencies as simple strings. 
+    // If a dependency needs configuration, it becomes an object/block.
     depends_on [ 
-    	optional "pre-generate" 
-	]
+        "pre-generate" { optional = true } 
+    ]
     
     parallel { 
         exec "build-stepA"
@@ -46,8 +46,10 @@ target test(NAME, AGE?) {
     
     exec "run"
     exec "core-tests"
-    exec confirm "optional-tests"
-    exec confirm "benchmark"
+    
+    // Standardized trailing configuration, identical to 'run' and 'depends_on'
+    exec "optional-tests" { confirm = true }
+    exec "benchmark" { confirm = true }
 }
 
 ```
