@@ -30,3 +30,5 @@ Once the language is further developed, I will show a few examples here.
 
 For more detail see: [syntax reference](./docs/syntax.md)
 
+As with all my syntaxes, the [LangSpec](https:github.com/LordMartron94/LangSpec) definition lives in [Lingua](https:github.com/LordMartron94/Lingua).
+
