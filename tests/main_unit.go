@@ -127,9 +127,21 @@ func HelmMainUnit(order int) shield.Unit {
 	}
 
 	interpretationAtom := shield.AtomCreate(1, "Helm Interpreting", helmInterpretRunner)
-	shield.AtomRegisterCase(interpretationAtom, shield.CaseCreate(
-		"empty_program",
-		"empty_program.helm",
+	registerMustSucceedHelmCase(interpretationAtom, "empty_program", "empty_program.helm")
+	registerMustSucceedHelmCase(interpretationAtom, "newline", "newline.helm")
+	registerMustSucceedHelmCase(interpretationAtom, "comments", "comments.helm")
+	registerMustSucceedHelmCase(interpretationAtom, "variables", "variables.helm")
+
+	shield.UnitRegisterAtom(mainUnit, creationAtom)
+	shield.UnitRegisterAtom(mainUnit, interpretationAtom)
+
+	return *mainUnit
+}
+
+func registerMustSucceedHelmCase(atom *shield.Atom[string, interpreter.HelmInterpreterInterpretationResult], caseName, fileName string) {
+	shield.AtomRegisterCase(atom, shield.CaseCreate(
+		caseName,
+		fileName,
 		func(output interpreter.HelmInterpreterInterpretationResult) shield.AtomResult {
 			if output.Error != nil {
 				return *shield.AtomResultFailureCreate(output.Error.Error())
@@ -138,9 +150,4 @@ func HelmMainUnit(order int) shield.Unit {
 			return *shield.AtomResultSuccessCreate()
 		},
 	))
-
-	shield.UnitRegisterAtom(mainUnit, creationAtom)
-	shield.UnitRegisterAtom(mainUnit, interpretationAtom)
-
-	return *mainUnit
 }
