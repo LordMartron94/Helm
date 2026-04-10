@@ -1,8 +1,8 @@
 # HELM
 
-Helm is a modern makefile alternative.
+Helm is my attempt at building a fully featured build system. I build it from first principles, as an alternative to Makefile.
 
-I built this because I thought it would be enjoyable and a good way to battletest my language toolkit before moving on to more complex projects (i.e., my own programming language `force`).
+I started doing this because I thought it would be enjoyable as well as a good way to battletest my language toolkit before moving on to more complex projects (i.e., my own programming language `force`).
 
 The idea behind Helm is to be flexible and powerful but with a syntax that is simple to understand.
 
@@ -16,19 +16,98 @@ Helm is built on a ruthless separation of concerns: **Helm orchestrates, it does
 
 Build configurations often degrade into unmaintainable technical debt when developers blur the line between dependency graph management and raw shell scripting. Helm prevents this by enforcing structural best practices directly at the compiler level. The goal is to guarantee that your build graph remains universally readable, even at 2:00 AM during a critical deployment failure.
 
-Our core design tenets are:
+Helm exists to be a transparent map of *what* happens and *when*, aggressively offloading the *how* to standard scripts where it belongs.
 
-- **Flat Dependency Graphs:** Deeply nested, inline execution chains are by design impossible. Orchestration must be readable top-to-bottom. Parallel and sequential executions are declared in explicit, linear blocks rather than dense micro-DSLs.
-- **Hostile to Complexity:** Inline commands (via `run`) are strictly limited to single-line executions. Shell control flow operators (`&&`, `||`, `|`, `;`) and loops are explicitly rejected by the semantic analyzer. If a build step requires complex logic or piping, it belongs in a dedicated, testable shell script executed via `run_script`. 
-- **Predictability Over Cleverness:** The syntax minimizes visual noise. Newlines act as significant tokens to terminate statements without the clutter of semicolons, and assignment operators are universally standardized. 
+As such, the capability of direct execution is intentionally *limited* inside the Helm syntax. No more long shell(-like) blocks such as in Make. We have a `run` command which accepts a single-line string that is parsed into a command and fed to the evaluator. This means complex logic by definition is impossible in runs. 
+
+A `run` is intended to do simple things like running an executable or `echoing` something simple.
+
+# HELM
+
+Helm is my attempt at building a fully featured build system. I build it from first principles, as an alternative to Makefile.
+
+I started doing this because I thought it would be enjoyable as well as a good way to battletest my language toolkit before moving on to more complex projects (i.e., my own programming language `force`).
+
+The idea behind Helm is to be flexible and powerful but with a syntax that is simple to understand.
+
+## Table of Contents
+- [Design Philosophy](#design-philosophy)
+- [Syntax Overview](#syntax-overview)
+
+## Design Philosophy
+
+Helm is built on a ruthless separation of concerns: **Helm orchestrates, it does not execute.**
+
+Build configurations often degrade into unmaintainable technical debt when developers blur the line between dependency graph management and raw shell scripting. Helm prevents this by enforcing structural best practices directly at the compiler level. The goal is to guarantee that your build graph remains universally readable, even at 2:00 AM during a critical deployment failure.
 
 Helm exists to be a transparent map of *what* happens and *when*, aggressively offloading the *how* to standard scripts where it belongs.
 
-## Syntax
+As such, the capability of direct execution is intentionally *limited* inside the Helm syntax. No more long shell(-like) blocks such as in Make. We have a `run` command which accepts a single-line string that is parsed into a command and fed to the evaluator. This means complex logic by definition is impossible in runs. 
 
-Once the language is further developed, I will show a few examples here.
+A `run` is intended to do simple things like running an executable or `echoing` something simple.
+
+## Syntax Overview
+
+Helm is designed to read like a map of state, not a procedural script. Here are a few examples demonstrating the separation of orchestration, state, and execution.
+
+### 1. The Parameterized Target
+Targets are explicitly parameterized. There are no arcane automatic variables (`$@`) or hacky environment overrides.
+
+```helm
+target greet(NAME) {
+    help = "Prints a greeting to the specified name."
+    run "echo 'Hello, ${NAME}!'"
+}
+```
+
+### 2. The Pure Orchestrator (Caching & Graph)
+Helm solves the dependency graph and handles cryptographic caching automatically. The user defines the edges (`depends_on`), the state boundary (`artifacts`), and the single action required to achieve that state (`run`).
+
+```helm
+target compile(OS) {
+    help = "Compiles the primary binary for a given OS."
+
+    // The execution edges. Helm automatically evaluates these in parallel if possible.
+    depends_on [
+        "generate-mocks",
+        "lint"
+    ]
+
+    // The state boundary. Helm computes the hash of these inputs.
+    // If the hash matches the cache, the 'run' block is completely bypassed.
+    artifacts {
+        inputs = glob("src", "*.go")
+        outputs = path("bin/app-${OS}")
+    }
+
+    run "go build -o bin/app-${OS} ./src"
+}
+```
+
+### 3. Context & Volatility
+When a target hits external infrastructure, it cannot be safely cached based on file inputs alone. Helm isolates the execution context (`env`, `workdir`) and allows authors to explicitly declare a target as volatile, forcing the engine to always execute it.
+
+```helm
+target db-migrate() {
+    help = "Applies pending SQL migrations to the database."
+
+    workdir = "./infrastructure/db"
+
+    env {
+        DB_HOST = "localhost"
+        DB_USER = "admin"
+    }
+
+    artifacts {
+        volatile = true // Prevents the engine from caching this execution
+        inputs = glob("migrations", "*.sql")
+    }
+
+    run "./apply_migrations.sh"
+}
+```
 
 For more detail see: [syntax reference](./docs/syntax.md)
 
-As with all my syntaxes, the [LangSpec](https:github.com/LordMartron94/LangSpec) definition lives in [Lingua](https:github.com/LordMartron94/Lingua).
+As with all my syntaxes, the [LangSpec](https://github.com/LordMartron94/LangSpec) definition lives in [Lingua](https://github.com/LordMartron94/Lingua).
 

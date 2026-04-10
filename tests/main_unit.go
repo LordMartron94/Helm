@@ -131,6 +131,7 @@ func HelmMainUnit(order int) shield.Unit {
 	registerMustSucceedHelmCase(interpretationAtom, "newline", "newline.helm")
 	registerMustSucceedHelmCase(interpretationAtom, "comments", "comments.helm")
 	registerMustSucceedHelmCase(interpretationAtom, "variables", "variables.helm")
+	registerMustSucceedHelmCase(interpretationAtom, "targets", "targets.helm")
 
 	shield.UnitRegisterAtom(mainUnit, creationAtom)
 	shield.UnitRegisterAtom(mainUnit, interpretationAtom)
