@@ -126,15 +126,17 @@ func HelmMainUnit(order int) shield.Unit {
 		return interpreter.HelmInterpreterInterpretFile(sharedHelm, path)
 	}
 
-	interpretationAtom := shield.AtomCreate(1, "Helm Interpreting", helmInterpretRunner)
-	registerMustSucceedHelmCase(interpretationAtom, "empty_program", "empty_program.helm")
-	registerMustSucceedHelmCase(interpretationAtom, "newline", "newline.helm")
-	registerMustSucceedHelmCase(interpretationAtom, "comments", "comments.helm")
-	registerMustSucceedHelmCase(interpretationAtom, "variables", "variables.helm")
-	registerMustSucceedHelmCase(interpretationAtom, "targets", "targets.helm")
+	syntaxAtom := shield.AtomCreate(1, "Helm Syntax", helmInterpretRunner)
+	shield.AtomSetDescription(syntaxAtom, "Validates all intended syntax does not error.")
+
+	registerMustSucceedHelmCase(syntaxAtom, "empty_program", "empty_program.helm")
+	registerMustSucceedHelmCase(syntaxAtom, "newline", "newline.helm")
+	registerMustSucceedHelmCase(syntaxAtom, "comments", "comments.helm")
+	registerMustSucceedHelmCase(syntaxAtom, "variables", "variables.helm")
+	registerMustSucceedHelmCase(syntaxAtom, "targets", "targets.helm")
 
 	shield.UnitRegisterAtom(mainUnit, creationAtom)
-	shield.UnitRegisterAtom(mainUnit, interpretationAtom)
+	shield.UnitRegisterAtom(mainUnit, syntaxAtom)
 
 	return *mainUnit
 }
