@@ -99,9 +99,12 @@ type HelmTargetDependency struct {
 }
 
 type HelmGlob struct {
-	baseDirectory string
-	include       string
-	exclude       string
+	baseDirectory  string
+	include        string
+	exclude        string
+	followSymlinks bool
+	recursive      bool
+	types          string
 }
 
 func (g *HelmGlob) BaseDirectory() string {
@@ -114,6 +117,18 @@ func (g *HelmGlob) Include() string {
 
 func (g *HelmGlob) Exclude() string {
 	return g.exclude
+}
+
+func (g *HelmGlob) FollowSymlinks() bool {
+	return g.followSymlinks
+}
+
+func (g *HelmGlob) Recursive() bool {
+	return g.recursive
+}
+
+func (g *HelmGlob) Types() string {
+	return g.types
 }
 
 type HelmArtifactInputKind int

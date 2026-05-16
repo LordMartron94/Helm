@@ -7,8 +7,20 @@ import (
 )
 
 var supportedGlobKwargs = map[string]struct{}{
-	"include": {},
-	"exclude": {},
+	"include":         {},
+	"exclude":         {},
+	"follow_symlinks": {},
+	"recursive":       {},
+	"types":           {},
+}
+
+func newHelmGlob(baseDirectory string) *HelmGlob {
+	return &HelmGlob{
+		baseDirectory:  baseDirectory,
+		followSymlinks: false,
+		recursive:      true,
+		types:          "files",
+	}
 }
 
 func evaluateGlob(
@@ -43,7 +55,7 @@ func evaluateGlob(
 		return nil, false
 	}
 
-	result := &HelmGlob{baseDirectory: baseDirectory}
+	result := newHelmGlob(baseDirectory)
 	seenKwargs := map[string]struct{}{}
 
 	for _, child := range argsNode.ChildrenUnsafe() {
@@ -75,19 +87,135 @@ func evaluateGlob(
 			return nil, false
 		}
 
-		valueNode := child.FindFirstKind(artifacts.NodeStringLiteral)
-		scope := resolveScopeForGlobals(globalVariables)
-		value := extractStringFromStringNode(builder, valueNode, scope)
+		if !applyGlobKwarg(builder, child, nameNode, kwargName, globalVariables, result) {
+			return nil, false
+		}
+	}
 
+	return result, true
+}
+
+func applyGlobKwarg(
+	builder *irBuilder,
+	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	nameNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	kwargName string,
+	globalVariables map[string]string,
+	result *HelmGlob,
+) bool {
+	switch kwargName {
+	case "include", "exclude", "types":
+		value, ok := extractGlobStringKwargValue(builder, kwargNode, nameNode, kwargName, globalVariables)
+		if !ok {
+			return false
+		}
 		switch kwargName {
 		case "include":
 			result.include = value
 		case "exclude":
 			result.exclude = value
+		case "types":
+			result.types = value
 		}
+		return true
+	case "follow_symlinks":
+		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, globalVariables)
+		if !ok {
+			return false
+		}
+		result.followSymlinks = parsed
+		return true
+	case "recursive":
+		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, globalVariables)
+		if !ok {
+			return false
+		}
+		result.recursive = parsed
+		return true
+	default:
+		return false
+	}
+}
+
+func extractGlobStringKwargValue(
+	builder *irBuilder,
+	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	nameNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	kwargName string,
+	globalVariables map[string]string,
+) (string, bool) {
+	if kwargNode.FindDirectChildKind(artifacts.NodeBoolean) != nil {
+		emitSemanticError(
+			builder,
+			nameNode,
+			ERROR_INVALID_GLOB,
+			fmt.Sprintf("glob() keyword argument '%s' must be a string", kwargName),
+		)
+		return "", false
 	}
 
-	return result, true
+	strNode := kwargNode.FindDirectChildKind(artifacts.NodeStringLiteral)
+	if strNode == nil {
+		emitSemanticError(
+			builder,
+			nameNode,
+			ERROR_INVALID_GLOB,
+			fmt.Sprintf("glob() keyword argument '%s' is missing a value", kwargName),
+		)
+		return "", false
+	}
+
+	scope := resolveScopeForGlobals(globalVariables)
+	return extractStringFromStringNode(builder, strNode, scope), true
+}
+
+func extractGlobBoolKwargValue(
+	builder *irBuilder,
+	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	nameNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	kwargName string,
+	globalVariables map[string]string,
+) (bool, bool) {
+	if boolNode := kwargNode.FindDirectChildKind(artifacts.NodeBoolean); boolNode != nil {
+		return extractBooleanNode(builder, boolNode), true
+	}
+
+	strNode := kwargNode.FindDirectChildKind(artifacts.NodeStringLiteral)
+	if strNode != nil {
+		scope := resolveScopeForGlobals(globalVariables)
+		value := extractStringFromStringNode(builder, strNode, scope)
+		return parseGlobBoolStringKwarg(builder, nameNode, kwargName, value)
+	}
+
+	emitSemanticError(
+		builder,
+		nameNode,
+		ERROR_INVALID_GLOB,
+		fmt.Sprintf("glob() keyword argument '%s' must be true or false", kwargName),
+	)
+	return false, false
+}
+
+func parseGlobBoolStringKwarg(
+	builder *irBuilder,
+	nameNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	kwargName string,
+	value string,
+) (bool, bool) {
+	switch value {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		emitSemanticError(
+			builder,
+			nameNode,
+			ERROR_INVALID_GLOB,
+			fmt.Sprintf("glob() keyword argument '%s' must be true or false", kwargName),
+		)
+		return false, false
+	}
 }
 
 func resolveGlobBaseDirectory(

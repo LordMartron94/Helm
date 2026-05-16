@@ -630,8 +630,8 @@ func runValidGlobsScenario(
 						return false, fmt.Sprintf("expected successful parse, got error: %v", out.parseError)
 					}
 
-					if len(out.extractedInputs) != 2 {
-						return false, fmt.Sprintf("expected 2 inputs, got %d", len(out.extractedInputs))
+					if len(out.extractedInputs) != 3 {
+						return false, fmt.Sprintf("expected 3 inputs, got %d", len(out.extractedInputs))
 					}
 
 					if out.extractedInputs[0].Kind() != ir.ArtifactInputGlob {
@@ -650,6 +650,15 @@ func runValidGlobsScenario(
 					if glob0.Exclude() != "" {
 						return false, fmt.Sprintf("input 0 exclude: expected empty, got %q", glob0.Exclude())
 					}
+					if glob0.FollowSymlinks() {
+						return false, "input 0 follow_symlinks: expected default false"
+					}
+					if !glob0.Recursive() {
+						return false, "input 0 recursive: expected default true"
+					}
+					if glob0.Types() != "files" {
+						return false, fmt.Sprintf("input 0 types: expected default %q, got %q", "files", glob0.Types())
+					}
 
 					if out.extractedInputs[1].Kind() != ir.ArtifactInputGlob {
 						return false, "input 1: expected glob entry"
@@ -666,6 +675,26 @@ func runValidGlobsScenario(
 					}
 					if glob1.Include() != "" {
 						return false, fmt.Sprintf("input 1 include: expected empty, got %q", glob1.Include())
+					}
+					if glob1.FollowSymlinks() || !glob1.Recursive() || glob1.Types() != "files" {
+						return false, "input 1: expected default follow_symlinks=false, recursive=true, types=files"
+					}
+
+					glob2 := out.extractedInputs[2].Glob()
+					if glob2 == nil {
+						return false, "input 2: glob is nil"
+					}
+					if glob2.BaseDirectory() != "vendor" {
+						return false, fmt.Sprintf("input 2 base dir: expected %q, got %q", "vendor", glob2.BaseDirectory())
+					}
+					if !glob2.FollowSymlinks() {
+						return false, "input 2 follow_symlinks: expected true"
+					}
+					if glob2.Recursive() {
+						return false, "input 2 recursive: expected false"
+					}
+					if glob2.Types() != "directories" {
+						return false, fmt.Sprintf("input 2 types: expected %q, got %q", "directories", glob2.Types())
 					}
 
 					return true, ""

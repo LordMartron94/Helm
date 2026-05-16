@@ -140,7 +140,11 @@ target migrate() {
 
 Helm provides native functions for resolving paths and file trees safely across platforms.
 
-* **`glob(base_dir, kwarg="...")`**: Resolves file patterns.
+* **`glob(base_dir, kwarg="...")`**: Declares a file-tree scan boundary for cache inputs. Recognized keyword arguments (stored in IR for the runtime walker; not expanded at compile time):
+  * `include`, `exclude` (string patterns)
+  * `follow_symlinks` (boolean literal `true`/`false` or string `"true"`/`"false"`, default `false`)
+  * `recursive` (boolean literal `true`/`false` or string `"true"`/`"false"`, default `true`)
+  * `types` (string, default `"files"`)
 * **`path(element1, element2, ...)`**: Constructs OS-safe paths safely.
 
 ```helm

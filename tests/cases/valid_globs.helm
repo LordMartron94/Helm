@@ -6,7 +6,8 @@ target scan() {
         volatile = true
         inputs = [
             glob(SCAN_ROOT, include="**/*.go"),
-            glob(".", exclude="*_test.go")
+            glob(".", exclude="*_test.go"),
+            glob("vendor", follow_symlinks=true, recursive=false, types="directories")
         ]
     }
 
