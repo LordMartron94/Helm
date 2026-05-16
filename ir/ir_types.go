@@ -2,6 +2,8 @@ package ir
 
 import (
 	"lingua/helm/artifacts"
+	"maps"
+	"slices"
 	"syntaxa"
 )
 
@@ -24,6 +26,8 @@ const (
 	ERROR_DUPLICATE_ENV_KEY          string = "TARGET_013"
 
 	ERROR_UNDECLARED_PARAMETER string = "COND_001"
+
+	ERROR_INVALID_PATH string = "PATH_001"
 )
 
 type HelmConditionType int
@@ -49,6 +53,13 @@ type HelmIR struct {
 	succeeded bool
 }
 
+/*
+Targets returns a copy of the helm targets... used primarily for testing/debugging.
+*/
+func (h *HelmIR) Targets() map[string]HelmTarget {
+	return maps.Clone(h.targets)
+}
+
 type HelmTarget struct {
 	name       string
 	aliases    []string
@@ -62,6 +73,13 @@ type HelmTarget struct {
 	dependsOn    []HelmTargetDependency
 	artifacts    *HelmArtifacts
 	conditionals []HelmCondition
+}
+
+/*
+Artifacts returns the target's artifacts... used primarily for testing/debugging.
+*/
+func (h *HelmTarget) Artifacts() *HelmArtifacts {
+	return h.artifacts
 }
 
 type HelmTargetParameter struct {
@@ -80,6 +98,13 @@ type HelmArtifacts struct {
 	volatile bool
 	inputs   []string
 	outputs  []string
+}
+
+/*
+Outputs returns a copy of the artifact's outputs... used primarily for testing/debugging.
+*/
+func (h *HelmArtifacts) Outputs() []string {
+	return slices.Clone(h.outputs)
 }
 
 func (h *HelmIR) Success() bool {

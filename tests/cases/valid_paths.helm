@@ -1,0 +1,13 @@
+BASE_DIR = "build_output"
+
+target compile() {
+    help = "Validates path extraction"
+    artifacts {
+        outputs = [
+            path(BASE_DIR, "bin", "executable"),
+            path("static", "index.html")
+        ]
+    }
+    
+    run "echo success"
+}

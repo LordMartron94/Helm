@@ -51,6 +51,7 @@ func runHelmOperation(_ struct{}, execCtx shield.SHIELD_Testing_ExecutionContext
 	results = append(results, runSyntaxScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runInvalidSyntaxScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runInvalidSemanticsScenario(execCtx, sharedHelm, casesDir))
+	results = append(results, runValidPathsScenario(execCtx, sharedHelm, casesDir))
 
 	return results
 }
@@ -518,6 +519,86 @@ func helmSyntaxDiagnosticsFormat(diags []helmSyntaxDiagnostic) string {
 		parts = append(parts, fmt.Sprintf("L%d rule=%q msg=%q", d.startLine, d.rule, d.message))
 	}
 	return strings.Join(parts, "; ")
+}
+
+type validPathsScenarioInput struct {
+	fileName string
+}
+type validPathsScenarioOutput struct {
+	extractedOutputs []string
+	parseError       error
+}
+
+func runValidPathsScenario(
+	execCtx shield.SHIELD_Testing_ExecutionContext,
+	sharedHelm *interpreter.HelmInterpreter,
+	casesDir string,
+) shield.SHIELD_Testing_ScenarioRunResult {
+
+	scenario := shield.SHIELD_Testing_ScenarioCreate(
+		"scenario_helm_valid_paths",
+		"Validates that the IR Builder correctly evaluates path() arguments into native OS paths",
+		[]shield.SHIELD_Testing_Guard[validPathsScenarioInput, validPathsScenarioOutput]{
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_paths_must_resolve",
+				validPathsScenarioInput{fileName: "valid_paths.helm"},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out validPathsScenarioOutput) (bool, string) {
+					if out.parseError != nil {
+						return false, fmt.Sprintf("expected successful parse, got error: %v", out.parseError)
+					}
+
+					if len(out.extractedOutputs) != 2 {
+						return false, fmt.Sprintf("expected 2 outputs, got %d: %v", len(out.extractedOutputs), out.extractedOutputs)
+					}
+
+					// Mathematically define what the paths SHOULD be using the native OS separator
+					expectedPath1 := filepath.Join("build_output", "bin", "executable")
+					expectedPath2 := filepath.Join("static", "index.html")
+
+					if out.extractedOutputs[0] != expectedPath1 {
+						return false, fmt.Sprintf("path 1 mismatch: expected %q, got %q", expectedPath1, out.extractedOutputs[0])
+					}
+
+					if out.extractedOutputs[1] != expectedPath2 {
+						return false, fmt.Sprintf("path 2 mismatch: expected %q, got %q", expectedPath2, out.extractedOutputs[1])
+					}
+
+					return true, ""
+				}),
+			),
+		},
+		func(input validPathsScenarioInput) (validPathsScenarioOutput, error) {
+			path := filepath.Join(casesDir, input.fileName)
+
+			// Create a black-hole dispatcher. We expect no semantic errors here.
+			dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+				{Label: "ERROR", Weight: 20},
+			})
+			ctx := signal.SignalContextCreate(dispatcher)
+
+			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path, ctx)
+
+			if res.Error != nil {
+				return validPathsScenarioOutput{parseError: res.Error}, nil
+			}
+
+			// Extract the compiled IR data
+			target, exists := res.BuiltIR.Targets()["compile"]
+			if !exists {
+				return validPathsScenarioOutput{parseError: fmt.Errorf("target 'compile' not found in IR")}, nil
+			}
+
+			if target.Artifacts() == nil {
+				return validPathsScenarioOutput{parseError: fmt.Errorf("artifacts block was nil")}, nil
+			}
+
+			return validPathsScenarioOutput{
+				extractedOutputs: target.Artifacts().Outputs(),
+			}, nil
+		},
+	)
+
+	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
 }
 
 // ------------------------------------------------------------------ PATH RESOLUTION

@@ -28,7 +28,7 @@ type HelmInterpreterInterpretationResult struct {
 
 	compiledSymbols *semantics.CompiledSymbolTable
 
-	builtIR ir.HelmIR
+	BuiltIR ir.HelmIR
 
 	Error error
 }
@@ -178,7 +178,7 @@ func HelmInterpreterInterpretFile(
 	}
 
 	compiledIR := ir.IRFromSyntax(file, sourceText, rootNode, ctx)
-	result.builtIR = compiledIR
+	result.BuiltIR = compiledIR
 
 	if !compiledIR.Success() {
 		result.Error = fmt.Errorf("interpretation aborted due to semantic errors")

@@ -44,17 +44,27 @@ func extractItemsFromChildren(
 }
 
 // resolveArtifactItem resolves artifact paths; only global variables are supported (not target parameters).
+// Composite forms (path, glob) must be dispatched before leaf forms: FindFirstKind on the subtree would
+// otherwise match string literals or variable references nested inside path().
 func resolveArtifactItem(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	globalVariables map[string]string,
 ) string {
-	if strNode := node.FindFirstKind(artifacts.NodeStringLiteral); strNode != nil {
+	if pathNode := artifactItemPathNode(node); pathNode != nil {
+		return evaluatePath(builder, pathNode, globalVariables)
+	}
+
+	if globNode := artifactItemGlobNode(node); globNode != nil {
+		return "[EVALUATED_GLOB]"
+	}
+
+	if strNode := artifactItemStringNode(node); strNode != nil {
 		scope := resolveScopeForGlobals(globalVariables)
 		return extractStringFromStringNode(builder, strNode, scope)
 	}
 
-	if varNode := node.FindFirstKind(artifacts.NodeVariableReference); varNode != nil {
+	if varNode := artifactItemVarRefNode(node); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
 		if val, exists := globalVariables[varName]; exists {
 			return val
@@ -68,14 +78,35 @@ func resolveArtifactItem(
 		return ""
 	}
 
-	if pathNode := node.FindFirstKind(artifacts.NodePath); pathNode != nil {
-		return "[EVALUATED_PATH]"
-	}
-	if globNode := node.FindFirstKind(artifacts.NodeGlob); globNode != nil {
-		return "[EVALUATED_GLOB]"
-	}
-
 	return ""
+}
+
+func artifactItemPathNode(node *syntaxa.SyntaxaLSTNode[artifacts.Node]) *syntaxa.SyntaxaLSTNode[artifacts.Node] {
+	if node.Kind() == artifacts.NodePath {
+		return node
+	}
+	return node.FindDirectChildKind(artifacts.NodePath)
+}
+
+func artifactItemGlobNode(node *syntaxa.SyntaxaLSTNode[artifacts.Node]) *syntaxa.SyntaxaLSTNode[artifacts.Node] {
+	if node.Kind() == artifacts.NodeGlob {
+		return node
+	}
+	return node.FindDirectChildKind(artifacts.NodeGlob)
+}
+
+func artifactItemStringNode(node *syntaxa.SyntaxaLSTNode[artifacts.Node]) *syntaxa.SyntaxaLSTNode[artifacts.Node] {
+	if node.Kind() == artifacts.NodeStringLiteral {
+		return node
+	}
+	return node.FindDirectChildKind(artifacts.NodeStringLiteral)
+}
+
+func artifactItemVarRefNode(node *syntaxa.SyntaxaLSTNode[artifacts.Node]) *syntaxa.SyntaxaLSTNode[artifacts.Node] {
+	if node.Kind() == artifacts.NodeVariableReference {
+		return node
+	}
+	return node.FindDirectChildKind(artifacts.NodeVariableReference)
 }
 
 func extractBooleanNode(builder *irBuilder, node *syntaxa.SyntaxaLSTNode[artifacts.Node]) bool {
