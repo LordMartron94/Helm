@@ -273,17 +273,12 @@ type helmSemanticErrorExpectation struct {
 	messageContains string
 }
 
-// The exact mathematical mapping of the 5 deliberate semantic failures
 var badSemanticsExpectations = []helmSemanticErrorExpectation{
 	{messageContains: "variable 'VERSION' has already been declared"},
-	{messageContains: "use of undeclared variable 'UNDEFINED_VAR'"},
-	{messageContains: "help text for target 'build' is missing"},
-	{messageContains: "artifacts block for target 'build' is missing"},
 	{messageContains: "target 'build' has already been declared"},
+	{messageContains: "missing_target"},
+	{messageContains: "use of undeclared variable 'UNDEFINED_VAR'"},
 	{messageContains: "condition references undeclared parameter 'UNKNOWN_PARAM'"},
-	{messageContains: "use of undeclared variable 'TAG'"},
-	{messageContains: "help text for target 'publish' is missing"},
-	{messageContains: "artifacts block for target 'publish' is missing"},
 }
 
 func runInvalidSemanticsScenario(
@@ -382,18 +377,29 @@ func helmSemanticDiagnosticFromSignal(sig signal.Signal) (helmSemanticDiagnostic
 
 func helmBadSemanticsDiagnosticsMatch(got []helmSemanticDiagnostic) (bool, string) {
 	want := badSemanticsExpectations
-	if len(got) != len(want) {
-		return false, fmt.Sprintf(
-			"expected %d semantic diagnostics, got %d:\n%s",
-			len(want), len(got), helmSemanticDiagnosticsFormat(got),
-		)
-	}
 
 	for _, exp := range want {
 		if !helmSemanticDiagnosticMatchesExpectation(got, exp) {
 			return false, fmt.Sprintf(
 				"missing expected semantic error (message contains %q);\ngot:\n%s",
 				exp.messageContains, helmSemanticDiagnosticsFormat(got),
+			)
+		}
+	}
+
+	for _, diag := range got {
+		isExpected := false
+		for _, exp := range want {
+			if strings.Contains(diag.message, exp.messageContains) {
+				isExpected = true
+				break
+			}
+		}
+
+		if !isExpected {
+			return false, fmt.Sprintf(
+				"unexpected semantic error emitted:\n  L%d msg=%q\n\nall got:\n%s",
+				diag.startLine, diag.message, helmSemanticDiagnosticsFormat(got),
 			)
 		}
 	}
