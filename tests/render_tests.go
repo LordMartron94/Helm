@@ -220,8 +220,6 @@ func HelmRenderTest(t *testing.T) {
 	})
 
 	ctx := signal.SignalContextCreate(dispatcher)
-	signal.SignalContextPushSpan(ctx, "Helm Interpreter")
-	signal.SignalContextPushSpan(ctx, "Syntaxa Phase")
 
 	res := interpreter.HelmInterpreterInterpretFile(sharedHelm, badSyntaxPath, ctx)
 	if collectErr != "" {

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"foundation/location"
 	"foundation/system"
+	"helm/ir"
+	"helm/shared"
 	"langspec"
 	"langspec/bootstrap"
 	"langspec/dsl"
@@ -25,6 +27,8 @@ type HelmInterpreterInterpretationResult struct {
 	rootNode   *syntaxa.SyntaxaLSTNode[artifacts.Node]
 
 	compiledSymbols *semantics.CompiledSymbolTable
+
+	builtIR ir.HelmIR
 
 	Error error
 }
@@ -111,6 +115,8 @@ func HelmInterpreterInterpretFile(
 	file string,
 	ctx *signal.SignalContext,
 ) HelmInterpreterInterpretationResult {
+	signal.SignalContextPushSpan(ctx, shared.MainSpanPhase)
+
 	result := HelmInterpreterInterpretationResult{
 		compiledSymbols: interpreter.compiledSymbols,
 	}
@@ -134,6 +140,9 @@ func HelmInterpreterInterpretFile(
 	result.rootNode = rootNode
 
 	if syntaxErrors.HasErrors() {
+		signal.SignalContextPushSpan(ctx, shared.ParsingSpanPhase)
+		defer signal.SignalContextPopSpan(ctx)
+
 		for i, syntaxErr := range syntaxErrors.Errors {
 			startL, startC, endL, endC := resolveLineSpan(syntaxErr, sourceText)
 
@@ -153,9 +162,9 @@ func HelmInterpreterInterpretFile(
 
 			signal.SignalContextBuild(ctx, signalID, "ERROR").
 				Location(&loc).
-				Payload("phase", typeStr).
-				Payload("rule", syntaxErr.Rule).
-				Payload("message", syntaxErr.Message).
+				Payload(shared.PhasePayloadKey, typeStr).
+				Payload(shared.RulePayloadKey, syntaxErr.Rule).
+				Payload(shared.MessagePayloadKey, syntaxErr.Message).
 				Emit()
 		}
 
@@ -165,6 +174,14 @@ func HelmInterpreterInterpretFile(
 
 	if err != nil {
 		result.Error = fmt.Errorf("error while parsing file: %w", err)
+		return result
+	}
+
+	compiledIR := ir.IRFromSyntax(rootNode, ctx)
+	result.builtIR = compiledIR
+
+	if !compiledIR.Success() {
+		result.Error = fmt.Errorf("interpretation aborted due to semantic errors")
 		return result
 	}
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"foundation/location"
 	"helm/interpreter"
+	"helm/shared"
 	"os"
 	"path/filepath"
 	"shield"
@@ -49,6 +50,7 @@ func runHelmOperation(_ struct{}, execCtx shield.SHIELD_Testing_ExecutionContext
 
 	results = append(results, runSyntaxScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runInvalidSyntaxScenario(execCtx, sharedHelm, casesDir))
+	results = append(results, runInvalidSemanticsScenario(execCtx, sharedHelm, casesDir))
 
 	return results
 }
@@ -155,7 +157,7 @@ func buildSyntaxGuards() []shield.SHIELD_Testing_Guard[syntaxScenarioInput, synt
 			c.name,
 			syntaxScenarioInput{fileName: c.file},
 			shield.SHIELD_Testing_GuardPolicyPredicate(func(out syntaxScenarioOutput) (bool, string) {
-				if out.errorMsg != "" {
+				if out.errorMsg != "" && !strings.Contains(out.errorMsg, "semantic") {
 					return false, out.errorMsg
 				}
 				return true, ""
@@ -251,6 +253,173 @@ func runInvalidSyntaxScenario(
 	)
 
 	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
+}
+
+type invalidSemanticsScenarioInput struct {
+	fileName string
+}
+type invalidSemanticsScenarioOutput struct {
+	errorMsg     string
+	diagnostics  []helmSemanticDiagnostic
+	collectError string
+}
+
+type helmSemanticDiagnostic struct {
+	startLine int
+	message   string
+}
+
+type helmSemanticErrorExpectation struct {
+	messageContains string
+}
+
+// The exact mathematical mapping of the 5 deliberate semantic failures
+var badSemanticsExpectations = []helmSemanticErrorExpectation{
+	{messageContains: "variable 'VERSION' has already been declared"},
+	{messageContains: "use of undeclared variable 'UNDEFINED_VAR'"},
+	{messageContains: "help text for target 'build' is missing"},
+	{messageContains: "artifacts block for target 'build' is missing"},
+	{messageContains: "target 'build' has already been declared"},
+	{messageContains: "condition references undeclared parameter 'UNKNOWN_PARAM'"},
+	{messageContains: "use of undeclared variable 'TAG'"},
+	{messageContains: "help text for target 'publish' is missing"},
+	{messageContains: "artifacts block for target 'publish' is missing"},
+}
+
+func runInvalidSemanticsScenario(
+	execCtx shield.SHIELD_Testing_ExecutionContext,
+	sharedHelm *interpreter.HelmInterpreter,
+	casesDir string,
+) shield.SHIELD_Testing_ScenarioRunResult {
+
+	scenario := shield.SHIELD_Testing_ScenarioCreate(
+		"scenario_helm_invalid_semantics",
+		"Validates that syntactically valid files with semantic domain errors trigger precise diagnostic signals",
+		[]shield.SHIELD_Testing_Guard[invalidSemanticsScenarioInput, invalidSemanticsScenarioOutput]{
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_semantics_must_fail",
+				invalidSemanticsScenarioInput{fileName: "bad_semantics.helm"},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out invalidSemanticsScenarioOutput) (bool, string) {
+					if out.collectError != "" {
+						return false, out.collectError
+					}
+					if out.errorMsg == "" {
+						return false, "expected interpreter to return an error due to semantic violations, but it succeeded"
+					}
+					return helmBadSemanticsDiagnosticsMatch(out.diagnostics)
+				}),
+			),
+		},
+		func(input invalidSemanticsScenarioInput) (invalidSemanticsScenarioOutput, error) {
+			path := filepath.Join(casesDir, input.fileName)
+
+			dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+				{Label: "ERROR", Weight: 20},
+			})
+
+			var collected []helmSemanticDiagnostic
+			var collectErr string
+
+			signal.SignalDispatcherRegisterSink(dispatcher, "collect", func(sig signal.Signal) {
+				// We only care about semantic errors, ignore syntax or lexical signals if any bleed through
+				phase, _ := signal.SignalPayloadGetAs[string](&sig, shared.PhasePayloadKey)
+				if phase != shared.SemanticAnalysisPhase {
+					return
+				}
+
+				diag, err := helmSemanticDiagnosticFromSignal(sig)
+				if err != nil {
+					if collectErr == "" {
+						collectErr = err.Error()
+					}
+					return
+				}
+				collected = append(collected, diag)
+			})
+
+			ctx := signal.SignalContextCreate(dispatcher)
+
+			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path, ctx)
+
+			out := invalidSemanticsScenarioOutput{
+				diagnostics:  collected,
+				collectError: collectErr,
+			}
+			if res.Error != nil {
+				out.errorMsg = res.Error.Error()
+			}
+			return out, nil
+		},
+	)
+
+	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
+}
+
+func helmSemanticDiagnosticFromSignal(sig signal.Signal) (helmSemanticDiagnostic, error) {
+	message, err := signal.SignalPayloadGetAs[string](&sig, "message")
+	if err != nil {
+		return helmSemanticDiagnostic{}, fmt.Errorf("semantic signal missing message payload: %w", err)
+	}
+
+	if !sig.HasLocation() {
+		return helmSemanticDiagnostic{}, fmt.Errorf("semantic signal missing location")
+	}
+	loc := sig.Location()
+	if loc == nil {
+		return helmSemanticDiagnostic{}, fmt.Errorf("semantic signal location is nil")
+	}
+
+	startLine, err := location.LocationCoordinateGetAs[int](*loc, "start_line")
+	if err != nil {
+		return helmSemanticDiagnostic{}, fmt.Errorf("semantic signal missing start_line: %w", err)
+	}
+
+	return helmSemanticDiagnostic{
+		startLine: startLine,
+		message:   message,
+	}, nil
+}
+
+func helmBadSemanticsDiagnosticsMatch(got []helmSemanticDiagnostic) (bool, string) {
+	want := badSemanticsExpectations
+	if len(got) != len(want) {
+		return false, fmt.Sprintf(
+			"expected %d semantic diagnostics, got %d:\n%s",
+			len(want), len(got), helmSemanticDiagnosticsFormat(got),
+		)
+	}
+
+	for _, exp := range want {
+		if !helmSemanticDiagnosticMatchesExpectation(got, exp) {
+			return false, fmt.Sprintf(
+				"missing expected semantic error (message contains %q);\ngot:\n%s",
+				exp.messageContains, helmSemanticDiagnosticsFormat(got),
+			)
+		}
+	}
+
+	return true, ""
+}
+
+func helmSemanticDiagnosticMatchesExpectation(got []helmSemanticDiagnostic, exp helmSemanticErrorExpectation) bool {
+	for _, diag := range got {
+		if strings.Contains(diag.message, exp.messageContains) {
+			return true
+		}
+	}
+	return false
+}
+
+func helmSemanticDiagnosticsFormat(diags []helmSemanticDiagnostic) string {
+	if len(diags) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(diags))
+	for _, d := range diags {
+		// Outputting L0 until you fix the sourceText injection in IRFromSyntax
+		parts = append(parts, fmt.Sprintf("L%d msg=%q", d.startLine, d.message))
+	}
+	return strings.Join(parts, "\n")
 }
 
 func helmSyntaxDiagnosticFromSignal(sig signal.Signal) (helmSyntaxDiagnostic, error) {

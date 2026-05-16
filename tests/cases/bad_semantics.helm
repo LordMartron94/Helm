@@ -1,0 +1,25 @@
+// ERROR 1: Duplicate global variable declaration
+VERSION = "1.0.0"
+VERSION = "1.0.1"
+
+target build() {
+    // ERROR 2: Dependency points to a target that does not exist
+    depends_on [
+        missing_target
+    ]
+    
+    // ERROR 3: Interpolating a variable that was never declared
+    run "echo ${UNDEFINED_VAR}"
+}
+
+// ERROR 4: Duplicate target definition
+target build() {
+    run "echo duplicate"
+}
+
+target publish(TAG) {
+    // ERROR 5: Using an undeclared parameter in a condition
+    when defined(UNKNOWN_PARAM) {
+        run "echo ${TAG}"
+    }
+}
