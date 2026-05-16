@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"shield"
+	"signal"
 )
 
 var standardRunCfg = shield.SHIELD_Testing_ScenarioRunConfig{MaxIterations: 1}
@@ -112,7 +113,13 @@ func runSyntaxScenario(
 		buildSyntaxGuards(),
 		func(input syntaxScenarioInput) (syntaxScenarioOutput, error) {
 			path := filepath.Join(casesDir, input.fileName)
-			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path)
+
+			dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+				{Label: "ERROR", Weight: 20},
+			})
+			ctx := signal.SignalContextCreate(dispatcher)
+
+			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path, ctx)
 
 			if res.Error != nil {
 				return syntaxScenarioOutput{errorMsg: res.Error.Error()}, nil
@@ -187,7 +194,13 @@ func runInvalidSyntaxScenario(
 		},
 		func(input invalidSyntaxScenarioInput) (invalidSyntaxScenarioOutput, error) {
 			path := filepath.Join(casesDir, input.fileName)
-			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path)
+
+			dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+				{Label: "ERROR", Weight: 20},
+			})
+			ctx := signal.SignalContextCreate(dispatcher)
+
+			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path, ctx)
 
 			if res.Error != nil {
 				return invalidSyntaxScenarioOutput{errorMsg: res.Error.Error()}, nil

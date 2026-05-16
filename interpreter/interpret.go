@@ -2,6 +2,7 @@ package interpreter
 
 import (
 	"fmt"
+	"foundation/location"
 	"foundation/system"
 	"langspec"
 	"langspec/bootstrap"
@@ -12,6 +13,7 @@ import (
 	"memcore"
 	"memforge"
 	"os"
+	"signal"
 	"syntaxa"
 	"syntaxa/lowering"
 )
@@ -104,7 +106,11 @@ func HelmInterpreterDumpGrammar(
 	fmt.Fprint(os.Stdout, pkgDump)
 }
 
-func HelmInterpreterInterpretFile(interpreter *HelmInterpreter, file string) HelmInterpreterInterpretationResult {
+func HelmInterpreterInterpretFile(
+	interpreter *HelmInterpreter,
+	file string,
+	ctx *signal.SignalContext,
+) HelmInterpreterInterpretationResult {
 	result := HelmInterpreterInterpretationResult{
 		compiledSymbols: interpreter.compiledSymbols,
 	}
@@ -119,6 +125,7 @@ func HelmInterpreterInterpretFile(interpreter *HelmInterpreter, file string) Hel
 		result.Error = fmt.Errorf("file reading failed with error: %w", err)
 		return result
 	}
+	sourceText := string(sourceContent)
 
 	session := langspec.LangParserSessionCreate[rune](file, nil)
 	trace, rootNode, syntaxErrors, err := langspec.LangParserParseFile(interpreter.parser, session, nil)
@@ -127,12 +134,30 @@ func HelmInterpreterInterpretFile(interpreter *HelmInterpreter, file string) Hel
 	result.rootNode = rootNode
 
 	if syntaxErrors.HasErrors() {
-		dsl.RenderSyntaxErrorsWithContext(os.Stdout, sourceContent, syntaxErrors, func(r rune, col int) int {
-			if r == '\t' {
-				return col + 4
+		for i, syntaxErr := range syntaxErrors.Errors {
+			startL, startC, endL, endC := resolveLineSpan(syntaxErr, sourceText)
+
+			loc := location.LocationCreate("file", "", file, "", "", map[string]any{
+				"start_line":   startL,
+				"start_column": startC,
+				"end_line":     endL,
+				"end_column":   endC,
+			})
+
+			typeStr := "syntax"
+			if syntaxErr.ProducedByLexer {
+				typeStr = "lexer"
 			}
-			return col + 1
-		})
+
+			signalID := fmt.Sprintf("ERR_PARSE_%03d", i)
+
+			signal.SignalContextBuild(ctx, signalID, "ERROR").
+				Location(&loc).
+				Payload("phase", typeStr).
+				Payload("rule", syntaxErr.Rule).
+				Payload("message", syntaxErr.Message).
+				Emit()
+		}
 
 		result.Error = fmt.Errorf("parsing failed with %d syntax errors", len(syntaxErrors.Errors))
 		return result
@@ -168,4 +193,32 @@ func HelmInterpreterDumpLexemes(interpreter *HelmInterpreter, file string) error
 	}
 
 	return nil
+}
+
+// ------------------------------------------------------------- PRIVATE HELPERS
+
+func resolveLineSpan(e syntaxa.SyntaxError, source string) (int, int, int, int) {
+	if e.StartLine > 0 && e.EndLine > 0 {
+		return e.StartLine, e.StartColumn, e.EndLine, e.EndColumn
+	}
+
+	if source == "" {
+		return 0, 0, 0, 0
+	}
+
+	start := e.AbsolutePosition
+	if start < 0 {
+		start = 0
+	}
+
+	end := e.AbsoluteEnd
+	if end < start {
+		end = start
+	}
+
+	sl, sc, el, ec, ok := syntaxa.LineSpanFromByteOffsets(start, end, source, 4)
+	if !ok {
+		return 0, 0, 0, 0
+	}
+	return sl, sc, el, ec
 }
