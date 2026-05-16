@@ -8,6 +8,162 @@ import (
 	"shield"
 )
 
+var standardRunCfg = shield.SHIELD_Testing_ScenarioRunConfig{MaxIterations: 1}
+
+func init() {
+	op := shield.SHIELD_Testing_OperationCreateStateless(
+		"operation_helm_interpreter",
+		"Validates the Helm interpreter syntax, lifecycle, and execution",
+		runHelmOperation,
+		"HELM", "Interpreter",
+	)
+
+	shield.SHIELD_Registry_OperationRegister(op)
+}
+
+func runHelmOperation(_ struct{}, execCtx shield.SHIELD_Testing_ExecutionContext) []shield.SHIELD_Testing_ScenarioRunResult {
+	var results []shield.SHIELD_Testing_ScenarioRunResult
+
+	specPath, specErr := helmLSpecPathResolve()
+	casesDir, casesErr := helmTestsCasesDirResolve()
+
+	if specErr != nil {
+		panic(fmt.Sprintf("helm test setup failed (resolve spec): %v", specErr))
+	}
+	if casesErr != nil {
+		panic(fmt.Sprintf("helm test setup failed (resolve cases dir): %v", casesErr))
+	}
+
+	sharedHelm, createErr := interpreter.HelmInterpreterTryCreate(specPath)
+
+	// 1. Validate Creation
+	results = append(results, runCreationScenario(execCtx, sharedHelm, createErr))
+
+	// If the interpreter failed to boot, there is no point running syntax checks.
+	if sharedHelm == nil {
+		return results
+	}
+
+	defer interpreter.HelmInterpreterDestroy(sharedHelm)
+
+	// 2. Validate Syntax
+	results = append(results, runSyntaxScenario(execCtx, sharedHelm, casesDir))
+
+	// 3. Validate AST (Commented out mapping for future implementation)
+	// results = append(results, runASTScenario(execCtx, sharedHelm, casesDir))
+
+	return results
+}
+
+// ------------------------------------------------------------------ SCENARIOS
+
+type creationScenarioInput struct{}
+type creationScenarioOutput struct {
+	err   error
+	isNil bool
+}
+
+func runCreationScenario(
+	execCtx shield.SHIELD_Testing_ExecutionContext,
+	sharedHelm *interpreter.HelmInterpreter,
+	createErr error,
+) shield.SHIELD_Testing_ScenarioRunResult {
+
+	scenario := shield.SHIELD_Testing_ScenarioCreate(
+		"scenario_helm_creation",
+		"Validates the Helm interpreter is created successfully and is not nil",
+		[]shield.SHIELD_Testing_Guard[creationScenarioInput, creationScenarioOutput]{
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_interpreter_ready",
+				creationScenarioInput{},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out creationScenarioOutput) (bool, string) {
+					if out.err != nil {
+						return false, fmt.Sprintf("creation returned error: %v", out.err)
+					}
+					if out.isNil {
+						return false, "interpreter instance is nil"
+					}
+					return true, ""
+				}),
+			),
+		},
+		func(_ creationScenarioInput) (creationScenarioOutput, error) {
+			return creationScenarioOutput{
+				err:   createErr,
+				isNil: sharedHelm == nil,
+			}, nil
+		},
+	)
+
+	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
+}
+
+type syntaxScenarioInput struct {
+	fileName string
+}
+type syntaxScenarioOutput struct {
+	errorMsg string
+}
+
+func runSyntaxScenario(
+	execCtx shield.SHIELD_Testing_ExecutionContext,
+	sharedHelm *interpreter.HelmInterpreter,
+	casesDir string,
+) shield.SHIELD_Testing_ScenarioRunResult {
+
+	scenario := shield.SHIELD_Testing_ScenarioCreate(
+		"scenario_helm_syntax",
+		"Validates all intended syntax does not error during the parsing phase",
+		buildSyntaxGuards(),
+		func(input syntaxScenarioInput) (syntaxScenarioOutput, error) {
+			path := filepath.Join(casesDir, input.fileName)
+			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path)
+
+			if res.Error != nil {
+				return syntaxScenarioOutput{errorMsg: res.Error.Error()}, nil
+			}
+
+			return syntaxScenarioOutput{errorMsg: ""}, nil
+		},
+	)
+
+	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
+}
+
+func buildSyntaxGuards() []shield.SHIELD_Testing_Guard[syntaxScenarioInput, syntaxScenarioOutput] {
+	type testCase struct {
+		name string
+		file string
+	}
+
+	cases := []testCase{
+		{"guard_syntax_empty_program", "empty_program.helm"},
+		{"guard_syntax_newline", "newline.helm"},
+		{"guard_syntax_comments", "comments.helm"},
+		{"guard_syntax_variables", "variables.helm"},
+		{"guard_syntax_targets", "targets.helm"},
+	}
+
+	var guards []shield.SHIELD_Testing_Guard[syntaxScenarioInput, syntaxScenarioOutput]
+
+	for _, c := range cases {
+		guards = append(guards, shield.SHIELD_Testing_GuardCreate(
+			c.name,
+			syntaxScenarioInput{fileName: c.file},
+			shield.SHIELD_Testing_GuardPolicyPredicate(func(out syntaxScenarioOutput) (bool, string) {
+				if out.errorMsg != "" {
+					return false, out.errorMsg
+				}
+				return true, ""
+			}),
+		))
+	}
+
+	return guards
+}
+
+// ------------------------------------------------------------------ PATH RESOLUTION
+
 func helmLSpecPathResolve() (string, error) {
 	if p := os.Getenv("HELM_LSPEC_PATH"); p != "" {
 		if _, err := os.Stat(p); err != nil {
@@ -21,21 +177,12 @@ func helmLSpecPathResolve() (string, error) {
 		return "", err
 	}
 
-	for {
-		candidate := filepath.Join(dir, "libs/lingua/helm/helm.lspec")
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
+	path, err := findProjectFileUpwards(dir, "libs/lingua/helm/helm.lspec")
+	if err != nil {
+		return "", fmt.Errorf("%w; set HELM_LSPEC_PATH", err)
 	}
 
-	return "", fmt.Errorf(
-		"could not find libs/lingua/helm/helm.lspec from cwd; set HELM_LSPEC_PATH",
-	)
+	return path, nil
 }
 
 func helmTestsCasesDirResolve() (string, error) {
@@ -55,11 +202,27 @@ func helmTestsCasesDirResolve() (string, error) {
 		return "", err
 	}
 
+	path, err := findProjectFileUpwards(dir, "tools/helm/tests/cases")
+	if err != nil {
+		return "", fmt.Errorf("%w; set HELM_TEST_CASES_DIR", err)
+	}
+
+	if st, err := os.Stat(path); err == nil && !st.IsDir() {
+		return "", fmt.Errorf("resolved path is not a directory: %q", path)
+	}
+
+	return path, nil
+}
+
+func findProjectFileUpwards(startDir, relativePath string) (string, error) {
+	dir := startDir
+
 	for {
-		candidate := filepath.Join(dir, "tools/helm/tests/cases")
-		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
+		candidate := filepath.Join(dir, relativePath)
+		if _, err := os.Stat(candidate); err == nil {
 			return candidate, nil
 		}
+
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
@@ -67,90 +230,5 @@ func helmTestsCasesDirResolve() (string, error) {
 		dir = parent
 	}
 
-	return "", fmt.Errorf(
-		"could not find tools/helm/tests/cases from cwd; set HELM_TEST_CASES_DIR",
-	)
-}
-
-func HelmMainUnit(order int) shield.Unit {
-	mainUnit := shield.UnitCreate(order, "Helm")
-
-	var sharedHelm *interpreter.HelmInterpreter
-	var casesDir string
-
-	shield.UnitSetSetupAndTeardown(mainUnit,
-		func() {
-			specPath, err := helmLSpecPathResolve()
-			if err != nil {
-				panic(fmt.Sprintf("helm unit setup (resolve spec): %v", err))
-			}
-			sharedHelm, err = interpreter.HelmInterpreterTryCreate(specPath)
-			if err != nil {
-				panic(fmt.Sprintf("helm unit setup (create interpreter): %v", err))
-			}
-
-			casesDir, err = helmTestsCasesDirResolve()
-			if err != nil {
-				panic(fmt.Sprintf("helm unit setup (resolve test cases dir): %v", err))
-			}
-		},
-		func() {
-			if sharedHelm != nil {
-				interpreter.HelmInterpreterDestroy(sharedHelm)
-				sharedHelm = nil
-			}
-			casesDir = ""
-		},
-	)
-
-	creationAtom := shield.AtomCreate(0, "Helm Interpreter Creation", func(_ struct{}) string {
-		if sharedHelm == nil {
-			return "shared interpreter is nil after unit setup"
-		}
-		return ""
-	})
-
-	shield.AtomRegisterCase(creationAtom, shield.CaseCreate(
-		"shared_interpreter_ready",
-		struct{}{},
-		func(out string) shield.AtomResult {
-			if out == "" {
-				return *shield.AtomResultSuccessCreate()
-			}
-			return *shield.AtomResultFailureCreate(out)
-		},
-	))
-
-	helmInterpretRunner := func(caseFile string) interpreter.HelmInterpreterInterpretationResult {
-		path := filepath.Join(casesDir, caseFile)
-		return interpreter.HelmInterpreterInterpretFile(sharedHelm, path)
-	}
-
-	syntaxAtom := shield.AtomCreate(1, "Helm Syntax", helmInterpretRunner)
-	shield.AtomSetDescription(syntaxAtom, "Validates all intended syntax does not error.")
-
-	registerMustSucceedHelmCase(syntaxAtom, "empty_program", "empty_program.helm")
-	registerMustSucceedHelmCase(syntaxAtom, "newline", "newline.helm")
-	registerMustSucceedHelmCase(syntaxAtom, "comments", "comments.helm")
-	registerMustSucceedHelmCase(syntaxAtom, "variables", "variables.helm")
-	registerMustSucceedHelmCase(syntaxAtom, "targets", "targets.helm")
-
-	shield.UnitRegisterAtom(mainUnit, creationAtom)
-	shield.UnitRegisterAtom(mainUnit, syntaxAtom)
-
-	return *mainUnit
-}
-
-func registerMustSucceedHelmCase(atom *shield.Atom[string, interpreter.HelmInterpreterInterpretationResult], caseName, fileName string) {
-	shield.AtomRegisterCase(atom, shield.CaseCreate(
-		caseName,
-		fileName,
-		func(output interpreter.HelmInterpreterInterpretationResult) shield.AtomResult {
-			if output.Error != nil {
-				return *shield.AtomResultFailureCreate(output.Error.Error())
-			}
-
-			return *shield.AtomResultSuccessCreate()
-		},
-	))
+	return "", fmt.Errorf("could not find %s from cwd", relativePath)
 }
