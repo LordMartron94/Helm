@@ -8,20 +8,19 @@ import (
 	"langspec/dsl"
 	"langspec/dsl/semantics"
 	"lexarch"
+	"lingua/helm/artifacts"
 	"memcore"
 	"memforge"
 	"os"
 	"syntaxa"
 	"syntaxa/lowering"
-
-	_ "lingua/helm/artifacts"
 )
 
 // ------------------------------------------------------------------ RESULT
 
 type HelmInterpreterInterpretationResult struct {
 	parseTrace *syntaxa.ParseTrace
-	rootNode   *syntaxa.SyntaxaLSTNode[uint32]
+	rootNode   *syntaxa.SyntaxaLSTNode[artifacts.Node]
 
 	compiledSymbols *semantics.CompiledSymbolTable
 
@@ -39,13 +38,13 @@ func HelmInterpreterInterpretationResultDumpParseTrace(result HelmInterpreterInt
 type HelmInterpreter struct {
 	allocator       memcore.MarkRaw
 	compiledSymbols *semantics.CompiledSymbolTable
-	parser          *bootstrap.LangParser
+	parser          *bootstrap.LangParser[artifacts.Node]
 }
 
 func HelmInterpreterTryCreate(helmSpecFile string) (*HelmInterpreter, error) {
 	allocator := memforge.DynamicLinearAllocatorCreateFunction(uint64(10*memcore.KiloByte), memforge.DynamicLinearAllocatorGrowthTemplateDoubleOrNeededWithMaxPanic(uint64(1*memcore.GigaByte)))
 
-	parser, compiledSymbols, err := bootstrap.CompileParserFromSpecWithCompiledSymbols(
+	parser, compiledSymbols, err := bootstrap.CompileParserFromSpecWithCompiledSymbols[artifacts.Node](
 		helmSpecFile,
 		func(sizeBytes, alignment uint64) memcore.MarkRaw {
 			return memforge.DynamicLinearAllocatorMallocUnsafe(allocator, sizeBytes, alignment)
@@ -82,19 +81,19 @@ func HelmInterpreterDumpGrammar(
 ) {
 	grammarPackage := interpreter.parser.GetGrammarPackage()
 
-	grammarDump := grammarPackage.Root.DebugDump(syntaxa.GrammarDebugFormatter[lexarch.TokenKind, uint32]{
+	grammarDump := grammarPackage.Root.DebugDump(syntaxa.GrammarDebugFormatter[lexarch.TokenKind, artifacts.Node]{
 		FormatKind: syntaxa.GrammarKind.String,
 		FormatToken: func(tk lexarch.TokenKind) string {
 			return interpreter.compiledSymbols.TokenName(uint32(tk))
 		},
-		FormatOutputNodeKind: func(u uint32) string {
-			return interpreter.compiledSymbols.NodeKindName(u)
+		FormatOutputNodeKind: func(u artifacts.Node) string {
+			return interpreter.compiledSymbols.NodeKindName(uint32(u))
 		},
 	})
 
 	fmt.Fprint(os.Stdout, grammarDump)
 
-	pkgDump := grammarPackage.DebugDump(syntaxa.GrammarPackageDebugFormatter[uint32]{
+	pkgDump := grammarPackage.DebugDump(syntaxa.GrammarPackageDebugFormatter[artifacts.Node]{
 		FormatToken: func(tk lexarch.TokenKind) string {
 			return interpreter.compiledSymbols.TokenName(uint32(tk))
 		},
