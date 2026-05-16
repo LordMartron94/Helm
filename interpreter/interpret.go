@@ -177,7 +177,7 @@ func HelmInterpreterInterpretFile(
 		return result
 	}
 
-	compiledIR := ir.IRFromSyntax(rootNode, ctx)
+	compiledIR := ir.IRFromSyntax(file, sourceText, rootNode, ctx)
 	result.builtIR = compiledIR
 
 	if !compiledIR.Success() {

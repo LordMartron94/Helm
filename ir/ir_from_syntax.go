@@ -91,7 +91,11 @@ func (h *HelmIR) Success() bool {
 	return h.succeeded
 }
 
-func IRFromSyntax(rootNode *syntaxa.SyntaxaLSTNode[artifacts.Node], signalCtx *signal.SignalContext) HelmIR {
+func IRFromSyntax(
+	filePath, sourceText string,
+	rootNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	signalCtx *signal.SignalContext,
+) HelmIR {
 	signal.SignalContextPushSpan(signalCtx, shared.SemanticAnalysisSpanPhase)
 	defer signal.SignalContextPopSpan(signalCtx)
 
@@ -99,6 +103,8 @@ func IRFromSyntax(rootNode *syntaxa.SyntaxaLSTNode[artifacts.Node], signalCtx *s
 	targets := make(map[string]HelmTarget)
 
 	builder := &irBuilder{
+		filePath:    filePath,
+		sourceText:  sourceText,
 		signalCtx:   signalCtx,
 		seenAliases: make(map[string]struct{}),
 	}

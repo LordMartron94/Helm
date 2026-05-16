@@ -416,7 +416,6 @@ func helmSemanticDiagnosticsFormat(diags []helmSemanticDiagnostic) string {
 	}
 	parts := make([]string, 0, len(diags))
 	for _, d := range diags {
-		// Outputting L0 until you fix the sourceText injection in IRFromSyntax
 		parts = append(parts, fmt.Sprintf("L%d msg=%q", d.startLine, d.message))
 	}
 	return strings.Join(parts, "\n")

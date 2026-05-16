@@ -142,7 +142,64 @@ func splitLinesRunes(runes []rune) [][]rune {
 	return lines
 }
 
-func HelmRenderTest(t *testing.T) {
+func HelmRenderTestSyntax(t *testing.T) {
+	var collected []helmSyntaxDiagnostic
+
+	executeVisualDiagnosticHarness(t, "bad_syntax.helm",
+		// Collector Closure
+		func(sig signal.Signal) error {
+			diag, err := helmSyntaxDiagnosticFromSignal(sig)
+			if err != nil {
+				return err
+			}
+			collected = append(collected, diag)
+			return nil
+		},
+		// Validation Closure
+		func() error {
+			if ok, reason := helmBadSyntaxDiagnosticsMatch(collected); !ok {
+				return fmt.Errorf(reason)
+			}
+			return nil
+		},
+	)
+}
+
+func HelmRenderTestSemantics(t *testing.T) {
+	var collected []helmSemanticDiagnostic
+
+	executeVisualDiagnosticHarness(t, "bad_semantics.helm",
+		// Collector Closure
+		func(sig signal.Signal) error {
+			phase, err := signal.SignalPayloadGetAs[string](&sig, "phase")
+			// Ignore syntax signals bleeding into the semantics test
+			if err != nil || phase != "semantics" {
+				return nil
+			}
+
+			diag, err := helmSemanticDiagnosticFromSignal(sig)
+			if err != nil {
+				return err
+			}
+			collected = append(collected, diag)
+			return nil
+		},
+		// Validation Closure
+		func() error {
+			if ok, reason := helmBadSemanticsDiagnosticsMatch(collected); !ok {
+				return fmt.Errorf(reason)
+			}
+			return nil
+		},
+	)
+}
+
+func executeVisualDiagnosticHarness(
+	t *testing.T,
+	targetFileName string,
+	onSignal func(sig signal.Signal) error,
+	validate func() error,
+) {
 	// 1. Client builds the visual Palette
 	paletteBuilder := splash.SPLASH_Rendering_TerminalPaletteBuilderCreate(int(intentCount))
 
@@ -159,22 +216,22 @@ func HelmRenderTest(t *testing.T) {
 	splashANSI := splash.SPLASH_Rendering_TerminalRendererCreate(splash.SPLASH_Rendering_TerminalColorModeAnsi16, palette)
 	splashTrue := splash.SPLASH_Rendering_TerminalRendererCreate(splash.SPLASH_Rendering_TerminalColorModeTrueColor, palette)
 
+	// 3. Client Location Formatter
 	clientLocationFormatter := func(loc *location.Location) string {
 		startLine, errSL := location.LocationCoordinateGetAs[int](*loc, "start_line")
 		startCol, errSC := location.LocationCoordinateGetAs[int](*loc, "start_column")
 		if errSL == nil && errSC == nil && startLine > 0 {
 			return fmt.Sprintf(" at %d:%d", startLine, startCol)
 		}
-
 		return ""
 	}
 
-	// 3. Client initializes the Adapters using the File Grouping Strategy
+	// 4. Client initializes the Adapters
 	rendererNone := rendering.SignalRendererCreate(splashNone, fileGroupingStrategy, clientLocationFormatter, squigglyRenderer, IntentMeta)
 	rendererANSI := rendering.SignalRendererCreate(splashANSI, fileGroupingStrategy, clientLocationFormatter, squigglyRenderer, IntentMeta)
 	rendererTrue := rendering.SignalRendererCreate(splashTrue, fileGroupingStrategy, clientLocationFormatter, squigglyRenderer, IntentMeta)
 
-	// 4. Setup the Dispatcher
+	// 5. Setup the Dispatcher
 	manifest := signal.DiagnosticCategoryManifest{
 		{Label: "INFO", Weight: 0},
 		{Label: "WARNING", Weight: 10},
@@ -182,10 +239,18 @@ func HelmRenderTest(t *testing.T) {
 	}
 	dispatcher := signal.SignalDispatcherCreate(manifest)
 
-	// 5. Register them as distinct sinks
 	signal.SignalDispatcherRegisterSink(dispatcher, "sink_none", rendering.SignalRendererSinkGet(rendererNone))
 	signal.SignalDispatcherRegisterSink(dispatcher, "sink_ansi", rendering.SignalRendererSinkGet(rendererANSI))
 	signal.SignalDispatcherRegisterSink(dispatcher, "sink_true", rendering.SignalRendererSinkGet(rendererTrue))
+
+	var collectErr error
+	if onSignal != nil {
+		signal.SignalDispatcherRegisterSink(dispatcher, "collect", func(sig signal.Signal) {
+			if err := onSignal(sig); err != nil && collectErr == nil {
+				collectErr = err
+			}
+		})
+	}
 
 	// 6. Bootstrap the Interpreter
 	specPath, err := helmLSpecPathResolve()
@@ -203,48 +268,37 @@ func HelmRenderTest(t *testing.T) {
 	}
 	defer interpreter.HelmInterpreterDestroy(sharedHelm)
 
-	// 7. Execute the broken file
-	badSyntaxPath := filepath.Join(casesDir, "bad_syntax.helm")
-
-	var collected []helmSyntaxDiagnostic
-	var collectErr string
-	signal.SignalDispatcherRegisterSink(dispatcher, "collect", func(sig signal.Signal) {
-		diag, err := helmSyntaxDiagnosticFromSignal(sig)
-		if err != nil {
-			if collectErr == "" {
-				collectErr = err.Error()
-			}
-			return
-		}
-		collected = append(collected, diag)
-	})
-
+	// 7. Execute
+	targetPath := filepath.Join(casesDir, targetFileName)
 	ctx := signal.SignalContextCreate(dispatcher)
+	res := interpreter.HelmInterpreterInterpretFile(sharedHelm, targetPath, ctx)
 
-	res := interpreter.HelmInterpreterInterpretFile(sharedHelm, badSyntaxPath, ctx)
-	if collectErr != "" {
-		t.Fatalf("failed to collect syntax diagnostics: %s", collectErr)
+	// 8. Validate
+	if collectErr != nil {
+		t.Fatalf("failed to collect diagnostics for %s: %v", targetFileName, collectErr)
 	}
 	if res.Error == nil {
-		t.Fatal("expected bad_syntax.helm to fail parsing")
+		t.Fatalf("expected %s to fail parsing/evaluation", targetFileName)
 	}
-	if ok, reason := helmBadSyntaxDiagnosticsMatch(collected); !ok {
-		t.Fatalf("bad_syntax.helm diagnostics mismatch: %s", reason)
+	if validate != nil {
+		if err := validate(); err != nil {
+			t.Fatalf("%s diagnostics mismatch: %v", targetFileName, err)
+		}
 	}
 
-	// 8. Visual Output Execution
+	// 9. Visual Output Execution
 	fmt.Println("========================================")
-	fmt.Println(" MODE: NONE (Grouped by File)")
+	fmt.Printf(" MODE: NONE (%s)\n", targetFileName)
 	fmt.Println("========================================")
 	fmt.Print(rendering.SignalRendererRender(rendererNone))
 
 	fmt.Println("========================================")
-	fmt.Println(" MODE: ANSI 16 (Grouped by File)")
+	fmt.Printf(" MODE: ANSI 16 (%s)\n", targetFileName)
 	fmt.Println("========================================")
 	fmt.Print(rendering.SignalRendererRender(rendererANSI))
 
 	fmt.Println("========================================")
-	fmt.Println(" MODE: TRUE COLOR (Grouped by File)")
+	fmt.Printf(" MODE: TRUE COLOR (%s)\n", targetFileName)
 	fmt.Println("========================================")
 	fmt.Print(rendering.SignalRendererRender(rendererTrue))
 }
