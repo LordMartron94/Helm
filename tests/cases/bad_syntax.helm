@@ -1,0 +1,14 @@
+// ERROR 1: depends_on requires a multiline array brackets [ ... ]
+target syntax_violation() {
+    depends_on "lint"
+
+    // ERROR 2: nested when blocks are strictly forbidden
+    when defined(OS) {
+        when equals(OS, "windows") {
+            run "echo invalid"
+        }
+    }
+
+    // ERROR 3: run requires a string literal, not a bare identifier
+    run missing_quotes
+}

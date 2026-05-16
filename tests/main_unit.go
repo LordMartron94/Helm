@@ -36,21 +36,16 @@ func runHelmOperation(_ struct{}, execCtx shield.SHIELD_Testing_ExecutionContext
 
 	sharedHelm, createErr := interpreter.HelmInterpreterTryCreate(specPath)
 
-	// 1. Validate Creation
 	results = append(results, runCreationScenario(execCtx, sharedHelm, createErr))
 
-	// If the interpreter failed to boot, there is no point running syntax checks.
 	if sharedHelm == nil {
 		return results
 	}
 
 	defer interpreter.HelmInterpreterDestroy(sharedHelm)
 
-	// 2. Validate Syntax
 	results = append(results, runSyntaxScenario(execCtx, sharedHelm, casesDir))
-
-	// 3. Validate AST (Commented out mapping for future implementation)
-	// results = append(results, runASTScenario(execCtx, sharedHelm, casesDir))
+	results = append(results, runInvalidSyntaxScenario(execCtx, sharedHelm, casesDir))
 
 	return results
 }
@@ -160,6 +155,49 @@ func buildSyntaxGuards() []shield.SHIELD_Testing_Guard[syntaxScenarioInput, synt
 	}
 
 	return guards
+}
+
+type invalidSyntaxScenarioInput struct {
+	fileName string
+}
+type invalidSyntaxScenarioOutput struct {
+	errorMsg string
+}
+
+func runInvalidSyntaxScenario(
+	execCtx shield.SHIELD_Testing_ExecutionContext,
+	sharedHelm *interpreter.HelmInterpreter,
+	casesDir string,
+) shield.SHIELD_Testing_ScenarioRunResult {
+
+	scenario := shield.SHIELD_Testing_ScenarioCreate(
+		"scenario_helm_invalid_syntax",
+		"Validates that malformed helm files correctly trigger parsing or lexical errors",
+		[]shield.SHIELD_Testing_Guard[invalidSyntaxScenarioInput, invalidSyntaxScenarioOutput]{
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_syntax_must_fail",
+				invalidSyntaxScenarioInput{fileName: "bad_syntax.helm"},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out invalidSyntaxScenarioOutput) (bool, string) {
+					if out.errorMsg == "" {
+						return false, "expected a syntax error from malformed file, but interpretation succeeded"
+					}
+					return true, ""
+				}),
+			),
+		},
+		func(input invalidSyntaxScenarioInput) (invalidSyntaxScenarioOutput, error) {
+			path := filepath.Join(casesDir, input.fileName)
+			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path)
+
+			if res.Error != nil {
+				return invalidSyntaxScenarioOutput{errorMsg: res.Error.Error()}, nil
+			}
+
+			return invalidSyntaxScenarioOutput{errorMsg: ""}, nil
+		},
+	)
+
+	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
 }
 
 // ------------------------------------------------------------------ PATH RESOLUTION
