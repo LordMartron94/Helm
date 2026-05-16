@@ -206,12 +206,33 @@ func HelmRenderTest(t *testing.T) {
 	// 7. Execute the broken file
 	badSyntaxPath := filepath.Join(casesDir, "bad_syntax.helm")
 
+	var collected []helmSyntaxDiagnostic
+	var collectErr string
+	signal.SignalDispatcherRegisterSink(dispatcher, "collect", func(sig signal.Signal) {
+		diag, err := helmSyntaxDiagnosticFromSignal(sig)
+		if err != nil {
+			if collectErr == "" {
+				collectErr = err.Error()
+			}
+			return
+		}
+		collected = append(collected, diag)
+	})
+
 	ctx := signal.SignalContextCreate(dispatcher)
 	signal.SignalContextPushSpan(ctx, "Helm Interpreter")
 	signal.SignalContextPushSpan(ctx, "Syntaxa Phase")
 
-	// We ignore the result payload because we only care about the signals broadcasted to the sinks
-	_ = interpreter.HelmInterpreterInterpretFile(sharedHelm, badSyntaxPath, ctx)
+	res := interpreter.HelmInterpreterInterpretFile(sharedHelm, badSyntaxPath, ctx)
+	if collectErr != "" {
+		t.Fatalf("failed to collect syntax diagnostics: %s", collectErr)
+	}
+	if res.Error == nil {
+		t.Fatal("expected bad_syntax.helm to fail parsing")
+	}
+	if ok, reason := helmBadSyntaxDiagnosticsMatch(collected); !ok {
+		t.Fatalf("bad_syntax.helm diagnostics mismatch: %s", reason)
+	}
 
 	// 8. Visual Output Execution
 	fmt.Println("========================================")

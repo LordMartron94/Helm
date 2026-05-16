@@ -2,11 +2,13 @@ package tests
 
 import (
 	"fmt"
+	"foundation/location"
 	"helm/interpreter"
 	"os"
 	"path/filepath"
 	"shield"
 	"signal"
+	"strings"
 )
 
 var standardRunCfg = shield.SHIELD_Testing_ScenarioRunConfig{MaxIterations: 1}
@@ -168,7 +170,27 @@ type invalidSyntaxScenarioInput struct {
 	fileName string
 }
 type invalidSyntaxScenarioOutput struct {
-	errorMsg string
+	errorMsg     string
+	diagnostics  []helmSyntaxDiagnostic
+	collectError string
+}
+
+type helmSyntaxDiagnostic struct {
+	startLine int
+	rule      string
+	message   string
+}
+
+type helmSyntaxErrorExpectation struct {
+	line            int
+	ruleContains    string
+	messageContains string
+}
+
+var badSyntaxErrorExpectations = []helmSyntaxErrorExpectation{
+	{line: 3, ruleContains: "DEPENDS_ON", messageContains: "expected TokBracketOpen"},
+	{line: 7, ruleContains: "CONDITIONAL_BLOCK", messageContains: "unexpected TokKWWhen, expected 'TokBraceClose'"},
+	{line: 13, ruleContains: "RUN", messageContains: "expected STRING_LITERAL"},
 }
 
 func runInvalidSyntaxScenario(
@@ -185,10 +207,13 @@ func runInvalidSyntaxScenario(
 				"guard_syntax_must_fail",
 				invalidSyntaxScenarioInput{fileName: "bad_syntax.helm"},
 				shield.SHIELD_Testing_GuardPolicyPredicate(func(out invalidSyntaxScenarioOutput) (bool, string) {
+					if out.collectError != "" {
+						return false, out.collectError
+					}
 					if out.errorMsg == "" {
 						return false, "expected a syntax error from malformed file, but interpretation succeeded"
 					}
-					return true, ""
+					return helmBadSyntaxDiagnosticsMatch(out.diagnostics)
 				}),
 			),
 		},
@@ -198,19 +223,127 @@ func runInvalidSyntaxScenario(
 			dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
 				{Label: "ERROR", Weight: 20},
 			})
+			var collected []helmSyntaxDiagnostic
+			var collectErr string
+			signal.SignalDispatcherRegisterSink(dispatcher, "collect", func(sig signal.Signal) {
+				diag, err := helmSyntaxDiagnosticFromSignal(sig)
+				if err != nil {
+					if collectErr == "" {
+						collectErr = err.Error()
+					}
+					return
+				}
+				collected = append(collected, diag)
+			})
 			ctx := signal.SignalContextCreate(dispatcher)
 
 			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path, ctx)
 
-			if res.Error != nil {
-				return invalidSyntaxScenarioOutput{errorMsg: res.Error.Error()}, nil
+			out := invalidSyntaxScenarioOutput{
+				diagnostics:  collected,
+				collectError: collectErr,
 			}
-
-			return invalidSyntaxScenarioOutput{errorMsg: ""}, nil
+			if res.Error != nil {
+				out.errorMsg = res.Error.Error()
+			}
+			return out, nil
 		},
 	)
 
 	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
+}
+
+func helmSyntaxDiagnosticFromSignal(sig signal.Signal) (helmSyntaxDiagnostic, error) {
+	message, err := signal.SignalPayloadGetAs[string](&sig, "message")
+	if err != nil {
+		return helmSyntaxDiagnostic{}, fmt.Errorf("syntax signal missing message payload: %w", err)
+	}
+	rule, err := signal.SignalPayloadGetAs[string](&sig, "rule")
+	if err != nil {
+		return helmSyntaxDiagnostic{}, fmt.Errorf("syntax signal missing rule payload: %w", err)
+	}
+	if !sig.HasLocation() {
+		return helmSyntaxDiagnostic{}, fmt.Errorf("syntax signal missing location")
+	}
+	loc := sig.Location()
+	if loc == nil {
+		return helmSyntaxDiagnostic{}, fmt.Errorf("syntax signal location is nil")
+	}
+	startLine, err := location.LocationCoordinateGetAs[int](*loc, "start_line")
+	if err != nil {
+		return helmSyntaxDiagnostic{}, fmt.Errorf("syntax signal missing start_line: %w", err)
+	}
+	return helmSyntaxDiagnostic{
+		startLine: startLine,
+		rule:      rule,
+		message:   message,
+	}, nil
+}
+
+func helmBadSyntaxDiagnosticsMatch(got []helmSyntaxDiagnostic) (bool, string) {
+	want := badSyntaxErrorExpectations
+	if len(got) != len(want) {
+		return false, fmt.Sprintf(
+			"expected %d syntax diagnostics, got %d: %s",
+			len(want), len(got), helmSyntaxDiagnosticsFormat(got),
+		)
+	}
+
+	for _, exp := range want {
+		if !helmSyntaxDiagnosticMatchesExpectation(got, exp) {
+			return false, fmt.Sprintf(
+				"missing expected syntax error at line %d (rule contains %q, message contains %q); got: %s",
+				exp.line, exp.ruleContains, exp.messageContains, helmSyntaxDiagnosticsFormat(got),
+			)
+		}
+	}
+
+	for _, diag := range got {
+		if !helmSyntaxDiagnosticLineIsExpected(diag.startLine) {
+			return false, fmt.Sprintf(
+				"unexpected syntax error at line %d (rule=%q message=%q)",
+				diag.startLine, diag.rule, diag.message,
+			)
+		}
+	}
+
+	return true, ""
+}
+
+func helmSyntaxDiagnosticMatchesExpectation(got []helmSyntaxDiagnostic, exp helmSyntaxErrorExpectation) bool {
+	for _, diag := range got {
+		if diag.startLine != exp.line {
+			continue
+		}
+		if !strings.Contains(diag.rule, exp.ruleContains) {
+			continue
+		}
+		if !strings.Contains(diag.message, exp.messageContains) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func helmSyntaxDiagnosticLineIsExpected(line int) bool {
+	for _, exp := range badSyntaxErrorExpectations {
+		if exp.line == line {
+			return true
+		}
+	}
+	return false
+}
+
+func helmSyntaxDiagnosticsFormat(diags []helmSyntaxDiagnostic) string {
+	if len(diags) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(diags))
+	for _, d := range diags {
+		parts = append(parts, fmt.Sprintf("L%d rule=%q msg=%q", d.startLine, d.rule, d.message))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // ------------------------------------------------------------------ PATH RESOLUTION
