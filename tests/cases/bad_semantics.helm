@@ -42,3 +42,14 @@ target valid_future_target() {
 
     run "echo success"
 }
+
+// ERROR 6: Unknown glob() keyword argument
+target bad_glob() {
+    help = "Invalid glob kwargs"
+    artifacts {
+        volatile = true
+        inputs = glob(".", unknown="x")
+    }
+
+    run "echo bad"
+}

@@ -6,21 +6,90 @@ import (
 	"syntaxa"
 )
 
-func extractArtifactItemSequence(
+func extractInputArtifactSequence(
+	builder *irBuilder,
+	parentNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	globalVariables map[string]string,
+) []HelmArtifactInput {
+	var resolvedItems []HelmArtifactInput
+
+	if arrayNode := parentNode.FindFirstKind(artifacts.NodeInputArray); arrayNode != nil {
+		return extractInputItemsFromChildren(builder, arrayNode, globalVariables)
+	}
+
+	item, ok := resolveInputArtifactItem(builder, parentNode, globalVariables)
+	if ok {
+		resolvedItems = append(resolvedItems, item)
+	}
+
+	return resolvedItems
+}
+
+func extractInputItemsFromChildren(
+	builder *irBuilder,
+	arrayNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	globalVariables map[string]string,
+) []HelmArtifactInput {
+	var items []HelmArtifactInput
+	for _, child := range arrayNode.ChildrenUnsafe() {
+		item, ok := resolveInputArtifactItem(builder, child, globalVariables)
+		if ok {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+func resolveInputArtifactItem(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	globalVariables map[string]string,
+) (HelmArtifactInput, bool) {
+	if globNode := artifactItemGlobNode(node); globNode != nil {
+		globIR, ok := evaluateGlob(builder, globNode, globalVariables)
+		if !ok {
+			return HelmArtifactInput{}, false
+		}
+		return HelmArtifactInput{kind: ArtifactInputGlob, glob: globIR}, true
+	}
+
+	if strNode := artifactItemStringNode(node); strNode != nil {
+		scope := resolveScopeForGlobals(globalVariables)
+		return HelmArtifactInput{
+			kind:   ArtifactInputString,
+			string: extractStringFromStringNode(builder, strNode, scope),
+		}, true
+	}
+
+	if varNode := artifactItemVarRefNode(node); varNode != nil {
+		varName := extractContentFromSingleTokenNode(builder, varNode)
+		if val, exists := globalVariables[varName]; exists {
+			return HelmArtifactInput{kind: ArtifactInputString, string: val}, true
+		}
+		emitSemanticError(
+			builder,
+			varNode,
+			ERROR_UNDECLARED_VARIABLE,
+			fmt.Sprintf("use of undeclared variable '%s' in artifacts", varName),
+		)
+		return HelmArtifactInput{}, false
+	}
+
+	return HelmArtifactInput{}, false
+}
+
+func extractOutputArtifactSequence(
 	builder *irBuilder,
 	parentNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	globalVariables map[string]string,
 ) []string {
 	var resolvedItems []string
 
-	if arrayNode := parentNode.FindFirstKind(artifacts.NodeInputArray); arrayNode != nil {
-		return extractItemsFromChildren(builder, arrayNode, globalVariables)
-	}
 	if arrayNode := parentNode.FindFirstKind(artifacts.NodeOutputArray); arrayNode != nil {
-		return extractItemsFromChildren(builder, arrayNode, globalVariables)
+		return extractOutputItemsFromChildren(builder, arrayNode, globalVariables)
 	}
 
-	singleItem := resolveArtifactItem(builder, parentNode, globalVariables)
+	singleItem := resolveOutputArtifactItem(builder, parentNode, globalVariables)
 	if singleItem != "" {
 		resolvedItems = append(resolvedItems, singleItem)
 	}
@@ -28,14 +97,14 @@ func extractArtifactItemSequence(
 	return resolvedItems
 }
 
-func extractItemsFromChildren(
+func extractOutputItemsFromChildren(
 	builder *irBuilder,
 	arrayNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	globalVariables map[string]string,
 ) []string {
 	var items []string
 	for _, child := range arrayNode.ChildrenUnsafe() {
-		resolved := resolveArtifactItem(builder, child, globalVariables)
+		resolved := resolveOutputArtifactItem(builder, child, globalVariables)
 		if resolved != "" {
 			items = append(items, resolved)
 		}
@@ -43,20 +112,25 @@ func extractItemsFromChildren(
 	return items
 }
 
-// resolveArtifactItem resolves artifact paths; only global variables are supported (not target parameters).
-// Composite forms (path, glob) must be dispatched before leaf forms: FindFirstKind on the subtree would
-// otherwise match string literals or variable references nested inside path().
-func resolveArtifactItem(
+// resolveOutputArtifactItem resolves artifact outputs; only global variables are supported (not target parameters).
+// Composite forms (path) must be dispatched before leaf forms.
+func resolveOutputArtifactItem(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	globalVariables map[string]string,
 ) string {
-	if pathNode := artifactItemPathNode(node); pathNode != nil {
-		return evaluatePath(builder, pathNode, globalVariables)
+	if globNode := artifactItemGlobNode(node); globNode != nil {
+		emitSemanticError(
+			builder,
+			globNode,
+			ERROR_INVALID_GLOB,
+			"glob() is not allowed in artifact outputs",
+		)
+		return ""
 	}
 
-	if globNode := artifactItemGlobNode(node); globNode != nil {
-		return "[EVALUATED_GLOB]"
+	if pathNode := artifactItemPathNode(node); pathNode != nil {
+		return evaluatePath(builder, pathNode, globalVariables)
 	}
 
 	if strNode := artifactItemStringNode(node); strNode != nil {

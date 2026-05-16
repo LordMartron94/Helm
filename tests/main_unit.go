@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"foundation/location"
 	"helm/interpreter"
+	"helm/ir"
 	"helm/shared"
 	"os"
 	"path/filepath"
@@ -52,6 +53,7 @@ func runHelmOperation(_ struct{}, execCtx shield.SHIELD_Testing_ExecutionContext
 	results = append(results, runInvalidSyntaxScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runInvalidSemanticsScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runValidPathsScenario(execCtx, sharedHelm, casesDir))
+	results = append(results, runValidGlobsScenario(execCtx, sharedHelm, casesDir))
 
 	return results
 }
@@ -280,6 +282,7 @@ var badSemanticsExpectations = []helmSemanticErrorExpectation{
 	{messageContains: "missing_target"},
 	{messageContains: "use of undeclared variable 'UNDEFINED_VAR'"},
 	{messageContains: "condition references undeclared parameter 'UNKNOWN_PARAM'"},
+	{messageContains: "unknown keyword argument 'unknown'"},
 }
 
 func runInvalidSemanticsScenario(
@@ -594,6 +597,106 @@ func runValidPathsScenario(
 
 			return validPathsScenarioOutput{
 				extractedOutputs: target.Artifacts().Outputs(),
+			}, nil
+		},
+	)
+
+	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
+}
+
+type validGlobsScenarioInput struct {
+	fileName string
+}
+type validGlobsScenarioOutput struct {
+	extractedInputs []ir.HelmArtifactInput
+	parseError      error
+}
+
+func runValidGlobsScenario(
+	execCtx shield.SHIELD_Testing_ExecutionContext,
+	sharedHelm *interpreter.HelmInterpreter,
+	casesDir string,
+) shield.SHIELD_Testing_ScenarioRunResult {
+
+	scenario := shield.SHIELD_Testing_ScenarioCreate(
+		"scenario_helm_valid_globs",
+		"Validates that the IR Builder correctly evaluates glob() into structured HelmGlob values",
+		[]shield.SHIELD_Testing_Guard[validGlobsScenarioInput, validGlobsScenarioOutput]{
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_globs_must_resolve",
+				validGlobsScenarioInput{fileName: "valid_globs.helm"},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out validGlobsScenarioOutput) (bool, string) {
+					if out.parseError != nil {
+						return false, fmt.Sprintf("expected successful parse, got error: %v", out.parseError)
+					}
+
+					if len(out.extractedInputs) != 2 {
+						return false, fmt.Sprintf("expected 2 inputs, got %d", len(out.extractedInputs))
+					}
+
+					if out.extractedInputs[0].Kind() != ir.ArtifactInputGlob {
+						return false, "input 0: expected glob entry"
+					}
+					glob0 := out.extractedInputs[0].Glob()
+					if glob0 == nil {
+						return false, "input 0: glob is nil"
+					}
+					if glob0.BaseDirectory() != "libs" {
+						return false, fmt.Sprintf("input 0 base dir: expected %q, got %q", "libs", glob0.BaseDirectory())
+					}
+					if glob0.Include() != "**/*.go" {
+						return false, fmt.Sprintf("input 0 include: expected %q, got %q", "**/*.go", glob0.Include())
+					}
+					if glob0.Exclude() != "" {
+						return false, fmt.Sprintf("input 0 exclude: expected empty, got %q", glob0.Exclude())
+					}
+
+					if out.extractedInputs[1].Kind() != ir.ArtifactInputGlob {
+						return false, "input 1: expected glob entry"
+					}
+					glob1 := out.extractedInputs[1].Glob()
+					if glob1 == nil {
+						return false, "input 1: glob is nil"
+					}
+					if glob1.BaseDirectory() != "." {
+						return false, fmt.Sprintf("input 1 base dir: expected %q, got %q", ".", glob1.BaseDirectory())
+					}
+					if glob1.Exclude() != "*_test.go" {
+						return false, fmt.Sprintf("input 1 exclude: expected %q, got %q", "*_test.go", glob1.Exclude())
+					}
+					if glob1.Include() != "" {
+						return false, fmt.Sprintf("input 1 include: expected empty, got %q", glob1.Include())
+					}
+
+					return true, ""
+				}),
+			),
+		},
+		func(input validGlobsScenarioInput) (validGlobsScenarioOutput, error) {
+			path := filepath.Join(casesDir, input.fileName)
+
+			dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+				{Label: "ERROR", Weight: 20},
+			})
+			ctx := signal.SignalContextCreate(dispatcher)
+
+			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path, ctx)
+
+			if res.Error != nil {
+				return validGlobsScenarioOutput{parseError: res.Error}, nil
+			}
+
+			target, exists := res.BuiltIR.Targets()["scan"]
+			if !exists {
+				return validGlobsScenarioOutput{parseError: fmt.Errorf("target 'scan' not found in IR")}, nil
+			}
+
+			if target.Artifacts() == nil {
+				return validGlobsScenarioOutput{parseError: fmt.Errorf("artifacts block was nil")}, nil
+			}
+
+			return validGlobsScenarioOutput{
+				extractedInputs: target.Artifacts().Inputs(),
 			}, nil
 		},
 	)

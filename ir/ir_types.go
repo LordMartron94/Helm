@@ -28,6 +28,10 @@ const (
 	ERROR_UNDECLARED_PARAMETER string = "COND_001"
 
 	ERROR_INVALID_PATH string = "PATH_001"
+
+	ERROR_INVALID_GLOB         string = "GLOB_001"
+	ERROR_UNKNOWN_GLOB_KWARG   string = "GLOB_002"
+	ERROR_DUPLICATE_GLOB_KWARG string = "GLOB_003"
 )
 
 type HelmConditionType int
@@ -94,10 +98,60 @@ type HelmTargetDependency struct {
 	sourceNode *syntaxa.SyntaxaLSTNode[artifacts.Node]
 }
 
+type HelmGlob struct {
+	baseDirectory string
+	include       string
+	exclude       string
+}
+
+func (g *HelmGlob) BaseDirectory() string {
+	return g.baseDirectory
+}
+
+func (g *HelmGlob) Include() string {
+	return g.include
+}
+
+func (g *HelmGlob) Exclude() string {
+	return g.exclude
+}
+
+type HelmArtifactInputKind int
+
+const (
+	ArtifactInputString HelmArtifactInputKind = iota
+	ArtifactInputGlob
+)
+
+type HelmArtifactInput struct {
+	kind   HelmArtifactInputKind
+	string string
+	glob   *HelmGlob
+}
+
+func (e *HelmArtifactInput) Kind() HelmArtifactInputKind {
+	return e.kind
+}
+
+func (e *HelmArtifactInput) String() string {
+	return e.string
+}
+
+func (e *HelmArtifactInput) Glob() *HelmGlob {
+	return e.glob
+}
+
 type HelmArtifacts struct {
 	volatile bool
-	inputs   []string
+	inputs   []HelmArtifactInput
 	outputs  []string
+}
+
+/*
+Inputs returns a copy of the artifact inputs... used primarily for testing/debugging.
+*/
+func (h *HelmArtifacts) Inputs() []HelmArtifactInput {
+	return slices.Clone(h.inputs)
 }
 
 /*

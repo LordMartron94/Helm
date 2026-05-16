@@ -243,11 +243,11 @@ func handleTargetArtifacts(
 	artifactsIR := &HelmArtifacts{}
 
 	if inputsNode := node.FindFirstKind(artifacts.NodeCacheInputs); inputsNode != nil {
-		artifactsIR.inputs = extractArtifactItemSequence(builder, inputsNode, builder.globalVariables)
+		artifactsIR.inputs = extractInputArtifactSequence(builder, inputsNode, builder.globalVariables)
 	}
 
 	if outputsNode := node.FindFirstKind(artifacts.NodeCacheOutputDirectory); outputsNode != nil {
-		artifactsIR.outputs = extractArtifactItemSequence(builder, outputsNode, builder.globalVariables)
+		artifactsIR.outputs = extractOutputArtifactSequence(builder, outputsNode, builder.globalVariables)
 	}
 
 	if volatileNode := node.FindFirstKind(artifacts.NodeVolatile); volatileNode != nil {

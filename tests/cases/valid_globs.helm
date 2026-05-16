@@ -1,0 +1,14 @@
+SCAN_ROOT = "libs"
+
+target scan() {
+    help = "Validates glob extraction"
+    artifacts {
+        volatile = true
+        inputs = [
+            glob(SCAN_ROOT, include="**/*.go"),
+            glob(".", exclude="*_test.go")
+        ]
+    }
+
+    run "echo ok"
+}
