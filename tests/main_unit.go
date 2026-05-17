@@ -7,6 +7,7 @@ import (
 	"helm/internal/targetexecutor"
 	"helm/interpreter"
 	"helm/shared"
+	"lingua/helm"
 	"os"
 	"path/filepath"
 	"shield"
@@ -1198,24 +1199,7 @@ func containsString(slice []string, target string) bool {
 // ------------------------------------------------------------------ PATH RESOLUTION
 
 func helmLSpecPathResolve() (string, error) {
-	if p := os.Getenv("HELM_LSPEC_PATH"); p != "" {
-		if _, err := os.Stat(p); err != nil {
-			return "", fmt.Errorf("HELM_LSPEC_PATH not usable (%q): %w", p, err)
-		}
-		return p, nil
-	}
-
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-
-	path, err := findProjectFileUpwards(dir, "libs/lingua/helm/helm.lspec")
-	if err != nil {
-		return "", fmt.Errorf("%w; set HELM_LSPEC_PATH", err)
-	}
-
-	return path, nil
+	return helm.ResolveHelmLSpecPath()
 }
 
 func helmTestsCasesDirResolve() (string, error) {
