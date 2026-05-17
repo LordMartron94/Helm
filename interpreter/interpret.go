@@ -39,6 +39,10 @@ type HelmInterpreterInterpretationResult struct {
 	Error error
 }
 
+func HelmInterpreterInterpretationResultSourcePath(result HelmInterpreterInterpretationResult) string {
+	return result.filePath
+}
+
 func HelmInterpreterInterpretationResultDumpParseTrace(result HelmInterpreterInterpretationResult) {
 	dsl.RenderParseTrace(os.Stdout, result.parseTrace, func(token lexarch.TokenKind) string {
 		return result.compiledSymbols.TokenName(uint32(token))
@@ -126,11 +130,6 @@ func HelmInterpreterInterpretFile(
 	result := HelmInterpreterInterpretationResult{
 		compiledSymbols: interpreter.compiledSymbols,
 		filePath:        file,
-	}
-
-	if !system.PathHasExt(file, ".helm") {
-		result.Error = fmt.Errorf("file '%s' is not a .helm file", file)
-		return result
 	}
 
 	sourceContent, err := system.FileReadAllRunes(file)
@@ -224,10 +223,6 @@ func HelmInterpreterDebugExecutionChainForTarget(result HelmInterpreterInterpret
 }
 
 func HelmInterpreterDumpLexemes(interpreter *HelmInterpreter, file string) error {
-	if !system.PathHasExt(file, ".helm") {
-		return fmt.Errorf("file '%s' is not a .helm file", file)
-	}
-
 	session := langspec.LangParserSessionCreate[rune](file, nil)
 
 	lexemes, _ := langspec.LangParserLexFile(interpreter.parser, session)
