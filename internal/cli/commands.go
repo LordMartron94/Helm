@@ -329,14 +329,11 @@ func promptMissingParameters(
 
 	reader := bufio.NewReader(stdin)
 	for _, param := range entry.Parameters {
-		if param.Optional {
-			continue
-		}
 		if _, exists := provided[param.Name]; exists {
 			continue
 		}
 
-		if err := writeParameterPrompt(stdout, ui, param.Name); err != nil {
+		if err := writeParameterPrompt(stdout, ui, param.Name, param.Optional); err != nil {
 			return nil, err
 		}
 
@@ -347,6 +344,9 @@ func promptMissingParameters(
 
 		value := strings.TrimSpace(line)
 		if value == "" {
+			if param.Optional {
+				continue
+			}
 			return nil, fmt.Errorf("parameter %s is required", param.Name)
 		}
 		provided[param.Name] = value
@@ -355,12 +355,17 @@ func promptMissingParameters(
 	return provided, nil
 }
 
-func writeParameterPrompt(stdout io.Writer, ui *TerminalUI, paramName string) error {
+func writeParameterPrompt(stdout io.Writer, ui *TerminalUI, paramName string, optional bool) error {
 	if err := terminalUIWrite(stdout, ui, uiIntentLabel, "parameter "); err != nil {
 		return err
 	}
 	if err := terminalUIWrite(stdout, ui, uiIntentName, paramName); err != nil {
 		return err
+	}
+	if optional {
+		if err := terminalUIWrite(stdout, ui, uiIntentMuted, " (optional, leave empty to skip)"); err != nil {
+			return err
+		}
 	}
 	_, err := io.WriteString(stdout, ": ")
 	return err
