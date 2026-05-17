@@ -1,0 +1,50 @@
+// Playground for artifact cache — HelmRenderTestCache runs ONE execution per test
+// invocation and never overwrites fixtures or the cache store.
+//
+// Inspect: tools/helm/tests/cases/cache_render/.helm/cache/targets.json
+//
+// Try editing fixtures/input.txt or fixtures/out.txt, then re-run the test.
+
+FIXTURE = "fixtures"
+
+target test_volatile() {
+    help = "Always ran"
+
+    artifacts {
+        volatile = true
+        outputs = [
+            path(FIXTURE, "volatile-out.txt"),
+        ]
+    }
+    run "echo volatile test"
+}
+
+target render_upstream() {
+    help = "Upstream cache target; edit fixtures/input.txt to invalidate"
+    artifacts {
+        inputs = [
+            path(FIXTURE, "input.txt"),
+        ]
+        outputs = [
+            path(FIXTURE, "out.txt"),
+        ]
+    }
+    run "echo render_upstream"
+}
+
+target render_downstream() {
+    help = "Downstream cache target; edit fixtures/out.txt to invalidate this target only"
+    artifacts {
+        inputs = [
+            path(FIXTURE, "out.txt"),
+        ]
+        outputs = [
+            path(FIXTURE, "down_out.txt"),
+        ]
+    }
+    depends_on [ 
+        render_upstream 
+        test_volatile 
+    ]
+    run "echo render_downstream"
+}

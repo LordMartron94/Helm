@@ -17,6 +17,12 @@ import (
 
 var standardRunCfg = shield.SHIELD_Testing_ScenarioRunConfig{MaxIterations: 1}
 
+// Target execution emits INFO signals (EXEC_OK, EXEC_SKIPPED, CACHE_UPDATED).
+var helmExecutionSignalManifest = signal.DiagnosticCategoryManifest{
+	{Label: "INFO", Weight: 0},
+	{Label: "ERROR", Weight: 20},
+}
+
 func init() {
 	op := shield.SHIELD_Testing_OperationCreateStateless(
 		"operation_helm_interpreter",
@@ -58,6 +64,7 @@ func runHelmOperation(_ struct{}, execCtx shield.SHIELD_Testing_ExecutionContext
 	results = append(results, runValidGlobsScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runDAGResolutionScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runTargetExecutionScenario(execCtx, sharedHelm, casesDir))
+	results = append(results, runCacheScenario(execCtx, sharedHelm, casesDir))
 
 	return results
 }
@@ -961,7 +968,7 @@ func runTargetExecutionScenario(
 		func(input executionScenarioInput) (executionScenarioOutput, error) {
 			path := filepath.Join(casesDir, "execution.helm")
 
-			dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{{Label: "ERROR", Weight: 20}})
+			dispatcher := signal.SignalDispatcherCreate(helmExecutionSignalManifest)
 			ctx := signal.SignalContextCreate(dispatcher)
 
 			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path, ctx)
@@ -991,8 +998,9 @@ func runTargetExecutionScenario(
 			}
 
 			opts := targetexecutor.TargetExecutorOptions{
-				RunHandler:        mockHandler,
-				ConfirmDependency: mockConfirm,
+				RunHandler:           mockHandler,
+				ConfirmDependency:    mockConfirm,
+				DisableArtifactCache: true,
 			}
 
 			invocations := map[string]targetexecutor.TargetInvocation{
@@ -1012,9 +1020,175 @@ func runTargetExecutionScenario(
 	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
 }
 
+type cacheScenarioInput struct {
+	entryTarget string
+	bypassCache bool
+	mutateInput bool
+	secondPass  bool
+}
+
+type cacheScenarioOutput struct {
+	executedCommands []string
+	pipelineErr      error
+}
+
+func runCacheScenario(
+	execCtx shield.SHIELD_Testing_ExecutionContext,
+	sharedHelm *interpreter.HelmInterpreter,
+	casesDir string,
+) shield.SHIELD_Testing_ScenarioRunResult {
+	scenario := shield.SHIELD_Testing_ScenarioCreate(
+		"scenario_helm_cache",
+		"Validates artifact cache hit, bypass, dependency invalidation, and volatile targets",
+		[]shield.SHIELD_Testing_Guard[cacheScenarioInput, cacheScenarioOutput]{
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_cache_hit_skips_run",
+				cacheScenarioInput{entryTarget: "cache_downstream", secondPass: true},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out cacheScenarioOutput) (bool, string) {
+					if out.pipelineErr != nil {
+						return false, fmt.Sprintf("expected success, got: %v", out.pipelineErr)
+					}
+					if containsString(out.executedCommands, "cmd_cache_upstream") {
+						return false, "upstream ran on cache hit pass"
+					}
+					if containsString(out.executedCommands, "cmd_cache_downstream") {
+						return false, "downstream ran on cache hit pass"
+					}
+					return true, ""
+				}),
+			),
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_bypass_cache_reruns",
+				cacheScenarioInput{entryTarget: "cache_upstream", bypassCache: true, secondPass: true},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out cacheScenarioOutput) (bool, string) {
+					if out.pipelineErr != nil {
+						return false, fmt.Sprintf("expected success, got: %v", out.pipelineErr)
+					}
+					if !containsString(out.executedCommands, "cmd_cache_upstream") {
+						return false, "bypass cache did not rerun upstream"
+					}
+					return true, ""
+				}),
+			),
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_dep_output_invalidation",
+				cacheScenarioInput{entryTarget: "cache_downstream", mutateInput: true, secondPass: true},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out cacheScenarioOutput) (bool, string) {
+					if out.pipelineErr != nil {
+						return false, fmt.Sprintf("expected success, got: %v", out.pipelineErr)
+					}
+					if !containsString(out.executedCommands, "cmd_cache_upstream") {
+						return false, "upstream did not rerun after input mutation"
+					}
+					if !containsString(out.executedCommands, "cmd_cache_downstream") {
+						return false, "downstream did not rerun after upstream invalidation"
+					}
+					return true, ""
+				}),
+			),
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_cache_volatile_always_runs",
+				cacheScenarioInput{entryTarget: "cache_volatile", secondPass: true},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out cacheScenarioOutput) (bool, string) {
+					if out.pipelineErr != nil {
+						return false, fmt.Sprintf("expected success, got: %v", out.pipelineErr)
+					}
+					if !containsString(out.executedCommands, "cmd_cache_volatile") {
+						return false, "volatile target did not run on second pass"
+					}
+					return true, ""
+				}),
+			),
+		},
+		func(input cacheScenarioInput) (cacheScenarioOutput, error) {
+			helmPath := filepath.Join(casesDir, "cache.helm")
+			fixtureDir := filepath.Join(casesDir, "cache_fixtures")
+			cacheRoot := filepath.Join(casesDir, ".helm_cache_test")
+
+			if err := os.RemoveAll(cacheRoot); err != nil {
+				return cacheScenarioOutput{}, err
+			}
+
+			if err := cacheScenarioWriteFixtureFiles(fixtureDir); err != nil {
+				return cacheScenarioOutput{}, err
+			}
+
+			dispatcher := signal.SignalDispatcherCreate(helmExecutionSignalManifest)
+			ctx := signal.SignalContextCreate(dispatcher)
+
+			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, helmPath, ctx)
+			if res.Error != nil {
+				return cacheScenarioOutput{pipelineErr: res.Error}, nil
+			}
+
+			var mu sync.Mutex
+			var executed []string
+
+			mockHandler := func(req targetexecutor.TargetRunRequest) (targetexecutor.TargetRunResult, error) {
+				mu.Lock()
+				executed = append(executed, req.Command)
+				mu.Unlock()
+				return targetexecutor.TargetRunResult{}, nil
+			}
+
+			opts := targetexecutor.TargetExecutorOptions{
+				RunHandler:  mockHandler,
+				CacheRoot:   cacheRoot,
+				BypassCache: input.bypassCache,
+			}
+
+			invocations := map[string]targetexecutor.TargetInvocation{
+				input.entryTarget: {},
+			}
+
+			if err := interpreter.HelmInterpreterExecuteTarget(res, ctx, input.entryTarget, invocations, opts); err != nil {
+				return cacheScenarioOutput{pipelineErr: err}, nil
+			}
+
+			if !input.secondPass {
+				return cacheScenarioOutput{executedCommands: executed}, nil
+			}
+
+			if input.mutateInput {
+				inputPath := filepath.Join(fixtureDir, "input.txt")
+				if err := os.WriteFile(inputPath, []byte("mutated-input\n"), 0o644); err != nil {
+					return cacheScenarioOutput{}, err
+				}
+			}
+
+			mu.Lock()
+			executed = nil
+			mu.Unlock()
+
+			if err := interpreter.HelmInterpreterExecuteTarget(res, ctx, input.entryTarget, invocations, opts); err != nil {
+				return cacheScenarioOutput{pipelineErr: err}, nil
+			}
+
+			return cacheScenarioOutput{executedCommands: executed}, nil
+		},
+	)
+
+	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
+}
+
+func cacheScenarioWriteFixtureFiles(fixtureDir string) error {
+	files := map[string]string{
+		"input.txt":    "seed-input\n",
+		"out.txt":      "seed-output\n",
+		"down_out.txt": "seed-downstream\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(fixtureDir, name)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func containsString(slice []string, target string) bool {
 	for _, s := range slice {
-		if s == target {
+		if strings.Contains(s, target) {
 			return true
 		}
 	}

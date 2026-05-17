@@ -62,6 +62,8 @@ type HelmTargetStep struct {
 }
 
 type HelmIR struct {
+	// SourceDirectory is the directory containing the interpreted .helm file.
+	SourceDirectory string
 	GlobalVariables map[string]string
 	Targets         map[string]HelmTarget
 	Succeeded       bool

@@ -258,6 +258,31 @@ func dependencyOptionBooleanSuccessor(
 	return nil
 }
 
+func extractArtifactsVolatile(
+	builder *irBuilder,
+	artifactsNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+) bool {
+	volatileNode := artifactsNode.FindFirstKind(artifacts.NodeVolatile)
+	if volatileNode == nil {
+		return false
+	}
+
+	if boolNode := volatileNode.FindFirstKind(artifacts.NodeBoolean); boolNode != nil {
+		return extractBooleanNode(builder, boolNode)
+	}
+
+	children := artifactsNode.ChildrenUnsafe()
+	for i := 0; i < len(children); i++ {
+		if children[i].Kind() != artifacts.NodeVolatile {
+			continue
+		}
+		if boolNode := dependencyOptionBooleanSuccessor(children, i); boolNode != nil {
+			return extractBooleanNode(builder, boolNode)
+		}
+	}
+	return false
+}
+
 func handleTargetArtifacts(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
@@ -280,10 +305,7 @@ func handleTargetArtifacts(
 		artifactsIR.Outputs = extractOutputArtifactSequence(builder, outputsNode, builder.globalVariables)
 	}
 
-	if volatileNode := node.FindFirstKind(artifacts.NodeVolatile); volatileNode != nil {
-		boolNode := volatileNode.FindFirstKind(artifacts.NodeBoolean)
-		artifactsIR.Volatile = extractBooleanNode(builder, boolNode)
-	}
+	artifactsIR.Volatile = extractArtifactsVolatile(builder, node)
 
 	currentTarget.Artifacts = artifactsIR
 }

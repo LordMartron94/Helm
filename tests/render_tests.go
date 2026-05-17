@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"encoding/json"
 	"fmt"
 	"foundation/location"
 	"foundation/system"
@@ -8,6 +9,7 @@ import (
 	"helm/internal/targetexecutor"
 	"helm/interpreter"
 	"helm/shared"
+	"os"
 	"path/filepath"
 	"signal"
 	"signal/rendering"
@@ -241,6 +243,102 @@ func HelmRenderTestGraph(t *testing.T) {
 	)
 }
 
+func HelmRenderTestCache(t *testing.T) {
+	var cacheUpdatedTargets []string
+	var skippedTargets []string
+
+	casesDir, err := helmTestsCasesDirResolve()
+	if err != nil {
+		t.Fatalf("helm test setup failed (resolve cases dir): %v", err)
+	}
+
+	cacheRenderDir := filepath.Join(casesDir, "cache_render")
+	fixtureDir := filepath.Join(cacheRenderDir, "fixtures")
+	cacheStorePath := filepath.Join(cacheRenderDir, ".helm", "cache", "targets.json")
+
+	// Only create missing fixture files — never overwrite manual edits.
+	if err := cacheRenderSeedFixturesIfMissing(fixtureDir); err != nil {
+		t.Fatalf("failed to seed cache_render fixtures: %v", err)
+	}
+
+	executeVisualDiagnosticHarness(t, "cache_render/cache.helm", shared.HelmExecutionOutputDetailHook(IntentMeta),
+		func(res interpreter.HelmInterpreterInterpretationResult, ctx *signal.SignalContext) error {
+			opts := targetexecutor.TargetExecutorOptions{}
+			return interpreter.HelmInterpreterExecuteTarget(res, ctx, "render_downstream", nil, opts)
+		},
+		func(sig signal.Signal) error {
+			phase, err := signal.SignalPayloadGetAs[string](&sig, shared.PhasePayloadKey)
+			if err != nil || phase != shared.TargetExecutionPhase {
+				return nil
+			}
+
+			target, _ := signal.SignalPayloadGetAs[string](&sig, shared.TargetPayloadKey)
+
+			switch sig.ID() {
+			case shared.SignalCacheUpdated:
+				cacheUpdatedTargets = append(cacheUpdatedTargets, target)
+			case shared.SignalExecSkipped:
+				skippedTargets = append(skippedTargets, target)
+			}
+
+			return nil
+		},
+		func() error {
+			content, err := os.ReadFile(cacheStorePath)
+			if err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("cache store at %s: %w", cacheStorePath, err)
+			}
+
+			recordCount := 0
+			if err == nil {
+				var records []map[string]any
+				if jsonErr := json.Unmarshal(content, &records); jsonErr != nil {
+					return fmt.Errorf("cache store is not valid JSON: %w", jsonErr)
+				}
+				recordCount = len(records)
+			}
+
+			fmt.Println()
+			fmt.Println("--- Cache render demo (playground; state persists) ---")
+			fmt.Printf("  Helm file:    %s\n", filepath.Join(cacheRenderDir, "cache.helm"))
+			fmt.Printf("  Fixtures:     %s  (edit files here; test will not reset them)\n", fixtureDir)
+			fmt.Printf("  Cache store:  %s\n", cacheStorePath)
+			fmt.Printf("  Records:      %d target(s) on disk\n", recordCount)
+			fmt.Printf("  This run:     CACHE_UPDATED=%v  EXEC_SKIPPED=%v\n", cacheUpdatedTargets, skippedTargets)
+			fmt.Println()
+			fmt.Println("  Manual play:")
+			fmt.Println("    • Edit fixtures/input.txt  → invalidates render_upstream (and downstream via dep state)")
+			fmt.Println("    • Edit fixtures/out.txt    → invalidates render_downstream (its input)")
+			fmt.Println("    • Delete .helm/cache/      → cold cache, all targets run")
+			fmt.Println("    • Re-run HelmRenderTestCache after each change (one execution per run)")
+			fmt.Println()
+
+			return nil
+		},
+	)
+}
+
+func cacheRenderSeedFixturesIfMissing(fixtureDir string) error {
+	defaults := map[string]string{
+		"input.txt":    "render-demo-input\n",
+		"out.txt":      "render-demo-output\n",
+		"down_out.txt": "render-demo-downstream\n",
+	}
+	for name, content := range defaults {
+		path := filepath.Join(fixtureDir, name)
+		if _, err := os.Stat(path); err == nil {
+			continue
+		}
+		if err := os.MkdirAll(fixtureDir, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func HelmRenderTestExecution(t *testing.T) {
 	var execOKStdout []string
 
@@ -361,24 +459,21 @@ func executeVisualDiagnosticHarness(
 	ctx := signal.SignalContextCreate(dispatcher)
 	res := interpreter.HelmInterpreterInterpretFile(sharedHelm, targetPath, ctx)
 
-	// If interpretation succeeded AND we provided a downstream action, execute it
+	var pipelineErr error
 	if res.Error == nil && pipelineAction != nil {
-		_ = pipelineAction(res, ctx)
+		pipelineErr = pipelineAction(res, ctx)
 	}
 
-	// 8. Validate
 	if collectErr != nil {
 		t.Fatalf("failed to collect diagnostics for %s: %v", targetFileName, collectErr)
 	}
 
-	// Delegate all pass/fail logic to the specific test's validate closure
-	if validate != nil {
+	if pipelineErr == nil && validate != nil {
 		if err := validate(); err != nil {
 			t.Fatalf("%s diagnostics mismatch: %v", targetFileName, err)
 		}
 	}
 
-	// 9. Visual Output Execution
 	fmt.Println("========================================")
 	fmt.Printf(" MODE: NONE (%s)\n", targetFileName)
 	fmt.Println("========================================")
@@ -393,4 +488,8 @@ func executeVisualDiagnosticHarness(
 	fmt.Printf(" MODE: TRUE COLOR (%s)\n", targetFileName)
 	fmt.Println("========================================")
 	fmt.Print(rendering.SignalRendererRender(rendererTrue))
+
+	if pipelineErr != nil {
+		t.Fatalf("%s pipeline failed: %v", targetFileName, pipelineErr)
+	}
 }

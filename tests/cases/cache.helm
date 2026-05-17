@@ -1,0 +1,39 @@
+FIXTURE = "cache_fixtures"
+
+target cache_upstream() {
+    help = "Cached upstream producer"
+    artifacts {
+        inputs = [
+            path(FIXTURE, "input.txt"),
+        ]
+        outputs = [
+            path(FIXTURE, "out.txt"),
+        ]
+    }
+    run "echo cmd_cache_upstream"
+}
+
+target cache_downstream() {
+    help = "Cached consumer of upstream outputs"
+    artifacts {
+        inputs = [
+            path(FIXTURE, "out.txt"),
+        ]
+        outputs = [
+            path(FIXTURE, "down_out.txt"),
+        ]
+    }
+    depends_on [ cache_upstream ]
+    run "echo cmd_cache_downstream"
+}
+
+target cache_volatile() {
+    help = "Never skipped by artifact cache"
+    artifacts {
+        volatile = true
+        inputs = [
+            path(FIXTURE, "input.txt"),
+        ]
+    }
+    run "echo cmd_cache_volatile"
+}

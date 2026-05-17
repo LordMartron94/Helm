@@ -2,6 +2,7 @@ package targetexecutor
 
 import (
 	"fmt"
+	"helm/internal/cache"
 	"helm/internal/ir"
 	"sync"
 )
@@ -28,6 +29,20 @@ func TargetExecutorRunGraph(
 	}
 
 	results := make(map[string]error, len(closure))
+	depStateFingerprints := make(map[string]uint64, len(closure))
+	depOutputFingerprints := make(map[string]uint64, len(closure))
+
+	runOpts := opts
+	var ownedCacheStore *cache.TargetCacheStore
+	if !runOpts.DisableArtifactCache && runOpts.CacheStore == nil && runOpts.CacheRoot != "" {
+		opened, openErr := cache.TargetCacheStoreOpen(runOpts.CacheRoot)
+		if openErr != nil {
+			return openErr
+		}
+		ownedCacheStore = opened
+		runOpts.CacheStore = opened
+		defer cache.TargetCacheStoreClose(ownedCacheStore)
+	}
 
 	for _, phase := range chain {
 		var wg sync.WaitGroup
@@ -39,7 +54,7 @@ func TargetExecutorRunGraph(
 			go func(name string) {
 				defer wg.Done()
 
-				if err := targetExecutorConfirmBeforeTarget(builtIR, name, closure, opts); err != nil {
+				if err := targetExecutorConfirmBeforeTarget(builtIR, name, closure, runOpts); err != nil {
 					mu.Lock()
 					if phaseErr == nil {
 						phaseErr = err
@@ -63,10 +78,74 @@ func TargetExecutorRunGraph(
 					}
 				}
 
-				runErr := TargetExecutorRunTarget(target, builtIR.GlobalVariables, inv, opts)
+				decision, cacheErr := targetExecutorEvaluateCache(
+					builtIR,
+					name,
+					inv,
+					runOpts,
+					depStateFingerprints,
+					depOutputFingerprints,
+				)
+				if cacheErr != nil {
+					mu.Lock()
+					if phaseErr == nil {
+						phaseErr = cacheErr
+					}
+					mu.Unlock()
+					return
+				}
+
+				if decision.Skip {
+					targetExecutorEmitCacheSkipSignals(runOpts.SignalContext, name, decision.StateFingerprint)
+					mu.Lock()
+					results[name] = nil
+					depStateFingerprints[name] = decision.StateFingerprint
+					depOutputFingerprints[name] = decision.OutputFingerprint
+					mu.Unlock()
+					return
+				}
+
+				runErr := TargetExecutorRunTarget(target, builtIR.GlobalVariables, inv, runOpts)
+				if runErr != nil {
+					mu.Lock()
+					results[name] = runErr
+					mu.Unlock()
+					return
+				}
+
+				outputFingerprint, commitErr := targetExecutorCommitCache(
+					builtIR,
+					name,
+					inv,
+					runOpts,
+					depStateFingerprints,
+					depOutputFingerprints,
+				)
+				if commitErr != nil {
+					mu.Lock()
+					if phaseErr == nil {
+						phaseErr = commitErr
+					}
+					mu.Unlock()
+					return
+				}
+
+				targetForCache := builtIR.Targets[name]
+				if targetForCache.Artifacts != nil &&
+					!targetForCache.Artifacts.Volatile &&
+					runOpts.CacheStore != nil {
+					targetExecutorEmitCacheUpdatedSignals(
+						runOpts.SignalContext,
+						name,
+						decision.StateFingerprint,
+						outputFingerprint,
+					)
+				}
 
 				mu.Lock()
-				results[name] = runErr
+				results[name] = nil
+				depStateFingerprints[name] = decision.StateFingerprint
+				depOutputFingerprints[name] = outputFingerprint
 				mu.Unlock()
 			}(targetName)
 		}

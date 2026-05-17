@@ -16,6 +16,7 @@ import (
 	"memcore"
 	"memforge"
 	"os"
+	"path/filepath"
 	"signal"
 	"structarch"
 	"syntaxa"
@@ -211,6 +212,9 @@ func HelmInterpreterExecuteTarget(
 
 	execOpts := opts
 	execOpts.SignalContext = ctx
+	if !execOpts.DisableArtifactCache && execOpts.CacheRoot == "" && result.filePath != "" {
+		execOpts.CacheRoot = filepath.Join(filepath.Dir(result.filePath), ".helm", "cache")
+	}
 
 	return targetexecutor.TargetExecutorRunGraph(result.BuiltIR, entryTarget, invocations, execOpts)
 }

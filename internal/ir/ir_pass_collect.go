@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"helm/shared"
 	"lingua/helm/artifacts"
+	"path/filepath"
 	"signal"
 	"syntaxa"
 )
@@ -42,6 +43,7 @@ func IRFromSyntax(
 	validateTargetDependencies(builder)
 
 	return HelmIR{
+		SourceDirectory: filepath.Dir(filePath),
 		GlobalVariables: builder.globalVariables,
 		Targets:         builder.targets,
 		Succeeded:       !builder.hasEmittedError,

@@ -53,6 +53,13 @@ func resolveInputArtifactItem(
 		return HelmArtifactInput{Kind: ArtifactInputGlob, Glob: globIR}, true
 	}
 
+	if pathNode := artifactItemPathNode(node); pathNode != nil {
+		return HelmArtifactInput{
+			Kind:    ArtifactInputString,
+			Literal: evaluatePath(builder, pathNode, globalVariables),
+		}, true
+	}
+
 	if strNode := artifactItemStringNode(node); strNode != nil {
 		scope := resolveScopeForGlobals(globalVariables)
 		return HelmArtifactInput{
