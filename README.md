@@ -102,3 +102,38 @@ target db-migrate() {
 For more detail see: [syntax reference](./docs/syntax.md)
 
 As with all my syntaxes, the [LangSpec](https://github.com/LordMartron94/LangSpec) definition lives in [Lingua](https://github.com/LordMartron94/Lingua).
+
+## Building from source
+
+Helm is developed inside the [force](https://github.com/LordMartron94/force) monorepo. The CLI embeds `helm.lspec` at compile time and does not need a checkout of LangSpec on disk at runtime.
+
+### Dependencies
+
+Libraries required to build `tools/helm/cmd/helm` (verified with `go list -deps`):
+
+- Autarch, Echo, Foundation, Langspec, Lexarch, Lingua, Memarch, Memcore, Memforge, Memstruct, Persistence, Signal, Splash, Structarch, Syntaxa
+
+Clone them with:
+
+```bash
+./scripts/install_dependencies.sh
+```
+
+The installer is scoped to helm only (not blaze, statarch, shield, etc.). After cloning, add the modules and this repository to your `go.work` file.
+
+### First install (no helm binary yet)
+
+From a full force checkout (or once `go.work` is configured):
+
+```bash
+./scripts/bootstrap.sh
+```
+
+This builds `./bin/helm` and installs to `~/.local/bin/helm` by default. Override with `INSTALL_DEST` or `--dest`.
+
+From the monorepo you can also use:
+
+```bash
+make helm          # build dev binary
+make helmfile      # REPL against tools/helm/Helmfile
+```
