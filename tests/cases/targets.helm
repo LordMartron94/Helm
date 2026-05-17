@@ -1,3 +1,18 @@
+target pre-generate() {
+    help = "Optional pre-step for dependency param demo"
+    artifacts {
+        volatile = true
+    }
+    run "echo pre-generate"
+}
+
+target templated(TARGET, OTHER_PARAM?) {
+    help = "Parameterized dependency for depends_on params demo"
+    artifacts {
+        volatile = true
+    }
+    run "echo templated ${TARGET} ${OTHER_PARAM}"
+}
 
 target test(NAME, AGE?) {
 
@@ -77,5 +92,11 @@ target test(NAME, AGE?) {
     // If a dependency needs configuration, it becomes an object/block.
     depends_on [ 
         pre-generate { optional = true }
+        templated { 
+            params {
+                TARGET="sfdfsf"
+                OTHER_PARAM="dsfdf"
+            }
+        }
     ]
 }

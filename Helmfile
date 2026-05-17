@@ -152,15 +152,8 @@ target build_local() {
     workdir = "${REPO_ROOT}"
 
     artifacts {
-        inputs = [
-            glob("cmd", include="*.go"),
-            glob("internal", include="*.go"),
-            glob("interpreter", include="*.go"),
-            glob("shared", include="*.go"),
-            "go.mod",
-            "go.sum"
-        ]
         outputs = [ "${BIN_DIR}/helm" ]
+        volatile = true  // Volatile because we rely on Go build's internal cacheing
     }
 
     env {

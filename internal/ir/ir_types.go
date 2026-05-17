@@ -22,6 +22,10 @@ const (
 	ERROR_DUPLICATE_ENV              string = "TARGET_011"
 	ERROR_DUPLICATE_DEPENDS_ON       string = "TARGET_012"
 	ERROR_DUPLICATE_ENV_KEY          string = "TARGET_013"
+	ERROR_DUPLICATE_DEPENDENCY       string = "TARGET_014"
+	ERROR_UNKNOWN_DEPENDENCY_PARAM   string = "TARGET_015"
+	ERROR_MISSING_DEPENDENCY_PARAM   string = "TARGET_016"
+	ERROR_DUPLICATE_DEPENDENCY_PARAM string = "TARGET_017"
 
 	ERROR_UNDECLARED_PARAMETER string = "COND_001"
 
@@ -88,10 +92,16 @@ type HelmTargetParameter struct {
 	Optional bool
 }
 
+// HelmTargetDependency describes an edge in depends_on.
+// Parameters holds literal values from params { ... }; values may retain ${NAME}
+// placeholders until runtime using the dependent target's invocation. Each dependency
+// target runs at most once per graph execution, so all edges supplying params for the
+// same dependency must agree (enforced at runtime).
 type HelmTargetDependency struct {
 	TargetName string
 	Optional   bool
 	Confirm    bool
+	Parameters map[string]string
 	SourceNode *syntaxa.SyntaxaLSTNode[artifacts.Node]
 }
 

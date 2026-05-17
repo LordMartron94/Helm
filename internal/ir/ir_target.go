@@ -99,7 +99,7 @@ func handleTargetBody(
 		case artifacts.NodeConditional:
 			handleTargetConditional(builder, contentNode, scope, currentTarget)
 		case artifacts.NodeTargetDepends:
-			handleTargetDependsOn(builder, contentNode, currentTarget, state)
+			handleTargetDependsOn(builder, contentNode, scope, currentTarget, state)
 		default:
 			panic(fmt.Errorf("interpreter error: unhandled child kind '%v'", kind))
 		}
@@ -170,6 +170,7 @@ func handleTargetAliases(
 func handleTargetDependsOn(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
 	currentTarget *HelmTarget,
 	state *targetParseState,
 ) {
@@ -181,15 +182,18 @@ func handleTargetDependsOn(
 
 	dependencyNodes := node.FindAllKind(artifacts.NodeTargetDependency)
 	for _, depNode := range dependencyNodes {
-		currentTarget.DependsOn = append(currentTarget.DependsOn, extractDependency(builder, depNode))
+		currentTarget.DependsOn = append(currentTarget.DependsOn, extractDependency(builder, depNode, scope))
 	}
 }
 
 func extractDependency(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
 ) HelmTargetDependency {
-	dep := HelmTargetDependency{}
+	dep := HelmTargetDependency{
+		Parameters: make(map[string]string),
+	}
 
 	targetNameNode := node.FindDirectChildKind(artifacts.NodeInvokeTarget)
 	dep.TargetName = extractContentFromSingleTokenNode(builder, targetNameNode)
@@ -197,7 +201,7 @@ func extractDependency(
 
 	optionsNode := node.FindFirstKind(artifacts.NodeDependencyOptions)
 	if optionsNode != nil {
-		extractDependencyOptions(builder, optionsNode, &dep)
+		extractDependencyOptions(builder, optionsNode, scope, &dep)
 	}
 
 	return dep
@@ -206,6 +210,7 @@ func extractDependency(
 func extractDependencyOptions(
 	builder *irBuilder,
 	optionsNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
 	dep *HelmTargetDependency,
 ) {
 	children := optionsNode.ChildrenUnsafe()
@@ -219,9 +224,41 @@ func extractDependencyOptions(
 			if boolNode := dependencyOptionBooleanSuccessor(children, i); boolNode != nil {
 				dep.Confirm = extractBooleanNode(builder, boolNode)
 			}
+		case artifacts.NodeDependencyParameters:
+			extractDependencyParameters(builder, children[i], scope, dep)
 		default:
 			extractDependencyOptionAssignment(builder, children[i], dep)
 		}
+	}
+}
+
+func extractDependencyParameters(
+	builder *irBuilder,
+	paramsNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+	dep *HelmTargetDependency,
+) {
+	keyNodes := paramsNode.FindAllKind(artifacts.NodeDependencyParameterName)
+	valueNodes := paramsNode.FindAllKind(artifacts.NodeStringLiteral)
+
+	if len(keyNodes) != len(valueNodes) {
+		return
+	}
+
+	for i, keyNode := range keyNodes {
+		keyStr := extractContentFromSingleTokenNode(builder, keyNode)
+
+		if _, exists := dep.Parameters[keyStr]; exists {
+			emitSemanticError(
+				builder,
+				keyNode,
+				ERROR_DUPLICATE_DEPENDENCY_PARAM,
+				fmt.Sprintf("parameter '%s' declared multiple times for dependency '%s'", keyStr, dep.TargetName),
+			)
+			continue
+		}
+
+		dep.Parameters[keyStr] = extractStringFromStringNode(builder, valueNodes[i], scope)
 	}
 }
 

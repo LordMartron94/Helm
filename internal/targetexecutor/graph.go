@@ -28,6 +28,11 @@ func TargetExecutorRunGraph(
 		return fmt.Errorf("%s: dependency confirmation required but ConfirmDependency callback is nil", ERROR_CONFIRM_CALLBACK_REQUIRED)
 	}
 
+	effectiveInvocations, err := targetExecutorResolveEffectiveInvocations(builtIR, closure, invocations)
+	if err != nil {
+		return err
+	}
+
 	results := make(map[string]error, len(closure))
 	depStateFingerprints := make(map[string]uint64, len(closure))
 	depOutputFingerprints := make(map[string]uint64, len(closure))
@@ -72,10 +77,8 @@ func TargetExecutorRunGraph(
 
 				target := builtIR.Targets[name]
 				inv := TargetInvocation{}
-				if invocations != nil {
-					if mapped, exists := invocations[name]; exists {
-						inv = mapped
-					}
+				if mapped, exists := effectiveInvocations[name]; exists {
+					inv = mapped
 				}
 
 				decision, cacheErr := targetExecutorEvaluateCache(

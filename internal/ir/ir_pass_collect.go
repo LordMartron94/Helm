@@ -80,23 +80,6 @@ func handleVariableDeclaration(
 	}
 }
 
-func validateTargetDependencies(builder *irBuilder) {
-	for _, target := range builder.targets {
-		for _, dep := range target.DependsOn {
-			if _, exists := IRResolveTargetName(builder.targets, dep.TargetName); exists {
-				continue
-			}
-
-			emitSemanticError(
-				builder,
-				dep.SourceNode,
-				ERROR_UNDECLARED_TARGET,
-				fmt.Sprintf("dependency '%s' refers to undeclared target", dep.TargetName),
-			)
-		}
-	}
-}
-
 func IRResolveTargetName(targets map[string]HelmTarget, name string) (string, bool) {
 	if _, exists := targets[name]; exists {
 		return name, true
