@@ -87,11 +87,16 @@ func DiagnosticRendererCreate(colorMode ColorMode, output io.Writer) *Diagnostic
 		return ""
 	}
 
+	detailHook := shared.HelmCombineDetailHooks(
+		shared.HelmDiagnosticSquigglyDetailHook(intentMeta),
+		shared.HelmExecutionOutputDetailHook(intentMeta),
+	)
+
 	renderer := rendering.SignalRendererCreate(
 		terminalRenderer,
 		fileGrouping,
 		locationFormatter,
-		shared.HelmExecutionOutputDetailHook(intentMeta),
+		detailHook,
 		intentMeta,
 	)
 

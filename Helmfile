@@ -3,9 +3,9 @@
 //   helm Helmfile --  (then: run build_linux_amd64, run deploy, etc.)
 //
 // Override version at link time via the build targets (VERSION below) or:
-//   run build_linux_amd64 VERSION=1.2.3
+//   run build GOOS=linux GOARCH=amd64 OUT=bin/helm-custom VERSION=1.2.3
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 REPO_ROOT = "../.."
 BIN_DIR = "bin"
 LOCAL_DEST = "/home/user/.local/bin/helm"
@@ -33,91 +33,91 @@ target build_linux_amd64() {
 	help = "Build helm for linux/amd64 → bin/helm-linux-amd64"
 	aliases = ["linux", "linux_amd64"]
 
-	workdir = "${REPO_ROOT}"
-
 	artifacts {
 		volatile = true
 	}
 
-	env {
-		GOOS = "linux"
-		GOARCH = "amd64"
-		CGO_ENABLED = "0"
-	}
-
-	run "go build -ldflags \"-X helm/internal/version.Version=${VERSION} -X helm/internal/version.Commit=embedded\" -o tools/helm/${BIN_DIR}/helm-linux-amd64 ./tools/helm/cmd/helm"
+	depends_on [
+		build {
+			params {
+				GOOS = "linux"
+				GOARCH = "amd64"
+				OUT = "${BIN_DIR}/helm-linux-amd64"
+			}
+		}
+	]
 }
 
 target build_linux_arm64() {
 	help = "Build helm for linux/arm64 → bin/helm-linux-arm64"
 
-	workdir = "${REPO_ROOT}"
-
 	artifacts {
 		volatile = true
 	}
 
-	env {
-		GOOS = "linux"
-		GOARCH = "arm64"
-		CGO_ENABLED = "0"
-	}
-
-	run "go build -ldflags \"-X helm/internal/version.Version=${VERSION} -X helm/internal/version.Commit=embedded\" -o tools/helm/${BIN_DIR}/helm-linux-arm64 ./tools/helm/cmd/helm"
+	depends_on [
+		build {
+			params {
+				GOOS = "linux"
+				GOARCH = "arm64"
+				OUT = "${BIN_DIR}/helm-linux-arm64"
+			}
+		}
+	]
 }
 
 target build_windows_amd64() {
 	help = "Build helm for windows/amd64 → bin/helm-windows-amd64.exe"
 
-	workdir = "${REPO_ROOT}"
-
 	artifacts {
 		volatile = true
 	}
 
-	env {
-		GOOS = "windows"
-		GOARCH = "amd64"
-		CGO_ENABLED = "0"
-	}
-
-	run "go build -ldflags \"-X helm/internal/version.Version=${VERSION} -X helm/internal/version.Commit=embedded\" -o tools/helm/${BIN_DIR}/helm-windows-amd64.exe ./tools/helm/cmd/helm"
+	depends_on [
+		build {
+			params {
+				GOOS = "windows"
+				GOARCH = "amd64"
+				OUT = "${BIN_DIR}/helm-windows-amd64.exe"
+			}
+		}
+	]
 }
 
 target build_darwin_amd64() {
 	help = "Build helm for darwin/amd64 (macOS Intel) → bin/helm-darwin-amd64"
 
-	workdir = "${REPO_ROOT}"
-
 	artifacts {
 		volatile = true
 	}
 
-	env {
-		GOOS = "darwin"
-		GOARCH = "amd64"
-		CGO_ENABLED = "0"
-	}
-
-	run "go build -ldflags \"-X helm/internal/version.Version=${VERSION} -X helm/internal/version.Commit=embedded\" -o tools/helm/${BIN_DIR}/helm-darwin-amd64 ./tools/helm/cmd/helm"
+	depends_on [
+		build {
+			params {
+				GOOS = "darwin"
+				GOARCH = "amd64"
+				OUT = "${BIN_DIR}/helm-darwin-amd64"
+			}
+		}
+	]
 }
 
 target build_darwin_arm64() {
 	help = "Build helm for darwin/arm64 (macOS Apple Silicon) → bin/helm-darwin-arm64"
 
-	workdir = "${REPO_ROOT}"
-
 	artifacts {
 		volatile = true
 	}
 
-	env {
-		GOOS = "darwin"
-		GOARCH = "arm64"
-		CGO_ENABLED = "0"
-	}
-
-	run "go build -ldflags \"-X helm/internal/version.Version=${VERSION} -X helm/internal/version.Commit=embedded\" -o tools/helm/${BIN_DIR}/helm-darwin-arm64 ./tools/helm/cmd/helm"
+	depends_on [
+		build {
+			params {
+				GOOS = "darwin"
+				GOARCH = "arm64"
+				OUT = "${BIN_DIR}/helm-darwin-arm64"
+			}
+		}
+	]
 }
 
 target build_all() {
@@ -136,8 +136,29 @@ target build_all() {
 	]
 }
 
+target build_local() {
+	help = "Build helm for local linux/amd64 → bin/helm"
+	aliases = ["local"]
+
+	artifacts {
+		outputs = [ "${BIN_DIR}/helm" ]
+		volatile = true
+	}
+
+	depends_on [
+		build {
+			params {
+				GOOS = "linux"
+				GOARCH = "amd64"
+				OUT = "${BIN_DIR}/helm"
+			}
+		}
+	]
+}
+
 target deploy(SOURCE, DEST) {
 	help = "Install a built binary: deploy SOURCE=bin/helm-linux-amd64 DEST=/usr/local/bin/helm"
+
 	artifacts {
 		volatile = true
 	}
@@ -145,37 +166,17 @@ target deploy(SOURCE, DEST) {
 	run "install -m 0755 ${SOURCE} ${DEST}"
 }
 
-target build_local() {
-    help = "Builds the clean helm CLI for local development"
-    aliases = ["build"]
-    
-    workdir = "${REPO_ROOT}"
-
-    artifacts {
-        outputs = [ "${BIN_DIR}/helm" ]
-        volatile = true  // Volatile because we rely on Go build's internal cacheing
-    }
-
-    env {
-        GOOS = "linux"
-        GOARCH = "amd64"
-        CGO_ENABLED = "0"
-    }
-
-    run "go build -ldflags \"-X helm/internal/version.Version=${VERSION} -X helm/internal/version.Commit=embedded\" -o tools/helm/${BIN_DIR}/helm ./tools/helm/cmd/helm"
-}
-
 target deploy_local() {
-    help = "Installs the locally built binary to your Qubes path"
-    
-    depends_on [ 
-        build_local 
-    ]
+	help = "Build locally and install to LOCAL_DEST"
 
-    artifacts {
-        inputs = [ "${BIN_DIR}/helm" ]
-        outputs = [ "${LOCAL_DEST}" ]
-    }
+	artifacts {
+		inputs = [ "${BIN_DIR}/helm" ]
+		outputs = [ "${LOCAL_DEST}" ]
+	}
 
-    run "install -m 0755 ${BIN_DIR}/helm ${LOCAL_DEST}"
+	depends_on [
+		build_local
+	]
+
+	run "install -m 0755 ${BIN_DIR}/helm ${LOCAL_DEST}"
 }

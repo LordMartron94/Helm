@@ -2,11 +2,149 @@ package shared
 
 import (
 	"fmt"
+	"foundation/location"
+	"foundation/system"
 	"signal"
 	"signal/rendering"
 	"splash"
 	"strings"
 )
+
+func HelmCombineDetailHooks(hooks ...rendering.SignalDetailExtension) rendering.SignalDetailExtension {
+	return func(renderer *splash.SPLASH_Rendering_TerminalRenderer, sig signal.Signal, baseIntent int) {
+		for _, hook := range hooks {
+			if hook != nil {
+				hook(renderer, sig, baseIntent)
+			}
+		}
+	}
+}
+
+// helmDiagnosticTabWidth must match tabWidth passed to syntaxa.LSTNodeLineSpanFromSource (IR + parse).
+const helmDiagnosticTabWidth = 4
+
+func HelmDiagnosticSquigglyDetailHook(metaIntent int) rendering.SignalDetailExtension {
+	return func(renderer *splash.SPLASH_Rendering_TerminalRenderer, sig signal.Signal, intent int) {
+		if !sig.HasLocation() {
+			return
+		}
+		loc := sig.Location()
+		if loc == nil || loc.Path() == "" {
+			return
+		}
+
+		startLine, errSL := location.LocationCoordinateGetAs[int](*loc, "start_line")
+		startCol, errSC := location.LocationCoordinateGetAs[int](*loc, "start_column")
+		endCol, errEC := location.LocationCoordinateGetAs[int](*loc, "end_column")
+
+		if errSL != nil || errSC != nil || startLine < 1 {
+			return
+		}
+
+		content, err := system.FileReadAllRunes(loc.Path())
+		if err != nil {
+			return
+		}
+		lines := helmSplitLinesRunes(content)
+		if startLine > len(lines) {
+			return
+		}
+
+		lineRunes := lines[startLine-1]
+		targetLine := helmExpandTabsForDisplay(lineRunes, helmDiagnosticTabWidth)
+
+		markerWidth := 1
+		if errEC == nil && endCol > startCol {
+			markerWidth = endCol - startCol
+		}
+
+		lineNumber := fmt.Sprintf("%6d", startLine)
+		lineGutter := lineNumber + " | "
+		caretGutter := strings.Repeat(" ", len(lineNumber)) + " | "
+
+		padding := helmVisualColumnToPadding(lineRunes, startCol, helmDiagnosticTabWidth)
+
+		splash.SPLASH_Rendering_TerminalRendererIndent(renderer)
+		splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, lineGutter, metaIntent)
+		splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, targetLine)
+		splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+
+		splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, caretGutter, metaIntent)
+
+		if padding > 0 {
+			splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, strings.Repeat(" ", padding))
+		}
+
+		marker := "^"
+		if markerWidth > 1 {
+			marker += strings.Repeat("~", markerWidth-1)
+		}
+		splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, marker, intent)
+		splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+
+		splash.SPLASH_Rendering_TerminalRendererDedent(renderer)
+	}
+}
+
+func helmExpandTabsForDisplay(line []rune, tabWidth int) string {
+	if tabWidth <= 0 {
+		tabWidth = helmDiagnosticTabWidth
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(line) * 2)
+
+	for _, r := range line {
+		if r == '\t' {
+			builder.WriteString(strings.Repeat(" ", tabWidth))
+			continue
+		}
+		builder.WriteRune(r)
+	}
+
+	return builder.String()
+}
+
+func helmVisualColumnToPadding(line []rune, startColumn int, tabWidth int) int {
+	if startColumn <= 1 {
+		return 0
+	}
+	if tabWidth <= 0 {
+		tabWidth = helmDiagnosticTabWidth
+	}
+
+	visual := 0
+	for _, r := range line {
+		if visual >= startColumn-1 {
+			break
+		}
+		if r == '\t' {
+			visual += tabWidth
+			continue
+		}
+		visual++
+	}
+
+	return visual
+}
+
+func helmSplitLinesRunes(runes []rune) [][]rune {
+	var lines [][]rune
+	start := 0
+
+	for i, r := range runes {
+		if r == '\n' {
+			lines = append(lines, runes[start:i])
+			start = i + 1
+		}
+	}
+
+	if start < len(runes) {
+		lines = append(lines, runes[start:])
+	}
+
+	return lines
+}
 
 func HelmExecutionOutputDetailHook(metaIntent int) rendering.SignalDetailExtension {
 	return func(renderer *splash.SPLASH_Rendering_TerminalRenderer, sig signal.Signal, baseIntent int) {

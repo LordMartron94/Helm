@@ -17,6 +17,8 @@ func TargetExecutorRunTarget(
 	}
 
 	parameters := TargetInvocationParameters(inv)
+	workDir := TargetExecutorInterpolateLiteral(target.WorkDir, globalVars, parameters)
+	env := targetExecutorInterpolateEnv(target.Env, globalVars, parameters)
 
 	for stepIndex, step := range target.Steps {
 		switch step.Kind {
@@ -26,8 +28,8 @@ func TargetExecutorRunTarget(
 				TargetName: target.Name,
 				StepIndex:  stepIndex,
 				Command:    command,
-				WorkDir:    target.WorkDir,
-				Env:        target.Env,
+				WorkDir:    workDir,
+				Env:        env,
 			}
 			if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
 				return err
@@ -45,8 +47,8 @@ func TargetExecutorRunTarget(
 					TargetName: target.Name,
 					StepIndex:  stepIndex,
 					Command:    command,
-					WorkDir:    target.WorkDir,
-					Env:        target.Env,
+					WorkDir:    workDir,
+					Env:        env,
 				}
 				if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
 					return err
