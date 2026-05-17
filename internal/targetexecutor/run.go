@@ -3,6 +3,7 @@ package targetexecutor
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -16,6 +17,9 @@ type TargetRunRequest struct {
 	Command    string
 	WorkDir    string
 	Env        map[string]string
+	// LiveStdout and LiveStderr, when non-nil, receive a copy of process output as it is produced.
+	LiveStdout io.Writer
+	LiveStderr io.Writer
 }
 
 type TargetRunResult struct {
@@ -46,8 +50,8 @@ func TargetExecutorDefaultRunHandler(req TargetRunRequest) (TargetRunResult, err
 	cmd.Env = targetExecutorMergeEnv(req.Env)
 
 	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	cmd.Stdout = targetExecutorRunOutputWriter(&stdoutBuf, req.LiveStdout)
+	cmd.Stderr = targetExecutorRunOutputWriter(&stderrBuf, req.LiveStderr)
 
 	runErr := cmd.Run()
 	result.Stdout = stdoutBuf.String()
@@ -88,4 +92,14 @@ func targetExecutorMergeEnv(targetEnv map[string]string) []string {
 	}
 
 	return out
+}
+
+func targetExecutorRunOutputWriter(capture io.Writer, live io.Writer) io.Writer {
+	if live == nil {
+		return capture
+	}
+	if capture == nil {
+		return live
+	}
+	return io.MultiWriter(capture, live)
 }

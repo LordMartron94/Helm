@@ -3,6 +3,7 @@ package targetexecutor
 import (
 	"fmt"
 	"helm/internal/ir"
+	"os"
 )
 
 func TargetExecutorRunTarget(
@@ -24,13 +25,7 @@ func TargetExecutorRunTarget(
 		switch step.Kind {
 		case ir.TargetStepRun:
 			command := TargetExecutorInterpolateLiteral(step.Run, globalVars, parameters)
-			req := TargetRunRequest{
-				TargetName: target.Name,
-				StepIndex:  stepIndex,
-				Command:    command,
-				WorkDir:    workDir,
-				Env:        env,
-			}
+			req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, opts)
 			if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
 				return err
 			}
@@ -43,13 +38,7 @@ func TargetExecutorRunTarget(
 			}
 			for _, runLiteral := range step.When.Runs {
 				command := TargetExecutorInterpolateLiteral(runLiteral, globalVars, parameters)
-				req := TargetRunRequest{
-					TargetName: target.Name,
-					StepIndex:  stepIndex,
-					Command:    command,
-					WorkDir:    workDir,
-					Env:        env,
-				}
+				req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, opts)
 				if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
 					return err
 				}
@@ -60,6 +49,39 @@ func TargetExecutorRunTarget(
 	}
 
 	return nil
+}
+
+func targetExecutorRunRequestCreate(
+	targetName string,
+	stepIndex int,
+	command string,
+	workDir string,
+	env map[string]string,
+	opts TargetExecutorOptions,
+) TargetRunRequest {
+	req := TargetRunRequest{
+		TargetName: targetName,
+		StepIndex:  stepIndex,
+		Command:    command,
+		WorkDir:    workDir,
+		Env:        env,
+	}
+
+	if !opts.StreamRunOutput {
+		return req
+	}
+
+	req.LiveStdout = opts.StreamStdout
+	if req.LiveStdout == nil {
+		req.LiveStdout = os.Stdout
+	}
+
+	req.LiveStderr = opts.StreamStderr
+	if req.LiveStderr == nil {
+		req.LiveStderr = os.Stderr
+	}
+
+	return req
 }
 
 func targetExecutorInvokeRun(

@@ -42,6 +42,8 @@ func CommandExecute(session *Session, line string, stdin io.Reader, stdout io.Wr
 		return true, commandHelp(session.UI, stdout, session.Catalog, args)
 	case "clean-cache":
 		return true, commandCleanCache(session.UI, stdout, session)
+	case "set", "config":
+		return true, commandSet(session, stdout, args)
 	case "run":
 		return true, commandRun(session, stdin, stdout, args)
 	default:
@@ -64,6 +66,9 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 			return err
 		}
 		if err := printBuiltinCommand(stdout, ui, "clean-cache", "remove .helm/cache for this helm file"); err != nil {
+			return err
+		}
+		if err := printBuiltinCommand(stdout, ui, "set [name on|off]", "show or change shell settings (e.g. set stream-runs off)"); err != nil {
 			return err
 		}
 		if err := printBuiltinCommand(stdout, ui, "run [--bypass-cache] <target> [key=value ...]", "execute a target"); err != nil {
@@ -266,8 +271,9 @@ func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []stri
 	}
 
 	opts := targetexecutor.TargetExecutorOptions{
-		BypassCache: bypassCache,
-		RunHandler:  targetexecutor.TargetExecutorDefaultRunHandler,
+		BypassCache:     bypassCache,
+		StreamRunOutput: session.StreamRunOutput,
+		RunHandler:      targetexecutor.TargetExecutorDefaultRunHandler,
 		ConfirmDependency: func(dependent string, dep ir.HelmTargetDependency) (bool, error) {
 			return promptConfirm(stdin, stdout, session.UI, dependent, dep)
 		},

@@ -35,10 +35,19 @@ type DiagnosticRenderer struct {
 	output     io.Writer
 }
 
-func DiagnosticRendererCreate(colorMode ColorMode, output io.Writer) *DiagnosticRenderer {
+type DiagnosticRendererConfig struct {
+	ColorMode       ColorMode
+	Output          io.Writer
+	StreamRunOutput *bool
+}
+
+func DiagnosticRendererCreate(config DiagnosticRendererConfig) *DiagnosticRenderer {
+	output := config.Output
 	if output == nil {
 		output = os.Stderr
 	}
+
+	colorMode := config.ColorMode
 
 	paletteBuilder := splash.SPLASH_Rendering_TerminalPaletteBuilderCreate(intentCount)
 	paletteBuilder.Register(intentCategoryError, splash.SPLASH_Rendering_TerminalColorAnsi16_Red, splash.SPLASH_Rendering_TerminalTrueColor(231, 76, 60))
@@ -47,6 +56,11 @@ func DiagnosticRendererCreate(colorMode ColorMode, output io.Writer) *Diagnostic
 	paletteBuilder.Register(intentDefault, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightBlack, splash.SPLASH_Rendering_TerminalTrueColor(127, 140, 141))
 	paletteBuilder.Register(intentMeta, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightBlack, splash.SPLASH_Rendering_TerminalTrueColor(127, 140, 141))
 	palette := paletteBuilder.Build()
+
+	omitBufferedExecOutput := false
+	if config.StreamRunOutput != nil {
+		omitBufferedExecOutput = *config.StreamRunOutput
+	}
 
 	splashMode := splash.SPLASH_Rendering_TerminalColorModeTrueColor
 	switch colorMode {
@@ -89,7 +103,7 @@ func DiagnosticRendererCreate(colorMode ColorMode, output io.Writer) *Diagnostic
 
 	detailHook := shared.HelmCombineDetailHooks(
 		shared.HelmDiagnosticSquigglyDetailHook(intentMeta),
-		shared.HelmExecutionOutputDetailHook(intentMeta),
+		shared.HelmExecutionOutputDetailHookOmitBuffered(intentMeta, omitBufferedExecOutput),
 	)
 
 	renderer := rendering.SignalRendererCreate(

@@ -3,11 +3,18 @@ package targetexecutor
 import (
 	"helm/internal/cache"
 	"helm/internal/ir"
+	"io"
 	"signal"
 )
 
 type TargetExecutorOptions struct {
 	RunHandler TargetRunHandler
+
+	// StreamRunOutput writes subprocess stdout/stderr as they are produced (see LiveStdout/LiveStderr).
+	StreamRunOutput bool
+	// StreamStdout and StreamStderr default to os.Stdout and os.Stderr when StreamRunOutput is true.
+	StreamStdout io.Writer
+	StreamStderr io.Writer
 
 	ConfirmDependency func(dependent string, dep ir.HelmTargetDependency) (proceed bool, err error)
 

@@ -6,9 +6,10 @@ import (
 )
 
 type RunConfig struct {
-	HelmFilePath string
-	LSpecPath    string
-	ColorMode    ColorMode
+	HelmFilePath    string
+	LSpecPath       string
+	ColorMode       ColorMode
+	StreamRunOutput *bool
 }
 
 func Run(config RunConfig) error {
@@ -31,30 +32,34 @@ func Run(config RunConfig) error {
 	}
 
 	session, err := SessionCreate(SessionConfig{
-		HelmFile:  helmFile,
-		LSpecPath: lSpecPath,
-		ColorMode: colorMode,
+		HelmFile:        helmFile,
+		LSpecPath:       lSpecPath,
+		ColorMode:       colorMode,
+		StreamRunOutput: config.StreamRunOutput,
 	})
 	if err != nil {
 		return err
 	}
 	defer SessionDestroy(session)
 
-	if err := printStartupBanner(os.Stderr, session.UI, helmFile, session.CacheDirectory()); err != nil {
+	if err := printStartupBanner(os.Stderr, session.UI, session, helmFile, session.CacheDirectory()); err != nil {
 		return err
 	}
 
 	return RunShell(session)
 }
 
-func printStartupBanner(w io.Writer, ui *TerminalUI, helmFile, cacheDir string) error {
+func printStartupBanner(w io.Writer, ui *TerminalUI, session *Session, helmFile, cacheDir string) error {
 	if err := terminalUIWrite(w, ui, uiIntentHeading, "session\n"); err != nil {
 		return err
 	}
 	if err := writeStartupLine(w, ui, "  helm file  ", helmFile); err != nil {
 		return err
 	}
-	return writeStartupLine(w, ui, "  cache      ", cacheDir)
+	if err := writeStartupLine(w, ui, "  cache      ", cacheDir); err != nil {
+		return err
+	}
+	return writeStartupLine(w, ui, "  stream-runs", formatBoolSetting(session.StreamRunOutput))
 }
 
 func writeStartupLine(w io.Writer, ui *TerminalUI, label, value string) error {

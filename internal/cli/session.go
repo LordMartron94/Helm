@@ -14,12 +14,16 @@ type Session struct {
 	Catalog     TargetCatalog
 	Renderer    *DiagnosticRenderer
 	UI          *TerminalUI
+	// StreamRunOutput streams subprocess stdout/stderr during runs instead of only after completion.
+	StreamRunOutput bool
 }
 
 type SessionConfig struct {
 	HelmFile  string
 	LSpecPath string
 	ColorMode ColorMode
+	// StreamRunOutput defaults to true when unset at the call site (see SessionCreate).
+	StreamRunOutput *bool
 }
 
 func SessionCreate(config SessionConfig) (*Session, error) {
@@ -28,10 +32,24 @@ func SessionCreate(config SessionConfig) (*Session, error) {
 		return nil, err
 	}
 
-	renderer := DiagnosticRendererCreate(config.ColorMode, os.Stderr)
+	session := &Session{
+		HelmFile:        config.HelmFile,
+		Interpreter:     interpreterInstance,
+		UI:              TerminalUICreate(config.ColorMode),
+		StreamRunOutput: true,
+	}
+	if config.StreamRunOutput != nil {
+		session.StreamRunOutput = *config.StreamRunOutput
+	}
 
-	result := interpreter.HelmInterpreterInterpretFile(interpreterInstance, config.HelmFile, renderer.Context())
-	renderer.Flush()
+	session.Renderer = DiagnosticRendererCreate(DiagnosticRendererConfig{
+		ColorMode:       config.ColorMode,
+		Output:          os.Stderr,
+		StreamRunOutput: &session.StreamRunOutput,
+	})
+
+	result := interpreter.HelmInterpreterInterpretFile(interpreterInstance, config.HelmFile, session.Renderer.Context())
+	session.Renderer.Flush()
 
 	if result.Error != nil {
 		interpreter.HelmInterpreterDestroy(interpreterInstance)
@@ -43,14 +61,9 @@ func SessionCreate(config SessionConfig) (*Session, error) {
 		return nil, fmt.Errorf("interpretation aborted due to semantic errors")
 	}
 
-	return &Session{
-		HelmFile:    config.HelmFile,
-		Interpreter: interpreterInstance,
-		Result:      result,
-		Catalog:     TargetCatalogBuild(result.BuiltIR),
-		Renderer:    renderer,
-		UI:          TerminalUICreate(config.ColorMode),
-	}, nil
+	session.Result = result
+	session.Catalog = TargetCatalogBuild(result.BuiltIR)
+	return session, nil
 }
 
 func SessionDestroy(session *Session) {

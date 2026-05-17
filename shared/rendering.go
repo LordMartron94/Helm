@@ -147,6 +147,11 @@ func helmSplitLinesRunes(runes []rune) [][]rune {
 }
 
 func HelmExecutionOutputDetailHook(metaIntent int) rendering.SignalDetailExtension {
+	return HelmExecutionOutputDetailHookOmitBuffered(metaIntent, false)
+}
+
+// HelmExecutionOutputDetailHookOmitBuffered skips stdout/stderr blocks when output was streamed live.
+func HelmExecutionOutputDetailHookOmitBuffered(metaIntent int, omitBufferedStdoutStderr bool) rendering.SignalDetailExtension {
 	return func(renderer *splash.SPLASH_Rendering_TerminalRenderer, sig signal.Signal, baseIntent int) {
 		id := sig.ID()
 		if id == SignalExecSkipped {
@@ -194,14 +199,16 @@ func HelmExecutionOutputDetailHook(metaIntent int) rendering.SignalDetailExtensi
 			return
 		}
 
-		stdout, _ := signal.SignalPayloadGetAs[string](&sig, StdoutPayloadKey)
-		stderr, _ := signal.SignalPayloadGetAs[string](&sig, StderrPayloadKey)
+		if !omitBufferedStdoutStderr {
+			stdout, _ := signal.SignalPayloadGetAs[string](&sig, StdoutPayloadKey)
+			stderr, _ := signal.SignalPayloadGetAs[string](&sig, StderrPayloadKey)
 
-		if stdout != "" {
-			helmRenderOutputBlock(renderer, "stdout", stdout, metaIntent, baseIntent)
-		}
-		if stderr != "" {
-			helmRenderOutputBlock(renderer, "stderr", stderr, metaIntent, baseIntent)
+			if stdout != "" {
+				helmRenderOutputBlock(renderer, "stdout", stdout, metaIntent, baseIntent)
+			}
+			if stderr != "" {
+				helmRenderOutputBlock(renderer, "stderr", stderr, metaIntent, baseIntent)
+			}
 		}
 
 		if id == SignalExecFail {

@@ -10,6 +10,7 @@ import (
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	colorModeFlag := flag.String("color-mode", "", "terminal color mode: none, ansi16, or truecolor (default: truecolor on TTY)")
+	streamRunsFlag := flag.Bool("stream-runs", true, "stream target stdout/stderr while runs execute (use -stream-runs=false to buffer until completion)")
 	flag.Parse()
 
 	if *showVersion {
@@ -44,10 +45,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	streamRunOutput := *streamRunsFlag
 	if err := cli.Run(cli.RunConfig{
-		HelmFilePath: helmFile,
-		LSpecPath:    lSpecPath,
-		ColorMode:    colorMode,
+		HelmFilePath:    helmFile,
+		LSpecPath:       lSpecPath,
+		ColorMode:       colorMode,
+		StreamRunOutput: &streamRunOutput,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "helm: %v\n", err)
 		os.Exit(1)
