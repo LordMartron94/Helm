@@ -1,0 +1,24 @@
+target db_up() { 
+    help = "Boot DB"
+    artifacts { volatile = true }
+}
+
+target cache_up() { 
+    help = "Boot Cache"
+    artifacts { volatile = true }
+}
+
+target migrate() {
+    help = "Migrate Schema"
+    artifacts { volatile = true }
+    depends_on [ db_up ]
+}
+
+target build() {
+    help = "Compile Backend"
+    artifacts { volatile = true }
+    depends_on [
+        migrate
+        cache_up
+    ]
+}

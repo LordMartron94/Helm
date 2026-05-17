@@ -34,22 +34,22 @@ func handleTargetDeclaration(
 	for _, parameterNode := range parameterNodes {
 		parameter := extractParameterFromNode(builder, parameterNode)
 
-		if _, seen := seenMap[parameter.name]; seen {
+		if _, seen := seenMap[parameter.Name]; seen {
 			emitSemanticError(
 				builder,
 				parameterNode,
 				ERROR_DUPLICATE_TARGET_PARAMETER,
-				fmt.Sprintf("parameter '%s' has already been declared", parameter.name),
+				fmt.Sprintf("parameter '%s' has already been declared", parameter.Name),
 			)
 		}
 
 		parameters = append(parameters, parameter)
-		seenMap[parameter.name] = struct{}{}
+		seenMap[parameter.Name] = struct{}{}
 	}
 
 	currentTarget := &HelmTarget{
-		name:       targetNameString,
-		parameters: parameters,
+		Name:       targetNameString,
+		Parameters: parameters,
 	}
 
 	body := node.FindDirectChildKind(artifacts.NodeTargetBody)
@@ -74,9 +74,9 @@ func handleTargetBody(
 	currentTarget *HelmTarget,
 ) {
 	state := &targetParseState{}
-	scope := resolveScopeForTarget(builder.globalVariables, currentTarget.parameters)
+	scope := resolveScopeForTarget(builder.globalVariables, currentTarget.Parameters)
 
-	currentTarget.env = make(map[string]string)
+	currentTarget.Env = make(map[string]string)
 
 	contentNodes := node.ChildrenUnsafe()
 
@@ -110,7 +110,7 @@ func handleTargetBody(
 			builder,
 			targetNode,
 			ERROR_NO_HELP_TEXT,
-			fmt.Sprintf("help text for target '%s' is missing and required", currentTarget.name),
+			fmt.Sprintf("help text for target '%s' is missing and required", currentTarget.Name),
 		)
 	}
 
@@ -119,7 +119,7 @@ func handleTargetBody(
 			builder,
 			targetNode,
 			ERROR_NO_ARTIFACTS,
-			fmt.Sprintf("artifacts block for target '%s' is missing and required", currentTarget.name),
+			fmt.Sprintf("artifacts block for target '%s' is missing and required", currentTarget.Name),
 		)
 	}
 }
@@ -132,13 +132,13 @@ func handleTargetHelp(
 	state *targetParseState,
 ) {
 	if state.helpDeclared {
-		emitSemanticError(builder, node, ERROR_DUPLICATE_HELP_TEXT, fmt.Sprintf("help text for target '%s' already declared", currentTarget.name))
+		emitSemanticError(builder, node, ERROR_DUPLICATE_HELP_TEXT, fmt.Sprintf("help text for target '%s' already declared", currentTarget.Name))
 		return
 	}
 	state.helpDeclared = true
 
 	stringNode := node.FindFirstKind(artifacts.NodeStringLiteral)
-	currentTarget.helpText = extractStringFromStringNode(builder, stringNode, scope)
+	currentTarget.HelpText = extractStringFromStringNode(builder, stringNode, scope)
 }
 
 func handleTargetAliases(
@@ -149,7 +149,7 @@ func handleTargetAliases(
 	state *targetParseState,
 ) {
 	if state.aliasesDeclared {
-		emitSemanticError(builder, node, ERROR_DUPLICATE_ALIASES, fmt.Sprintf("aliases for target '%s' already declared", currentTarget.name))
+		emitSemanticError(builder, node, ERROR_DUPLICATE_ALIASES, fmt.Sprintf("aliases for target '%s' already declared", currentTarget.Name))
 		return
 	}
 	state.aliasesDeclared = true
@@ -162,7 +162,7 @@ func handleTargetAliases(
 			emitSemanticError(builder, stringArrayNode, ERROR_DUPLICATE_ALIAS, fmt.Sprintf("alias '%s' already used across targets", alias))
 		} else {
 			builder.seenAliases[alias] = struct{}{}
-			currentTarget.aliases = append(currentTarget.aliases, alias)
+			currentTarget.Aliases = append(currentTarget.Aliases, alias)
 		}
 	}
 }
@@ -174,14 +174,14 @@ func handleTargetDependsOn(
 	state *targetParseState,
 ) {
 	if state.dependsDeclared {
-		emitSemanticError(builder, node, ERROR_DUPLICATE_DEPENDS_ON, fmt.Sprintf("depends_on block for target '%s' already declared", currentTarget.name))
+		emitSemanticError(builder, node, ERROR_DUPLICATE_DEPENDS_ON, fmt.Sprintf("depends_on block for target '%s' already declared", currentTarget.Name))
 		return
 	}
 	state.dependsDeclared = true
 
 	dependencyNodes := node.FindAllKind(artifacts.NodeTargetDependency)
 	for _, depNode := range dependencyNodes {
-		currentTarget.dependsOn = append(currentTarget.dependsOn, extractDependency(builder, depNode))
+		currentTarget.DependsOn = append(currentTarget.DependsOn, extractDependency(builder, depNode))
 	}
 }
 
@@ -192,8 +192,8 @@ func extractDependency(
 	dep := HelmTargetDependency{}
 
 	targetNameNode := node.FindDirectChildKind(artifacts.NodeInvokeTarget)
-	dep.targetName = extractContentFromSingleTokenNode(builder, targetNameNode)
-	dep.sourceNode = targetNameNode
+	dep.TargetName = extractContentFromSingleTokenNode(builder, targetNameNode)
+	dep.SourceNode = targetNameNode
 
 	optionsNode := node.FindDirectChildKind(artifacts.NodeDependencyOptions)
 	if optionsNode != nil {
@@ -216,12 +216,12 @@ func extractDependencyOptions(
 		switch artifacts.Token(tk.Token) {
 		case artifacts.TokKWConfirm:
 			if boolIndex < len(boolNodes) {
-				dep.confirm = extractBooleanNode(builder, boolNodes[boolIndex])
+				dep.Confirm = extractBooleanNode(builder, boolNodes[boolIndex])
 				boolIndex++
 			}
 		case artifacts.TokKWOptional:
 			if boolIndex < len(boolNodes) {
-				dep.optional = extractBooleanNode(builder, boolNodes[boolIndex])
+				dep.Optional = extractBooleanNode(builder, boolNodes[boolIndex])
 				boolIndex++
 			}
 		}
@@ -235,7 +235,7 @@ func handleTargetArtifacts(
 	state *targetParseState,
 ) {
 	if state.artifactsDeclared {
-		emitSemanticError(builder, node, ERROR_DUPLICATE_ARTIFACTS, fmt.Sprintf("artifacts block for target '%s' already declared", currentTarget.name))
+		emitSemanticError(builder, node, ERROR_DUPLICATE_ARTIFACTS, fmt.Sprintf("artifacts block for target '%s' already declared", currentTarget.Name))
 		return
 	}
 	state.artifactsDeclared = true
@@ -243,19 +243,19 @@ func handleTargetArtifacts(
 	artifactsIR := &HelmArtifacts{}
 
 	if inputsNode := node.FindFirstKind(artifacts.NodeCacheInputs); inputsNode != nil {
-		artifactsIR.inputs = extractInputArtifactSequence(builder, inputsNode, builder.globalVariables)
+		artifactsIR.Inputs = extractInputArtifactSequence(builder, inputsNode, builder.globalVariables)
 	}
 
 	if outputsNode := node.FindFirstKind(artifacts.NodeCacheOutputDirectory); outputsNode != nil {
-		artifactsIR.outputs = extractOutputArtifactSequence(builder, outputsNode, builder.globalVariables)
+		artifactsIR.Outputs = extractOutputArtifactSequence(builder, outputsNode, builder.globalVariables)
 	}
 
 	if volatileNode := node.FindFirstKind(artifacts.NodeVolatile); volatileNode != nil {
 		boolNode := volatileNode.FindFirstKind(artifacts.NodeBoolean)
-		artifactsIR.volatile = extractBooleanNode(builder, boolNode)
+		artifactsIR.Volatile = extractBooleanNode(builder, boolNode)
 	}
 
-	currentTarget.artifacts = artifactsIR
+	currentTarget.Artifacts = artifactsIR
 }
 
 func handleTargetWorkDir(
@@ -266,13 +266,13 @@ func handleTargetWorkDir(
 	state *targetParseState,
 ) {
 	if state.workDirDeclared {
-		emitSemanticError(builder, node, ERROR_DUPLICATE_WORKDIR, fmt.Sprintf("workdir for target '%s' already declared", currentTarget.name))
+		emitSemanticError(builder, node, ERROR_DUPLICATE_WORKDIR, fmt.Sprintf("workdir for target '%s' already declared", currentTarget.Name))
 		return
 	}
 	state.workDirDeclared = true
 
 	stringNode := node.FindFirstKind(artifacts.NodeStringLiteral)
-	currentTarget.workDir = extractStringFromStringNode(builder, stringNode, scope)
+	currentTarget.WorkDir = extractStringFromStringNode(builder, stringNode, scope)
 }
 
 func handleTargetEnv(
@@ -283,7 +283,7 @@ func handleTargetEnv(
 	state *targetParseState,
 ) {
 	if state.envDeclared {
-		emitSemanticError(builder, node, ERROR_DUPLICATE_ENV, fmt.Sprintf("env block for target '%s' already declared", currentTarget.name))
+		emitSemanticError(builder, node, ERROR_DUPLICATE_ENV, fmt.Sprintf("env block for target '%s' already declared", currentTarget.Name))
 		return
 	}
 	state.envDeclared = true
@@ -294,11 +294,11 @@ func handleTargetEnv(
 	for i, keyNode := range keyNodes {
 		keyStr := extractContentFromSingleTokenNode(builder, keyNode)
 
-		if _, exists := currentTarget.env[keyStr]; exists {
+		if _, exists := currentTarget.Env[keyStr]; exists {
 			emitSemanticError(builder, keyNode, ERROR_DUPLICATE_ENV_KEY, fmt.Sprintf("environment variable '%s' declared multiple times", keyStr))
 		} else {
 			valStr := extractStringFromStringNode(builder, valueNodes[i], scope)
-			currentTarget.env[keyStr] = valStr
+			currentTarget.Env[keyStr] = valStr
 		}
 	}
 }
@@ -311,7 +311,7 @@ func handleTargetRun(
 ) {
 	stringNode := node.FindFirstKind(artifacts.NodeStringLiteral)
 	runText := extractStringFromStringNode(builder, stringNode, scope)
-	currentTarget.runs = append(currentTarget.runs, runText)
+	currentTarget.Runs = append(currentTarget.Runs, runText)
 }
 
 func handleTargetConditional(
@@ -327,8 +327,8 @@ func handleTargetConditional(
 	condition.Parameter = paramName
 
 	paramExists := false
-	for _, p := range currentTarget.parameters {
-		if p.name == paramName {
+	for _, p := range currentTarget.Parameters {
+		if p.Name == paramName {
 			paramExists = true
 			break
 		}
@@ -373,5 +373,5 @@ func handleTargetConditional(
 		condition.Runs = append(condition.Runs, runText)
 	}
 
-	currentTarget.conditionals = append(currentTarget.conditionals, condition)
+	currentTarget.Conditionals = append(currentTarget.Conditionals, condition)
 }

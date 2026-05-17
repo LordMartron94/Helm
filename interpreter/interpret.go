@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"foundation/location"
 	"foundation/system"
-	"helm/ir"
+	"helm/internal/ir"
 	"helm/shared"
 	"langspec"
 	"langspec/bootstrap"
@@ -16,6 +16,7 @@ import (
 	"memforge"
 	"os"
 	"signal"
+	"structarch"
 	"syntaxa"
 	"syntaxa/lowering"
 )
@@ -23,6 +24,9 @@ import (
 // ------------------------------------------------------------------ RESULT
 
 type HelmInterpreterInterpretationResult struct {
+	filePath   string
+	sourceText string
+
 	parseTrace *syntaxa.ParseTrace
 	rootNode   *syntaxa.SyntaxaLSTNode[artifacts.Node]
 
@@ -119,6 +123,7 @@ func HelmInterpreterInterpretFile(
 
 	result := HelmInterpreterInterpretationResult{
 		compiledSymbols: interpreter.compiledSymbols,
+		filePath:        file,
 	}
 
 	if !system.PathHasExt(file, ".helm") {
@@ -132,6 +137,7 @@ func HelmInterpreterInterpretFile(
 		return result
 	}
 	sourceText := string(sourceContent)
+	result.sourceText = sourceText
 
 	session := langspec.LangParserSessionCreate[rune](file, nil)
 	trace, rootNode, syntaxErrors, err := langspec.LangParserParseFile(interpreter.parser, session, nil)
@@ -180,12 +186,45 @@ func HelmInterpreterInterpretFile(
 	compiledIR := ir.IRFromSyntax(file, sourceText, rootNode, ctx)
 	result.BuiltIR = compiledIR
 
-	if !compiledIR.Success() {
+	if !compiledIR.Succeeded {
 		result.Error = fmt.Errorf("interpretation aborted due to semantic errors")
 		return result
 	}
 
 	return result
+}
+
+func HelmInterpreterDebugExecutionChainForTarget(result HelmInterpreterInterpretationResult, ctx *signal.SignalContext, target string) ([][]string, error) {
+	signal.SignalContextPushSpan(ctx, shared.ExecutionChainResolution)
+	defer signal.SignalContextPopSpan(ctx)
+
+	chain, err := executionChainForTarget(result.BuiltIR, target)
+
+	if err != nil {
+		if errCasted, ok := err.(structarch.CycleError[string]); ok {
+			loc := location.LocationCreate("file", "", result.filePath, "", "", map[string]any{})
+
+			signal.SignalContextBuild(ctx, ERROR_CYCLIC_TARGET_CHAIN, "ERROR").
+				Location(&loc).
+				Payload(shared.PhasePayloadKey, shared.GraphResolutionPhase).
+				Payload(shared.MessagePayloadKey, err.Error()).
+				Emit()
+
+			return nil, errCasted
+		} else {
+			loc := location.LocationCreate("file", "", result.filePath, "", "", map[string]any{})
+
+			signal.SignalContextBuild(ctx, ERROR_GENERIC_GRAPH_ERROR, "ERROR").
+				Location(&loc).
+				Payload(shared.PhasePayloadKey, shared.GraphResolutionPhase).
+				Payload(shared.MessagePayloadKey, err.Error()).
+				Emit()
+
+			return chain, err
+		}
+	}
+
+	return chain, err
 }
 
 func HelmInterpreterDumpLexemes(interpreter *HelmInterpreter, file string) error {

@@ -50,21 +50,21 @@ func resolveInputArtifactItem(
 		if !ok {
 			return HelmArtifactInput{}, false
 		}
-		return HelmArtifactInput{kind: ArtifactInputGlob, glob: globIR}, true
+		return HelmArtifactInput{Kind: ArtifactInputGlob, Glob: globIR}, true
 	}
 
 	if strNode := artifactItemStringNode(node); strNode != nil {
 		scope := resolveScopeForGlobals(globalVariables)
 		return HelmArtifactInput{
-			kind:   ArtifactInputString,
-			string: extractStringFromStringNode(builder, strNode, scope),
+			Kind:    ArtifactInputString,
+			Literal: extractStringFromStringNode(builder, strNode, scope),
 		}, true
 	}
 
 	if varNode := artifactItemVarRefNode(node); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
 		if val, exists := globalVariables[varName]; exists {
-			return HelmArtifactInput{kind: ArtifactInputString, string: val}, true
+			return HelmArtifactInput{Kind: ArtifactInputString, Literal: val}, true
 		}
 		emitSemanticError(
 			builder,

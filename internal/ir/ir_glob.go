@@ -16,10 +16,10 @@ var supportedGlobKwargs = map[string]struct{}{
 
 func newHelmGlob(baseDirectory string) *HelmGlob {
 	return &HelmGlob{
-		baseDirectory:  baseDirectory,
-		followSymlinks: false,
-		recursive:      true,
-		types:          "files",
+		BaseDirectory:  baseDirectory,
+		FollowSymlinks: false,
+		Recursive:      true,
+		Types:          "files",
 	}
 }
 
@@ -111,11 +111,11 @@ func applyGlobKwarg(
 		}
 		switch kwargName {
 		case "include":
-			result.include = value
+			result.Include = value
 		case "exclude":
-			result.exclude = value
+			result.Exclude = value
 		case "types":
-			result.types = value
+			result.Types = value
 		}
 		return true
 	case "follow_symlinks":
@@ -123,14 +123,14 @@ func applyGlobKwarg(
 		if !ok {
 			return false
 		}
-		result.followSymlinks = parsed
+		result.FollowSymlinks = parsed
 		return true
 	case "recursive":
 		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, globalVariables)
 		if !ok {
 			return false
 		}
-		result.recursive = parsed
+		result.Recursive = parsed
 		return true
 	default:
 		return false

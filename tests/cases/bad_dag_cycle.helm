@@ -1,0 +1,11 @@
+target a() {
+    help = "Target A"
+    artifacts { volatile = true }
+    depends_on [ b ]
+}
+
+target b() {
+    help = "Target B"
+    artifacts { volatile = true }
+    depends_on [ a ]
+}

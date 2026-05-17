@@ -24,7 +24,7 @@ func resolveScopeForTarget(globals map[string]string, parameters []HelmTargetPar
 
 func resolveScopeHasParameter(scope resolveScope, name string) bool {
 	for _, p := range scope.parameters {
-		if p.name == name {
+		if p.Name == name {
 			return true
 		}
 	}
@@ -184,8 +184,8 @@ func extractParameterFromNode(builder *irBuilder, node *syntaxa.SyntaxaLSTNode[a
 		optional = true
 	}
 
-	parameter.name = name
-	parameter.optional = optional
+	parameter.Name = name
+	parameter.Optional = optional
 
 	return parameter
 }

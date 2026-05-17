@@ -3,8 +3,8 @@ package tests
 import (
 	"fmt"
 	"foundation/location"
+	"helm/internal/ir"
 	"helm/interpreter"
-	"helm/ir"
 	"helm/shared"
 	"os"
 	"path/filepath"
@@ -54,6 +54,7 @@ func runHelmOperation(_ struct{}, execCtx shield.SHIELD_Testing_ExecutionContext
 	results = append(results, runInvalidSemanticsScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runValidPathsScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runValidGlobsScenario(execCtx, sharedHelm, casesDir))
+	results = append(results, runDAGResolutionScenario(execCtx, sharedHelm, casesDir))
 
 	return results
 }
@@ -586,17 +587,17 @@ func runValidPathsScenario(
 			}
 
 			// Extract the compiled IR data
-			target, exists := res.BuiltIR.Targets()["compile"]
+			target, exists := res.BuiltIR.Targets["compile"]
 			if !exists {
 				return validPathsScenarioOutput{parseError: fmt.Errorf("target 'compile' not found in IR")}, nil
 			}
 
-			if target.Artifacts() == nil {
+			if target.Artifacts == nil {
 				return validPathsScenarioOutput{parseError: fmt.Errorf("artifacts block was nil")}, nil
 			}
 
 			return validPathsScenarioOutput{
-				extractedOutputs: target.Artifacts().Outputs(),
+				extractedOutputs: target.Artifacts.Outputs,
 			}, nil
 		},
 	)
@@ -634,67 +635,67 @@ func runValidGlobsScenario(
 						return false, fmt.Sprintf("expected 3 inputs, got %d", len(out.extractedInputs))
 					}
 
-					if out.extractedInputs[0].Kind() != ir.ArtifactInputGlob {
+					if out.extractedInputs[0].Kind != ir.ArtifactInputGlob {
 						return false, "input 0: expected glob entry"
 					}
-					glob0 := out.extractedInputs[0].Glob()
+					glob0 := out.extractedInputs[0].Glob
 					if glob0 == nil {
 						return false, "input 0: glob is nil"
 					}
-					if glob0.BaseDirectory() != "libs" {
-						return false, fmt.Sprintf("input 0 base dir: expected %q, got %q", "libs", glob0.BaseDirectory())
+					if glob0.BaseDirectory != "libs" {
+						return false, fmt.Sprintf("input 0 base dir: expected %q, got %q", "libs", glob0.BaseDirectory)
 					}
-					if glob0.Include() != "**/*.go" {
-						return false, fmt.Sprintf("input 0 include: expected %q, got %q", "**/*.go", glob0.Include())
+					if glob0.Include != "**/*.go" {
+						return false, fmt.Sprintf("input 0 include: expected %q, got %q", "**/*.go", glob0.Include)
 					}
-					if glob0.Exclude() != "" {
-						return false, fmt.Sprintf("input 0 exclude: expected empty, got %q", glob0.Exclude())
+					if glob0.Exclude != "" {
+						return false, fmt.Sprintf("input 0 exclude: expected empty, got %q", glob0.Exclude)
 					}
-					if glob0.FollowSymlinks() {
+					if glob0.FollowSymlinks {
 						return false, "input 0 follow_symlinks: expected default false"
 					}
-					if !glob0.Recursive() {
+					if !glob0.Recursive {
 						return false, "input 0 recursive: expected default true"
 					}
-					if glob0.Types() != "files" {
-						return false, fmt.Sprintf("input 0 types: expected default %q, got %q", "files", glob0.Types())
+					if glob0.Types != "files" {
+						return false, fmt.Sprintf("input 0 types: expected default %q, got %q", "files", glob0.Types)
 					}
 
-					if out.extractedInputs[1].Kind() != ir.ArtifactInputGlob {
+					if out.extractedInputs[1].Kind != ir.ArtifactInputGlob {
 						return false, "input 1: expected glob entry"
 					}
-					glob1 := out.extractedInputs[1].Glob()
+					glob1 := out.extractedInputs[1].Glob
 					if glob1 == nil {
 						return false, "input 1: glob is nil"
 					}
-					if glob1.BaseDirectory() != "." {
-						return false, fmt.Sprintf("input 1 base dir: expected %q, got %q", ".", glob1.BaseDirectory())
+					if glob1.BaseDirectory != "." {
+						return false, fmt.Sprintf("input 1 base dir: expected %q, got %q", ".", glob1.BaseDirectory)
 					}
-					if glob1.Exclude() != "*_test.go" {
-						return false, fmt.Sprintf("input 1 exclude: expected %q, got %q", "*_test.go", glob1.Exclude())
+					if glob1.Exclude != "*_test.go" {
+						return false, fmt.Sprintf("input 1 exclude: expected %q, got %q", "*_test.go", glob1.Exclude)
 					}
-					if glob1.Include() != "" {
-						return false, fmt.Sprintf("input 1 include: expected empty, got %q", glob1.Include())
+					if glob1.Include != "" {
+						return false, fmt.Sprintf("input 1 include: expected empty, got %q", glob1.Include)
 					}
-					if glob1.FollowSymlinks() || !glob1.Recursive() || glob1.Types() != "files" {
+					if glob1.FollowSymlinks || !glob1.Recursive || glob1.Types != "files" {
 						return false, "input 1: expected default follow_symlinks=false, recursive=true, types=files"
 					}
 
-					glob2 := out.extractedInputs[2].Glob()
+					glob2 := out.extractedInputs[2].Glob
 					if glob2 == nil {
 						return false, "input 2: glob is nil"
 					}
-					if glob2.BaseDirectory() != "vendor" {
-						return false, fmt.Sprintf("input 2 base dir: expected %q, got %q", "vendor", glob2.BaseDirectory())
+					if glob2.BaseDirectory != "vendor" {
+						return false, fmt.Sprintf("input 2 base dir: expected %q, got %q", "vendor", glob2.BaseDirectory)
 					}
-					if !glob2.FollowSymlinks() {
+					if !glob2.FollowSymlinks {
 						return false, "input 2 follow_symlinks: expected true"
 					}
-					if glob2.Recursive() {
+					if glob2.Recursive {
 						return false, "input 2 recursive: expected false"
 					}
-					if glob2.Types() != "directories" {
-						return false, fmt.Sprintf("input 2 types: expected %q, got %q", "directories", glob2.Types())
+					if glob2.Types != "directories" {
+						return false, fmt.Sprintf("input 2 types: expected %q, got %q", "directories", glob2.Types)
 					}
 
 					return true, ""
@@ -715,17 +716,142 @@ func runValidGlobsScenario(
 				return validGlobsScenarioOutput{parseError: res.Error}, nil
 			}
 
-			target, exists := res.BuiltIR.Targets()["scan"]
+			target, exists := res.BuiltIR.Targets["scan"]
 			if !exists {
 				return validGlobsScenarioOutput{parseError: fmt.Errorf("target 'scan' not found in IR")}, nil
 			}
 
-			if target.Artifacts() == nil {
+			if target.Artifacts == nil {
 				return validGlobsScenarioOutput{parseError: fmt.Errorf("artifacts block was nil")}, nil
 			}
 
 			return validGlobsScenarioOutput{
-				extractedInputs: target.Artifacts().Inputs(),
+				extractedInputs: target.Artifacts.Inputs,
+			}, nil
+		},
+	)
+
+	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
+}
+
+type dagScenarioInput struct {
+	fileName   string
+	targetName string
+}
+
+type dagScenarioOutput struct {
+	chain       [][]string
+	err         error
+	diagnostics []string // Capture the emitted error messages
+}
+
+func runDAGResolutionScenario(
+	execCtx shield.SHIELD_Testing_ExecutionContext,
+	sharedHelm *interpreter.HelmInterpreter,
+	casesDir string,
+) shield.SHIELD_Testing_ScenarioRunResult {
+
+	scenario := shield.SHIELD_Testing_ScenarioCreate(
+		"scenario_helm_dag_resolution",
+		"Validates that the target execution chain resolves dependencies or catches topological errors",
+		[]shield.SHIELD_Testing_Guard[dagScenarioInput, dagScenarioOutput]{
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_valid_execution_chain",
+				dagScenarioInput{fileName: "valid_dag.helm", targetName: "build"},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out dagScenarioOutput) (bool, string) {
+					if out.err != nil {
+						return false, fmt.Sprintf("expected successful DAG resolution, got error: %v", out.err)
+					}
+
+					layerMap := make(map[string]int)
+					for layerIndex, parallelGroup := range out.chain {
+						for _, target := range parallelGroup {
+							layerMap[target] = layerIndex
+						}
+					}
+
+					requiredTargets := []string{"db_up", "cache_up", "migrate", "build"}
+					for _, req := range requiredTargets {
+						if _, exists := layerMap[req]; !exists {
+							return false, fmt.Sprintf("target '%s' is missing from the execution chain", req)
+						}
+					}
+
+					if layerMap["db_up"] >= layerMap["migrate"] {
+						return false, "topological violation: 'db_up' must execute before 'migrate'"
+					}
+					if layerMap["migrate"] >= layerMap["build"] {
+						return false, "topological violation: 'migrate' must execute before 'build'"
+					}
+					if layerMap["cache_up"] >= layerMap["build"] {
+						return false, "topological violation: 'cache_up' must execute before 'build'"
+					}
+
+					return true, ""
+				}),
+			),
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_cyclic_dependency_fails",
+				dagScenarioInput{fileName: "bad_dag_cycle.helm", targetName: "a"},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out dagScenarioOutput) (bool, string) {
+					if out.err == nil {
+						return false, "expected DAG resolution to fail due to a cycle, but it succeeded"
+					}
+
+					if len(out.diagnostics) == 0 {
+						return false, "expected a graph resolution signal to be emitted, but none were collected"
+					}
+
+					foundCycleSignal := false
+					for _, msg := range out.diagnostics {
+						if strings.Contains(strings.ToLower(msg), "cycle") {
+							foundCycleSignal = true
+							break
+						}
+					}
+
+					if !foundCycleSignal {
+						return false, fmt.Sprintf("expected a cycle error diagnostic, got: %v", out.diagnostics)
+					}
+
+					return true, ""
+				}),
+			),
+		},
+		func(input dagScenarioInput) (dagScenarioOutput, error) {
+			path := filepath.Join(casesDir, input.fileName)
+
+			dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+				{Label: "ERROR", Weight: 20},
+			})
+
+			var collected []string
+			signal.SignalDispatcherRegisterSink(dispatcher, "collect_graph_errors", func(sig signal.Signal) {
+				phase, err := signal.SignalPayloadGetAs[string](&sig, shared.PhasePayloadKey)
+				if err != nil || phase != shared.GraphResolutionPhase {
+					return
+				}
+
+				msg, err := signal.SignalPayloadGetAs[string](&sig, shared.MessagePayloadKey)
+				if err == nil {
+					collected = append(collected, msg)
+				}
+			})
+
+			ctx := signal.SignalContextCreate(dispatcher)
+
+			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path, ctx)
+			if res.Error != nil {
+				return dagScenarioOutput{err: res.Error}, nil
+			}
+
+			// Pass the newly required ctx parameter
+			chain, err := interpreter.HelmInterpreterDebugExecutionChainForTarget(res, ctx, input.targetName)
+
+			return dagScenarioOutput{
+				chain:       chain,
+				err:         err,
+				diagnostics: collected,
 			}, nil
 		},
 	)

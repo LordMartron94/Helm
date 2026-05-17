@@ -5,6 +5,7 @@ import (
 	"foundation/location"
 	"foundation/system"
 	"helm/interpreter"
+	"helm/shared"
 	"path/filepath"
 	"signal"
 	"signal/rendering"
@@ -145,7 +146,7 @@ func splitLinesRunes(runes []rune) [][]rune {
 func HelmRenderTestSyntax(t *testing.T) {
 	var collected []helmSyntaxDiagnostic
 
-	executeVisualDiagnosticHarness(t, "bad_syntax.helm",
+	executeVisualDiagnosticHarness(t, "bad_syntax.helm", "",
 		// Collector Closure
 		func(sig signal.Signal) error {
 			diag, err := helmSyntaxDiagnosticFromSignal(sig)
@@ -168,7 +169,7 @@ func HelmRenderTestSyntax(t *testing.T) {
 func HelmRenderTestSemantics(t *testing.T) {
 	var collected []helmSemanticDiagnostic
 
-	executeVisualDiagnosticHarness(t, "bad_semantics.helm",
+	executeVisualDiagnosticHarness(t, "bad_semantics.helm", "",
 		// Collector Closure
 		func(sig signal.Signal) error {
 			phase, err := signal.SignalPayloadGetAs[string](&sig, "phase")
@@ -194,15 +195,54 @@ func HelmRenderTestSemantics(t *testing.T) {
 	)
 }
 
+func HelmRenderTestGraph(t *testing.T) {
+	var collected []string
+
+	executeVisualDiagnosticHarness(t, "bad_dag_cycle.helm", "a", // Trigger the DAG pipeline for target "a"
+		// Collector Closure
+		func(sig signal.Signal) error {
+			phase, err := signal.SignalPayloadGetAs[string](&sig, shared.PhasePayloadKey)
+			if err != nil || phase != shared.GraphResolutionPhase {
+				return nil
+			}
+
+			msg, err := signal.SignalPayloadGetAs[string](&sig, shared.MessagePayloadKey)
+			if err != nil {
+				return err
+			}
+			collected = append(collected, msg)
+			return nil
+		},
+		// Validation Closure
+		func() error {
+			if len(collected) == 0 {
+				return fmt.Errorf("expected graph resolution errors, got none")
+			}
+
+			foundCycle := false
+			for _, msg := range collected {
+				if strings.Contains(strings.ToLower(msg), "cycle") {
+					foundCycle = true
+					break
+				}
+			}
+
+			if !foundCycle {
+				return fmt.Errorf("expected cycle error, got: %v", collected)
+			}
+			return nil
+		},
+	)
+}
+
 func executeVisualDiagnosticHarness(
 	t *testing.T,
 	targetFileName string,
+	targetToResolve string, // ADDED: "" means skip DAG resolution
 	onSignal func(sig signal.Signal) error,
 	validate func() error,
 ) {
-	// 1. Client builds the visual Palette
 	paletteBuilder := splash.SPLASH_Rendering_TerminalPaletteBuilderCreate(int(intentCount))
-
 	paletteBuilder.Register(IntentCategoryError, splash.SPLASH_Rendering_TerminalColorAnsi16_Red, splash.SPLASH_Rendering_TerminalTrueColor(231, 76, 60))
 	paletteBuilder.Register(IntentCategoryWarning, splash.SPLASH_Rendering_TerminalColorAnsi16_Yellow, splash.SPLASH_Rendering_TerminalTrueColor(241, 196, 15))
 	paletteBuilder.Register(IntentCategoryInfo, splash.SPLASH_Rendering_TerminalColorAnsi16_Cyan, splash.SPLASH_Rendering_TerminalTrueColor(52, 152, 219))
@@ -211,12 +251,10 @@ func executeVisualDiagnosticHarness(
 
 	palette := paletteBuilder.Build()
 
-	// 2. Client initializes Splash engines
 	splashNone := splash.SPLASH_Rendering_TerminalRendererCreate(splash.SPLASH_Rendering_TerminalColorModeNone, palette)
 	splashANSI := splash.SPLASH_Rendering_TerminalRendererCreate(splash.SPLASH_Rendering_TerminalColorModeAnsi16, palette)
 	splashTrue := splash.SPLASH_Rendering_TerminalRendererCreate(splash.SPLASH_Rendering_TerminalColorModeTrueColor, palette)
 
-	// 3. Client Location Formatter
 	clientLocationFormatter := func(loc *location.Location) string {
 		startLine, errSL := location.LocationCoordinateGetAs[int](*loc, "start_line")
 		startCol, errSC := location.LocationCoordinateGetAs[int](*loc, "start_column")
@@ -226,12 +264,10 @@ func executeVisualDiagnosticHarness(
 		return ""
 	}
 
-	// 4. Client initializes the Adapters
 	rendererNone := rendering.SignalRendererCreate(splashNone, fileGroupingStrategy, clientLocationFormatter, squigglyRenderer, IntentMeta)
 	rendererANSI := rendering.SignalRendererCreate(splashANSI, fileGroupingStrategy, clientLocationFormatter, squigglyRenderer, IntentMeta)
 	rendererTrue := rendering.SignalRendererCreate(splashTrue, fileGroupingStrategy, clientLocationFormatter, squigglyRenderer, IntentMeta)
 
-	// 5. Setup the Dispatcher
 	manifest := signal.DiagnosticCategoryManifest{
 		{Label: "INFO", Weight: 0},
 		{Label: "WARNING", Weight: 10},
@@ -252,7 +288,6 @@ func executeVisualDiagnosticHarness(
 		})
 	}
 
-	// 6. Bootstrap the Interpreter
 	specPath, err := helmLSpecPathResolve()
 	if err != nil {
 		t.Fatalf("helm test setup failed (resolve spec): %v", err)
@@ -268,17 +303,25 @@ func executeVisualDiagnosticHarness(
 	}
 	defer interpreter.HelmInterpreterDestroy(sharedHelm)
 
-	// 7. Execute
+	// 7. Execute the Pipeline
 	targetPath := filepath.Join(casesDir, targetFileName)
 	ctx := signal.SignalContextCreate(dispatcher)
 	res := interpreter.HelmInterpreterInterpretFile(sharedHelm, targetPath, ctx)
+
+	// Track the final error state across the requested pipeline depth
+	var pipelineErr = res.Error
+
+	// If interpretation succeeded AND we requested graph resolution, push the pipeline forward
+	if res.Error == nil && targetToResolve != "" {
+		_, pipelineErr = interpreter.HelmInterpreterDebugExecutionChainForTarget(res, ctx, targetToResolve)
+	}
 
 	// 8. Validate
 	if collectErr != nil {
 		t.Fatalf("failed to collect diagnostics for %s: %v", targetFileName, collectErr)
 	}
-	if res.Error == nil {
-		t.Fatalf("expected %s to fail parsing/evaluation", targetFileName)
+	if pipelineErr == nil {
+		t.Fatalf("expected %s to fail pipeline execution, but it succeeded", targetFileName)
 	}
 	if validate != nil {
 		if err := validate(); err != nil {

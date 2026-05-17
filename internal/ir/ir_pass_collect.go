@@ -42,9 +42,9 @@ func IRFromSyntax(
 	validateTargetDependencies(builder)
 
 	return HelmIR{
-		globalVariables: builder.globalVariables,
-		targets:         builder.targets,
-		succeeded:       !builder.hasEmittedError,
+		GlobalVariables: builder.globalVariables,
+		Targets:         builder.targets,
+		Succeeded:       !builder.hasEmittedError,
 	}
 }
 
@@ -80,16 +80,16 @@ func handleVariableDeclaration(
 
 func validateTargetDependencies(builder *irBuilder) {
 	for _, target := range builder.targets {
-		for _, dep := range target.dependsOn {
-			if _, exists := builder.targets[dep.targetName]; exists {
+		for _, dep := range target.DependsOn {
+			if _, exists := builder.targets[dep.TargetName]; exists {
 				continue
 			}
 
 			emitSemanticError(
 				builder,
-				dep.sourceNode,
+				dep.SourceNode,
 				ERROR_UNDECLARED_TARGET,
-				fmt.Sprintf("dependency '%s' refers to undeclared target", dep.targetName),
+				fmt.Sprintf("dependency '%s' refers to undeclared target", dep.TargetName),
 			)
 		}
 	}
