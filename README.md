@@ -22,6 +22,7 @@ The idea behind Helm is to be flexible and powerful but with a syntax that is si
 
 - [Design philosophy](#design-philosophy)
 - [Syntax overview](#syntax-overview)
+- [Building](#building)
 
 ## Design philosophy
 
@@ -34,6 +35,8 @@ Helm exists to be a transparent map of *what* happens and *when*, aggressively o
 As such, the capability of direct execution is intentionally *limited* inside the Helm syntax. No more long shell(-like) blocks such as in Make. We have a `run` command which accepts a single-line string that is parsed into a command and fed to the evaluator. This means complex logic by definition is impossible in runs.
 
 A `run` is intended to do simple things like running an executable or `echoing` something simple.
+
+At runtime, Helm resolves `${...}` in `run`, `env`, and `workdir` using global variables plus the **effective parameters** for that target—either from `helm run` / the REPL for the entry target, or from `depends_on` `params` blocks for dependencies. Shell features (pipes, `&&`, subshells) are not interpreted; commands are tokenized and executed directly.
 
 ## Syntax overview
 
@@ -52,7 +55,7 @@ target greet(NAME) {
 
 ### 2. The pure orchestrator (caching & graph)
 
-Helm solves the dependency graph and handles cryptographic caching automatically. The user defines the edges (`depends_on`), the state boundary (`artifacts`), and the single action required to achieve that state (`run`).
+Helm solves the dependency graph and handles cryptographic caching automatically. The user defines the edges (`depends_on`), the state boundary (`artifacts`), and the single action required to achieve that state (`run`). Independent branches in the same phase run in parallel; each dependency target is executed at most once per run.
 
 ```helm
 target compile(OS) {
@@ -74,6 +77,34 @@ target compile(OS) {
     run "go build -o bin/app-${OS} ./src"
 }
 ```
+
+### 2b. Wiring dependencies with `params`
+
+Parameterized targets are reusable building blocks. Thin wrapper targets pass concrete arguments on the edge instead of duplicating `run` blocks:
+
+```helm
+target build(GOOS, GOARCH, OUT) {
+    env {
+        GOOS = "${GOOS}"
+        GOARCH = "${GOARCH}"
+    }
+    run "go build -o ${OUT} ./cmd/app"
+}
+
+target build_linux_amd64() {
+    depends_on [
+        build {
+            params {
+                GOOS = "linux"
+                GOARCH = "amd64"
+                OUT = "bin/app-linux-amd64"
+            }
+        }
+    ]
+}
+```
+
+At runtime, `${GOOS}` / `${GOARCH}` inside the dependency’s `env` and `run` are filled from that `params` map (after interpolating any `${GLOBAL}` or parent-target placeholders in the param values themselves). This is how `Helmfile` cross-compile wrappers stay small while sharing one `build` implementation.
 
 ### 3. Context & volatility
 
@@ -103,13 +134,11 @@ For more detail see: [syntax reference](./docs/syntax.md)
 
 As with all my syntaxes, the [LangSpec](https://github.com/LordMartron94/LangSpec) definition lives in [Lingua](https://github.com/LordMartron94/Lingua).
 
-## Building from source
-
-Helm is developed inside the [force](https://github.com/LordMartron94/force) monorepo. The CLI embeds `helm.lspec` at compile time and does not need a checkout of LangSpec on disk at runtime.
+## Building
 
 ### Dependencies
 
-Libraries required to build `tools/helm/cmd/helm` (verified with `go list -deps`):
+Libraries required to build `helm/cmd/helm` (verified with `go list -deps`):
 
 - Autarch, Echo, Foundation, Langspec, Lexarch, Lingua, Memarch, Memcore, Memforge, Memstruct, Persistence, Signal, Splash, Structarch, Syntaxa
 
@@ -130,10 +159,3 @@ From a full force checkout (or once `go.work` is configured):
 ```
 
 This builds `./bin/helm` and installs to `~/.local/bin/helm` by default. Override with `INSTALL_DEST` or `--dest`.
-
-From the monorepo you can also use:
-
-```bash
-make helm          # build dev binary
-make helmfile      # REPL against tools/helm/Helmfile
-```

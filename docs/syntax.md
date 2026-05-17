@@ -49,9 +49,9 @@ target test() {
 
 ## 3. The Execution Graph (`depends_on`)
 
-The `depends_on` block defines the edges of the DAG. Helm will automatically resolve these dependencies and execute independent graphs in parallel. 
+The `depends_on` block defines the edges of the DAG. Helm resolves dependencies into execution phases and runs targets in the same phase in parallel when they do not depend on each other.
 
-Dependencies are declared in a multiline array using brackets `[]`. You can pass configuration options to specific dependencies using braces `{}`.
+Dependencies are declared in a multiline array using brackets `[]`. A dependency is either a target name string or a braced entry with optional modifiers and/or a `params` block.
 
 ```helm
 target deploy() {
@@ -62,8 +62,70 @@ target deploy() {
     ]
 }
 ```
-* `optional = true`: If the dependency fails or is bypassed, the execution continues.
-* `confirm = true`: Pauses the graph and prompts the user for manual confirmation before executing the dependency.
+
+### Dependency modifiers
+
+* **`optional = true`**: If the dependency fails or is skipped, the dependent target may still run (subject to the rest of the graph).
+* **`confirm = true`**: Pauses before that dependency runs and asks for confirmation (interactive CLI).
+
+Modifiers can use assignment form (`optional = true`) or keyword-then-literal form (`optional true`), as long as the value is a boolean literal.
+
+### Passing parameters to dependencies (`params`)
+
+When a dependency target declares parameters, the caller must supply every **required** parameter in a nested `params { ... }` block on that edge. Optional parameters on the dependency may be omitted.
+
+```helm
+BUILD_DIR = "bin"
+
+target build(GOOS, GOARCH, OUT) {
+    env {
+        GOOS = "${GOOS}"
+        GOARCH = "${GOARCH}"
+        CGO_ENABLED = "0"
+    }
+
+    run "go build -o ${OUT} ./cmd/app"
+}
+
+target build_linux_amd64() {
+    depends_on [
+        build {
+            params {
+                GOOS = "linux"
+                GOARCH = "amd64"
+                OUT = "${BUILD_DIR}/app-linux-amd64"
+            }
+        }
+    ]
+}
+```
+
+**Compile-time rules (semantic validation):**
+
+* Every key in `params { ... }` must name a parameter on the dependency target (`TARGET_015` if unknown).
+* Every **required** parameter on the dependency must appear in that edge’s `params` block (`TARGET_016` if missing).
+* The same parameter name cannot appear twice in one `params` block (`TARGET_017`).
+* The same dependency target cannot be listed twice in one `depends_on` array (`TARGET_014`).
+
+**Runtime behavior:**
+
+* Parameter values are string literals. They may contain `${NAME}` placeholders; Helm resolves those using **global variables** and the **invocation parameters of the dependent target** (the target that owns the `depends_on` edge), then passes the resolved map to the dependency.
+* Resolved parameters are in scope for the dependency’s `run` strings, `env` values, and `workdir` (same interpolation rules as a directly invoked target).
+* Each dependency target runs **at most once** per graph execution. If two dependents in the same run both list the same dependency with `params`, every edge must supply the **same** resolved parameter map; otherwise the engine reports a conflict and aborts.
+* Parameters supplied on the CLI for the entry target (`helm run build_linux_amd64` / `run build GOOS=linux`) apply only to that target’s own signature, not automatically to its dependencies—you wire dependency arguments explicitly in `params`.
+
+`params` can be combined with `optional` and `confirm` in the same braced dependency entry:
+
+```helm
+depends_on [
+    preflight {
+        optional = true
+        params {
+            MODE = "quick"
+        }
+    }
+]
+```
 
 ---
 
