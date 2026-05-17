@@ -48,6 +48,19 @@ type HelmCondition struct {
 	Runs          []string
 }
 
+type HelmTargetStepKind int
+
+const (
+	TargetStepRun HelmTargetStepKind = iota
+	TargetStepWhen
+)
+
+type HelmTargetStep struct {
+	Kind HelmTargetStepKind
+	Run  string
+	When *HelmCondition
+}
+
 type HelmIR struct {
 	GlobalVariables map[string]string
 	Targets         map[string]HelmTarget
@@ -62,11 +75,10 @@ type HelmTarget struct {
 
 	WorkDir string
 	Env     map[string]string
-	Runs    []string
 
-	DependsOn    []HelmTargetDependency
-	Artifacts    *HelmArtifacts
-	Conditionals []HelmCondition
+	DependsOn []HelmTargetDependency
+	Artifacts *HelmArtifacts
+	Steps     []HelmTargetStep
 }
 
 type HelmTargetParameter struct {

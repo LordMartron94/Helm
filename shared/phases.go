@@ -5,6 +5,7 @@ const (
 	ParsingSpanPhase          string = "Parsing"
 	SemanticAnalysisSpanPhase string = "IR creation"
 	ExecutionChainResolution  string = "Execution Chain Resolution"
+	TargetExecutionSpanPhase  string = "Target Execution"
 )
 
 const (
@@ -14,4 +15,5 @@ const (
 
 	SemanticAnalysisPhase string = "semantics"
 	GraphResolutionPhase  string = "graph-resolution"
+	TargetExecutionPhase  string = "target-execution"
 )

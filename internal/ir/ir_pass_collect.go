@@ -81,7 +81,7 @@ func handleVariableDeclaration(
 func validateTargetDependencies(builder *irBuilder) {
 	for _, target := range builder.targets {
 		for _, dep := range target.DependsOn {
-			if _, exists := builder.targets[dep.TargetName]; exists {
+			if _, exists := IRResolveTargetName(builder.targets, dep.TargetName); exists {
 				continue
 			}
 
@@ -93,4 +93,20 @@ func validateTargetDependencies(builder *irBuilder) {
 			)
 		}
 	}
+}
+
+func IRResolveTargetName(targets map[string]HelmTarget, name string) (string, bool) {
+	if _, exists := targets[name]; exists {
+		return name, true
+	}
+
+	for canonical, target := range targets {
+		for _, alias := range target.Aliases {
+			if alias == name {
+				return canonical, true
+			}
+		}
+	}
+
+	return "", false
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"foundation/location"
 	"helm/internal/ir"
+	"helm/internal/targetexecutor"
 	"helm/interpreter"
 	"helm/shared"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"shield"
 	"signal"
 	"strings"
+	"sync"
 )
 
 var standardRunCfg = shield.SHIELD_Testing_ScenarioRunConfig{MaxIterations: 1}
@@ -55,6 +57,7 @@ func runHelmOperation(_ struct{}, execCtx shield.SHIELD_Testing_ExecutionContext
 	results = append(results, runValidPathsScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runValidGlobsScenario(execCtx, sharedHelm, casesDir))
 	results = append(results, runDAGResolutionScenario(execCtx, sharedHelm, casesDir))
+	results = append(results, runTargetExecutionScenario(execCtx, sharedHelm, casesDir))
 
 	return results
 }
@@ -857,6 +860,166 @@ func runDAGResolutionScenario(
 	)
 
 	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
+}
+
+type executionScenarioInput struct {
+	entryTarget     string
+	parameters      map[string]string
+	confirmResponse bool
+}
+
+type executionScenarioOutput struct {
+	executedCommands []string
+	pipelineErr      error
+}
+
+func runTargetExecutionScenario(
+	execCtx shield.SHIELD_Testing_ExecutionContext,
+	sharedHelm *interpreter.HelmInterpreter,
+	casesDir string,
+) shield.SHIELD_Testing_ScenarioRunResult {
+
+	scenario := shield.SHIELD_Testing_ScenarioCreate(
+		"scenario_helm_target_execution",
+		"Validates graph execution, variable interpolation, optional dependencies, and conditionals",
+		[]shield.SHIELD_Testing_Guard[executionScenarioInput, executionScenarioOutput]{
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_exec_interpolation",
+				executionScenarioInput{entryTarget: "params_target", parameters: map[string]string{"USER": "admin"}, confirmResponse: true},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out executionScenarioOutput) (bool, string) {
+					if out.pipelineErr != nil {
+						return false, fmt.Sprintf("expected success, got: %v", out.pipelineErr)
+					}
+					if !containsString(out.executedCommands, "cmd_base") {
+						return false, "base target did not execute"
+					}
+					if !containsString(out.executedCommands, "cmd_params admin production") {
+						return false, fmt.Sprintf("interpolation failed or target did not run. Got: %v", out.executedCommands)
+					}
+					return true, ""
+				}),
+			),
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_exec_blocked_dependency",
+				executionScenarioInput{entryTarget: "blocked_node", parameters: nil, confirmResponse: true},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out executionScenarioOutput) (bool, string) {
+					if out.pipelineErr == nil {
+						return false, "expected pipeline to fail due to failing dependency, but it succeeded"
+					}
+					if containsString(out.executedCommands, "cmd_blocked") {
+						return false, "blocked target executed despite failed dependency"
+					}
+					return true, ""
+				}),
+			),
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_exec_optional_recovery",
+				executionScenarioInput{entryTarget: "optional_recovery_node", parameters: nil, confirmResponse: true},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out executionScenarioOutput) (bool, string) {
+					if out.pipelineErr != nil {
+						return false, fmt.Sprintf("expected success due to optional fallback, got: %v", out.pipelineErr)
+					}
+					if !containsString(out.executedCommands, "cmd_recovery") {
+						return false, "optional fallback target did not execute"
+					}
+					return true, ""
+				}),
+			),
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_exec_conditional_gating",
+				executionScenarioInput{entryTarget: "conditions_target", parameters: map[string]string{"MODE": "active"}, confirmResponse: true},
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out executionScenarioOutput) (bool, string) {
+					if out.pipelineErr != nil {
+						return false, fmt.Sprintf("expected success, got: %v", out.pipelineErr)
+					}
+					if !containsString(out.executedCommands, "cmd_mode_active active") {
+						return false, "when defined() block failed to execute"
+					}
+					if containsString(out.executedCommands, "cmd_should_never_run") {
+						return false, "when equals() block executed incorrectly"
+					}
+					return true, ""
+				}),
+			),
+			shield.SHIELD_Testing_GuardCreate(
+				"guard_exec_confirmation_denied",
+				executionScenarioInput{entryTarget: "confirm_node", parameters: nil, confirmResponse: false}, // USER DENIES
+				shield.SHIELD_Testing_GuardPolicyPredicate(func(out executionScenarioOutput) (bool, string) {
+					if out.pipelineErr == nil {
+						return false, "expected pipeline to abort due to denied confirmation"
+					}
+					if !strings.Contains(out.pipelineErr.Error(), "user declined") {
+						return false, fmt.Sprintf("expected user decline error, got: %v", out.pipelineErr)
+					}
+					if containsString(out.executedCommands, "cmd_confirmed") {
+						return false, "target executed despite user denying the dependency"
+					}
+					return true, ""
+				}),
+			),
+		},
+		func(input executionScenarioInput) (executionScenarioOutput, error) {
+			path := filepath.Join(casesDir, "execution.helm")
+
+			dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{{Label: "ERROR", Weight: 20}})
+			ctx := signal.SignalContextCreate(dispatcher)
+
+			res := interpreter.HelmInterpreterInterpretFile(sharedHelm, path, ctx)
+			if res.Error != nil {
+				return executionScenarioOutput{pipelineErr: res.Error}, nil
+			}
+
+			// 1. Thread-safe execution tracker
+			var mu sync.Mutex
+			var executed []string
+
+			// 2. The Mock Runner
+			mockHandler := func(req targetexecutor.TargetRunRequest) error {
+				mu.Lock()
+				executed = append(executed, req.Command)
+				mu.Unlock()
+
+				// Simulate a process crash
+				if strings.Contains(req.Command, "cmd_fail") {
+					return fmt.Errorf("mock simulated process failure")
+				}
+				return nil
+			}
+
+			// 3. The Mock Confirmation Prompt
+			mockConfirm := func(dependent string, dep ir.HelmTargetDependency) (bool, error) {
+				return input.confirmResponse, nil
+			}
+
+			opts := targetexecutor.TargetExecutorOptions{
+				RunHandler:        mockHandler,
+				ConfirmDependency: mockConfirm,
+			}
+
+			invocations := map[string]targetexecutor.TargetInvocation{
+				input.entryTarget: {Parameters: input.parameters},
+			}
+
+			// 4. Execute the pipeline
+			err := interpreter.HelmInterpreterExecuteTarget(res, ctx, input.entryTarget, invocations, opts)
+
+			return executionScenarioOutput{
+				executedCommands: executed,
+				pipelineErr:      err,
+			}, nil
+		},
+	)
+
+	return shield.SHIELD_Testing_OperationRunScenario(scenario, execCtx, standardRunCfg)
+}
+
+func containsString(slice []string, target string) bool {
+	for _, s := range slice {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }
 
 // ------------------------------------------------------------------ PATH RESOLUTION

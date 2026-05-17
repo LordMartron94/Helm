@@ -5,6 +5,7 @@ import (
 	"foundation/location"
 	"foundation/system"
 	"helm/internal/ir"
+	"helm/internal/targetexecutor"
 	"helm/shared"
 	"langspec"
 	"langspec/bootstrap"
@@ -194,7 +195,54 @@ func HelmInterpreterInterpretFile(
 	return result
 }
 
+func HelmInterpreterExecuteTarget(
+	result HelmInterpreterInterpretationResult,
+	ctx *signal.SignalContext,
+	entryTarget string,
+	invocations map[string]targetexecutor.TargetInvocation,
+	opts targetexecutor.TargetExecutorOptions,
+) error {
+	if _, err := getTargetExecutionChain(result, ctx, entryTarget); err != nil {
+		return err
+	}
+
+	signal.SignalContextPushSpan(ctx, shared.TargetExecutionSpanPhase)
+	defer signal.SignalContextPopSpan(ctx)
+
+	return targetexecutor.TargetExecutorRunGraph(result.BuiltIR, entryTarget, invocations, opts)
+}
+
 func HelmInterpreterDebugExecutionChainForTarget(result HelmInterpreterInterpretationResult, ctx *signal.SignalContext, target string) ([][]string, error) {
+	return getTargetExecutionChain(result, ctx, target)
+}
+
+func HelmInterpreterDumpLexemes(interpreter *HelmInterpreter, file string) error {
+	if !system.PathHasExt(file, ".helm") {
+		return fmt.Errorf("file '%s' is not a .helm file", file)
+	}
+
+	session := langspec.LangParserSessionCreate[rune](file, nil)
+
+	lexemes, _ := langspec.LangParserLexFile(interpreter.parser, session)
+	for i, lexeme := range lexemes {
+		fmt.Fprintf(
+			os.Stdout,
+			"%03d) tok=%s role=%s span=[%d:%d] raw=%q\n",
+			i,
+			interpreter.compiledSymbols.TokenName(uint32(lexeme.Token)),
+			interpreter.compiledSymbols.RoleName(uint32(lexeme.Role)),
+			lexeme.Start,
+			lexeme.End,
+			string(lexeme.Raw),
+		)
+	}
+
+	return nil
+}
+
+// ------------------------------------------------------------- PRIVATE HELPERS
+
+func getTargetExecutionChain(result HelmInterpreterInterpretationResult, ctx *signal.SignalContext, target string) ([][]string, error) {
 	signal.SignalContextPushSpan(ctx, shared.ExecutionChainResolution)
 	defer signal.SignalContextPopSpan(ctx)
 
@@ -226,32 +274,6 @@ func HelmInterpreterDebugExecutionChainForTarget(result HelmInterpreterInterpret
 
 	return chain, err
 }
-
-func HelmInterpreterDumpLexemes(interpreter *HelmInterpreter, file string) error {
-	if !system.PathHasExt(file, ".helm") {
-		return fmt.Errorf("file '%s' is not a .helm file", file)
-	}
-
-	session := langspec.LangParserSessionCreate[rune](file, nil)
-
-	lexemes, _ := langspec.LangParserLexFile(interpreter.parser, session)
-	for i, lexeme := range lexemes {
-		fmt.Fprintf(
-			os.Stdout,
-			"%03d) tok=%s role=%s span=[%d:%d] raw=%q\n",
-			i,
-			interpreter.compiledSymbols.TokenName(uint32(lexeme.Token)),
-			interpreter.compiledSymbols.RoleName(uint32(lexeme.Role)),
-			lexeme.Start,
-			lexeme.End,
-			string(lexeme.Raw),
-		)
-	}
-
-	return nil
-}
-
-// ------------------------------------------------------------- PRIVATE HELPERS
 
 func resolveLineSpan(e syntaxa.SyntaxError, source string) (int, int, int, int) {
 	if e.StartLine > 0 && e.EndLine > 0 {

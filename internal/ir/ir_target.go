@@ -195,7 +195,7 @@ func extractDependency(
 	dep.TargetName = extractContentFromSingleTokenNode(builder, targetNameNode)
 	dep.SourceNode = targetNameNode
 
-	optionsNode := node.FindDirectChildKind(artifacts.NodeDependencyOptions)
+	optionsNode := node.FindFirstKind(artifacts.NodeDependencyOptions)
 	if optionsNode != nil {
 		extractDependencyOptions(builder, optionsNode, &dep)
 	}
@@ -208,24 +208,54 @@ func extractDependencyOptions(
 	optionsNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	dep *HelmTargetDependency,
 ) {
-	tokens := optionsNode.Tokens()
-	boolNodes := optionsNode.FindAllKind(artifacts.NodeBoolean)
-	boolIndex := 0
-
-	for _, tk := range tokens {
-		switch artifacts.Token(tk.Token) {
-		case artifacts.TokKWConfirm:
-			if boolIndex < len(boolNodes) {
-				dep.Confirm = extractBooleanNode(builder, boolNodes[boolIndex])
-				boolIndex++
+	children := optionsNode.ChildrenUnsafe()
+	for i := 0; i < len(children); i++ {
+		switch children[i].Kind() {
+		case artifacts.NodeOptionalKW:
+			if boolNode := dependencyOptionBooleanSuccessor(children, i); boolNode != nil {
+				dep.Optional = extractBooleanNode(builder, boolNode)
 			}
-		case artifacts.TokKWOptional:
-			if boolIndex < len(boolNodes) {
-				dep.Optional = extractBooleanNode(builder, boolNodes[boolIndex])
-				boolIndex++
+		case artifacts.NodeConfirmKW:
+			if boolNode := dependencyOptionBooleanSuccessor(children, i); boolNode != nil {
+				dep.Confirm = extractBooleanNode(builder, boolNode)
 			}
+		default:
+			extractDependencyOptionAssignment(builder, children[i], dep)
 		}
 	}
+}
+
+func extractDependencyOptionAssignment(
+	builder *irBuilder,
+	assignmentNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	dep *HelmTargetDependency,
+) {
+	boolNode := assignmentNode.FindFirstKind(artifacts.NodeBoolean)
+	if boolNode == nil {
+		return
+	}
+
+	value := extractBooleanNode(builder, boolNode)
+	if assignmentNode.FindFirstKind(artifacts.NodeOptionalKW) != nil {
+		dep.Optional = value
+	}
+	if assignmentNode.FindFirstKind(artifacts.NodeConfirmKW) != nil {
+		dep.Confirm = value
+	}
+}
+
+func dependencyOptionBooleanSuccessor(
+	children []*syntaxa.SyntaxaLSTNode[artifacts.Node],
+	keywordIndex int,
+) *syntaxa.SyntaxaLSTNode[artifacts.Node] {
+	if keywordIndex+1 >= len(children) {
+		return nil
+	}
+	next := children[keywordIndex+1]
+	if next.Kind() == artifacts.NodeBoolean {
+		return next
+	}
+	return nil
 }
 
 func handleTargetArtifacts(
@@ -311,7 +341,10 @@ func handleTargetRun(
 ) {
 	stringNode := node.FindFirstKind(artifacts.NodeStringLiteral)
 	runText := extractStringFromStringNode(builder, stringNode, scope)
-	currentTarget.Runs = append(currentTarget.Runs, runText)
+	currentTarget.Steps = append(currentTarget.Steps, HelmTargetStep{
+		Kind: TargetStepRun,
+		Run:  runText,
+	})
 }
 
 func handleTargetConditional(
@@ -373,5 +406,8 @@ func handleTargetConditional(
 		condition.Runs = append(condition.Runs, runText)
 	}
 
-	currentTarget.Conditionals = append(currentTarget.Conditionals, condition)
+	currentTarget.Steps = append(currentTarget.Steps, HelmTargetStep{
+		Kind: TargetStepWhen,
+		When: &condition,
+	})
 }
