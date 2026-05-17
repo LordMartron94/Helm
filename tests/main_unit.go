@@ -974,16 +974,15 @@ func runTargetExecutionScenario(
 			var executed []string
 
 			// 2. The Mock Runner
-			mockHandler := func(req targetexecutor.TargetRunRequest) error {
+			mockHandler := func(req targetexecutor.TargetRunRequest) (targetexecutor.TargetRunResult, error) {
 				mu.Lock()
 				executed = append(executed, req.Command)
 				mu.Unlock()
 
-				// Simulate a process crash
 				if strings.Contains(req.Command, "cmd_fail") {
-					return fmt.Errorf("mock simulated process failure")
+					return targetexecutor.TargetRunResult{}, fmt.Errorf("mock simulated process failure")
 				}
-				return nil
+				return targetexecutor.TargetRunResult{}, nil
 			}
 
 			// 3. The Mock Confirmation Prompt

@@ -3,7 +3,7 @@ GLOBAL_ENV = "production"
 target base() {
     help = "Base node"
     artifacts { volatile = true }
-    run "cmd_base"
+    run "echo cmd_base"
 }
 
 target params_target(USER) {
@@ -11,7 +11,7 @@ target params_target(USER) {
     artifacts { volatile = true }
     depends_on [ base ]
     
-    run "cmd_params ${USER} ${GLOBAL_ENV}"
+    run "echo cmd_params ${USER} ${GLOBAL_ENV}"
 }
 
 target conditions_target(MODE) {
@@ -19,25 +19,25 @@ target conditions_target(MODE) {
     artifacts { volatile = true }
     
     when defined(MODE) {
-        run "cmd_mode_active ${MODE}"
+        run "echo cmd_mode_active ${MODE}"
     }
     
     when equals(MODE, "skip") {
-        run "cmd_should_never_run"
+        run "echo cmd_should_never_run"
     }
 }
 
 target failing_node() {
     help = "A node designed to fail"
     artifacts { volatile = true }
-    run "cmd_fail"
+    run "echo cmd_fail"
 }
 
 target blocked_node() {
     help = "Should not execute because dependency fails"
     artifacts { volatile = true }
     depends_on [ failing_node ]
-    run "cmd_blocked"
+    run "echo cmd_blocked"
 }
 
 target optional_recovery_node() {
@@ -46,7 +46,7 @@ target optional_recovery_node() {
     depends_on [ 
         failing_node { optional = true } 
     ]
-    run "cmd_recovery"
+    run "echo cmd_recovery"
 }
 
 target confirm_node() {
@@ -55,5 +55,5 @@ target confirm_node() {
     depends_on [ 
         base { confirm = true } 
     ]
-    run "cmd_confirmed"
+    run "echo cmd_confirmed"
 }

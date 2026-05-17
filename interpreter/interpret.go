@@ -209,7 +209,10 @@ func HelmInterpreterExecuteTarget(
 	signal.SignalContextPushSpan(ctx, shared.TargetExecutionSpanPhase)
 	defer signal.SignalContextPopSpan(ctx)
 
-	return targetexecutor.TargetExecutorRunGraph(result.BuiltIR, entryTarget, invocations, opts)
+	execOpts := opts
+	execOpts.SignalContext = ctx
+
+	return targetexecutor.TargetExecutorRunGraph(result.BuiltIR, entryTarget, invocations, execOpts)
 }
 
 func HelmInterpreterDebugExecutionChainForTarget(result HelmInterpreterInterpretationResult, ctx *signal.SignalContext, target string) ([][]string, error) {

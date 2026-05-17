@@ -29,7 +29,7 @@ func TargetExecutorRunTarget(
 				WorkDir:    target.WorkDir,
 				Env:        target.Env,
 			}
-			if err := handler(req); err != nil {
+			if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
 				return err
 			}
 		case ir.TargetStepWhen:
@@ -48,7 +48,7 @@ func TargetExecutorRunTarget(
 					WorkDir:    target.WorkDir,
 					Env:        target.Env,
 				}
-				if err := handler(req); err != nil {
+				if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
 					return err
 				}
 			}
@@ -58,4 +58,16 @@ func TargetExecutorRunTarget(
 	}
 
 	return nil
+}
+
+func targetExecutorInvokeRun(
+	handler TargetRunHandler,
+	req TargetRunRequest,
+	opts TargetExecutorOptions,
+) error {
+	result, err := handler(req)
+	if opts.SignalContext != nil {
+		targetExecutorEmitRunSignals(opts.SignalContext, req, result, err)
+	}
+	return err
 }

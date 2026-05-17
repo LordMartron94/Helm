@@ -1,6 +1,7 @@
 package targetexecutor
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,16 +18,24 @@ type TargetRunRequest struct {
 	Env        map[string]string
 }
 
-type TargetRunHandler func(req TargetRunRequest) error
+type TargetRunResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
 
-func TargetExecutorDefaultRunHandler(req TargetRunRequest) error {
+type TargetRunHandler func(req TargetRunRequest) (TargetRunResult, error)
+
+func TargetExecutorDefaultRunHandler(req TargetRunRequest) (TargetRunResult, error) {
+	var result TargetRunResult
+
 	argv, err := shlex.Split(req.Command)
 	if err != nil {
-		return fmt.Errorf("target '%s' step %d: shlex split failed: %w", req.TargetName, req.StepIndex, err)
+		return result, fmt.Errorf("target '%s' step %d: shlex split failed: %w", req.TargetName, req.StepIndex, err)
 	}
 
 	if len(argv) == 0 {
-		return fmt.Errorf("target '%s' step %d: empty command after shlex split", req.TargetName, req.StepIndex)
+		return result, fmt.Errorf("target '%s' step %d: empty command after shlex split", req.TargetName, req.StepIndex)
 	}
 
 	cmd := exec.Command(argv[0], argv[1:]...)
@@ -36,11 +45,23 @@ func TargetExecutorDefaultRunHandler(req TargetRunRequest) error {
 
 	cmd.Env = targetExecutorMergeEnv(req.Env)
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("target '%s' step %d: %w", req.TargetName, req.StepIndex, err)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	runErr := cmd.Run()
+	result.Stdout = stdoutBuf.String()
+	result.Stderr = stderrBuf.String()
+
+	if runErr != nil {
+		result.ExitCode = 1
+		if exitErr, ok := runErr.(*exec.ExitError); ok {
+			result.ExitCode = exitErr.ExitCode()
+		}
+		return result, fmt.Errorf("target '%s' step %d: %w", req.TargetName, req.StepIndex, runErr)
 	}
 
-	return nil
+	return result, nil
 }
 
 func targetExecutorMergeEnv(targetEnv map[string]string) []string {
