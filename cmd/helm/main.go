@@ -8,8 +8,17 @@ import (
 )
 
 func main() {
+	showVersion := flag.Bool("version", false, "print version and exit")
 	colorModeFlag := flag.String("color-mode", "", "terminal color mode: none, ansi16, or truecolor (default: truecolor on TTY)")
 	flag.Parse()
+
+	if *showVersion {
+		if err := cli.PrintVersion(os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "helm: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	args := flag.Args()
 	helmFile := ""

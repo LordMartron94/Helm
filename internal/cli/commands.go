@@ -36,6 +36,8 @@ func CommandExecute(session *Session, line string, stdin io.Reader, stdout io.Wr
 	switch verb {
 	case "exit", "quit":
 		return false, nil
+	case "version":
+		return true, PrintVersion(stdout)
 	case "help":
 		return true, commandHelp(session.UI, stdout, session.Catalog, args)
 	case "clean-cache":
@@ -53,6 +55,9 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 			return err
 		}
 		if err := printBuiltinCommand(stdout, ui, "exit, quit", "leave the shell"); err != nil {
+			return err
+		}
+		if err := printBuiltinCommand(stdout, ui, "version", "print helm version"); err != nil {
 			return err
 		}
 		if err := printBuiltinCommand(stdout, ui, "help [target]", "list commands or describe a target"); err != nil {
