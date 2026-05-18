@@ -23,7 +23,7 @@ target test(NAME) {
 }
 
 target test() {
-	
+	interactive = true
 }
 
 target generate() {

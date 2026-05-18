@@ -26,7 +26,7 @@ func TargetExecutorRunTarget(
 		switch step.Kind {
 		case ir.TargetStepRun:
 			command := TargetExecutorInterpolateLiteral(step.Run, globalVars, parameters)
-			req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, opts)
+			req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, target.Interactive, opts)
 			if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
 				return err
 			}
@@ -39,7 +39,7 @@ func TargetExecutorRunTarget(
 			}
 			for _, runLiteral := range step.When.Runs {
 				command := TargetExecutorInterpolateLiteral(runLiteral, globalVars, parameters)
-				req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, opts)
+				req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, target.Interactive, opts)
 				if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
 					return err
 				}
@@ -58,17 +58,19 @@ func targetExecutorRunRequestCreate(
 	command string,
 	workDir string,
 	env map[string]string,
+	interactive bool,
 	opts TargetExecutorOptions,
 ) TargetRunRequest {
 	req := TargetRunRequest{
-		TargetName: targetName,
-		StepIndex:  stepIndex,
-		Command:    command,
-		WorkDir:    workDir,
-		Env:        env,
+		TargetName:  targetName,
+		StepIndex:   stepIndex,
+		Command:     command,
+		WorkDir:     workDir,
+		Env:         env,
+		Interactive: interactive,
 	}
 
-	if !opts.StreamRunOutput {
+	if interactive || !opts.StreamRunOutput {
 		return req
 	}
 

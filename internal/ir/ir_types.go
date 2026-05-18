@@ -26,6 +26,9 @@ const (
 	ERROR_UNKNOWN_DEPENDENCY_PARAM   string = "TARGET_015"
 	ERROR_MISSING_DEPENDENCY_PARAM   string = "TARGET_016"
 	ERROR_DUPLICATE_DEPENDENCY_PARAM string = "TARGET_017"
+	ERROR_DUPLICATE_INTERACTIVE      string = "TARGET_018"
+	ERROR_INTERACTIVE_MATRIX         string = "TARGET_019"
+	ERROR_INVALID_INTERACTIVE        string = "TARGET_020"
 
 	ERROR_UNDECLARED_PARAMETER string = "COND_001"
 
@@ -86,10 +89,11 @@ type HelmTarget struct {
 	WorkDir string
 	Env     map[string]string
 
-	DependsOn []HelmTargetDependency
-	Matrix    *HelmMatrix
-	Artifacts *HelmArtifacts
-	Steps     []HelmTargetStep
+	DependsOn   []HelmTargetDependency
+	Matrix      *HelmMatrix
+	Artifacts   *HelmArtifacts
+	Interactive bool
+	Steps       []HelmTargetStep
 }
 
 type HelmMatrix struct {

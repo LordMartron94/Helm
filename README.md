@@ -130,6 +130,10 @@ target db-migrate() {
 }
 ```
 
+### 4. Interactive terminal ownership
+
+Targets that launch REPLs or other TTY-driven programs set `interactive = true` at the target body level (not inside `artifacts`). Helm attaches the host `stdin`/`stdout`/`stderr` to the child process and enforces that no other target runs in the same parallel DAG phase. Interactive targets cannot use a `matrix` block.
+
 For more detail see: [syntax reference](./docs/syntax.md)
 
 As with all my syntaxes, the [LangSpec](https://github.com/LordMartron94/LangSpec) definition lives in [Lingua](https://github.com/LordMartron94/Lingua).

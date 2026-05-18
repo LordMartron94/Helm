@@ -50,6 +50,10 @@ func TargetExecutorRunGraph(
 	}
 
 	for _, phase := range chain {
+		if err := targetExecutorValidatePhaseTTY(phase, builtIR.Targets); err != nil {
+			return err
+		}
+
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 		var phaseErr error
@@ -293,6 +297,35 @@ func targetExecutorDependencyBlocked(
 		}
 
 		return TargetExecutorFormatDependencyBlockedError(targetName, canonical, depErr)
+	}
+
+	return nil
+}
+
+func targetExecutorValidatePhaseTTY(phase []string, targets map[string]ir.HelmTarget) error {
+	var interactiveTargets []string
+
+	for _, targetName := range phase {
+		target, ok := targets[targetName]
+		if !ok {
+			continue
+		}
+		if target.Interactive {
+			interactiveTargets = append(interactiveTargets, targetName)
+		}
+	}
+
+	if len(interactiveTargets) == 0 {
+		return nil
+	}
+
+	if len(phase) > 1 {
+		return fmt.Errorf(
+			"%s: interactive target %q cannot run in parallel with %d other target(s) in the same phase",
+			ERROR_TTY_CONFLICT,
+			interactiveTargets[0],
+			len(phase)-1,
+		)
 	}
 
 	return nil

@@ -45,6 +45,31 @@ target test() {
 }
 ```
 
+### Interactive targets (`interactive`)
+
+Use `interactive = true` when a target must control the host terminal for its entire run (REPLs, debuggers, prompts). Helm wires `stdin`, `stdout`, and `stderr` directly to the child process instead of capturing output in buffers.
+
+```helm
+target shield() {
+    help = "Launch the SHIELD REPL"
+
+    interactive = true
+
+    depends_on [ build_shield ]
+
+    artifacts {
+        volatile = true
+    }
+
+    run "./build/dev-bin/shield_cli"
+}
+```
+
+* **`interactive = true`**: Claims the host TTY for all `run` steps on this target. Cache lookup is skipped (the target always runs when reached, like `volatile`).
+* **Incompatible with `matrix`**: Matrix legs run in parallel; interactive targets cannot share a matrix block (`TARGET_019`).
+* **Parallel phases**: An interactive target must be the only target in its DAG execution phase. Helm fails with `EXEC_002` if another target would run in parallel in the same phase.
+* **Typical usage**: Declare `interactive` on a leaf-style entry target (e.g. `helm run shield`) after build dependencies have finished in earlier phases.
+
 ---
 
 ## 3. The Execution Graph (`depends_on`)

@@ -23,6 +23,16 @@ func handleTargetMatrix(
 	}
 	state.matrixDeclared = true
 
+	if currentTarget.Interactive {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_INTERACTIVE_MATRIX,
+			fmt.Sprintf("target '%s' cannot use interactive = true with a matrix block", currentTarget.Name),
+		)
+		return
+	}
+
 	identifierNode := node.FindDirectChildKind(artifacts.NodeMatrixIdentifier)
 	if identifierNode == nil {
 		emitSemanticError(builder, node, ERROR_EMPTY_MATRIX, "matrix block is missing a variable name")

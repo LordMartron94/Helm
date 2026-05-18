@@ -29,7 +29,7 @@ func targetExecutorEvaluateCache(
 		return decision, nil
 	}
 
-	if target.Artifacts.Volatile {
+	if target.Artifacts.Volatile || target.Interactive {
 		return decision, nil
 	}
 
@@ -91,7 +91,7 @@ func targetExecutorCommitCache(
 		return 0, err
 	}
 
-	if target.Artifacts.Volatile || opts.CacheStore == nil {
+	if target.Artifacts.Volatile || target.Interactive || opts.CacheStore == nil {
 		return outputFingerprint, nil
 	}
 

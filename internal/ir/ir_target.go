@@ -59,13 +59,14 @@ func handleTargetDeclaration(
 }
 
 type targetParseState struct {
-	helpDeclared      bool
-	aliasesDeclared   bool
-	matrixDeclared    bool
-	artifactsDeclared bool
-	workDirDeclared   bool
-	envDeclared       bool
-	dependsDeclared   bool
+	helpDeclared        bool
+	aliasesDeclared     bool
+	matrixDeclared      bool
+	artifactsDeclared   bool
+	workDirDeclared     bool
+	envDeclared         bool
+	dependsDeclared     bool
+	interactiveDeclared bool
 }
 
 func handleTargetBody(
@@ -117,9 +118,20 @@ func handleTargetBody(
 			handleTargetConditional(builder, contentNode, scope, currentTarget)
 		case artifacts.NodeTargetDepends:
 			handleTargetDependsOn(builder, contentNode, scope, currentTarget, state)
+		case artifacts.NodeInteractiveStatement:
+			handleTargetInteractive(builder, contentNode, currentTarget, state)
 		default:
 			panic(fmt.Errorf("interpreter error: unhandled child kind '%v'", kind))
 		}
+	}
+
+	if currentTarget.Interactive && currentTarget.Matrix != nil {
+		emitSemanticError(
+			builder,
+			targetNode,
+			ERROR_INTERACTIVE_MATRIX,
+			fmt.Sprintf("target '%s' cannot use interactive = true with a matrix block", currentTarget.Name),
+		)
 	}
 
 	if !state.helpDeclared {
@@ -137,6 +149,45 @@ func handleTargetBody(
 			targetNode,
 			ERROR_NO_ARTIFACTS,
 			fmt.Sprintf("artifacts block for target '%s' is missing and required", currentTarget.Name),
+		)
+	}
+}
+
+func handleTargetInteractive(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	currentTarget *HelmTarget,
+	state *targetParseState,
+) {
+	if state.interactiveDeclared {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_DUPLICATE_INTERACTIVE,
+			fmt.Sprintf("interactive for target '%s' already declared", currentTarget.Name),
+		)
+		return
+	}
+	state.interactiveDeclared = true
+
+	boolNode := node.FindFirstKind(artifacts.NodeBoolean)
+	if boolNode == nil {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_INVALID_INTERACTIVE,
+			fmt.Sprintf("interactive for target '%s' must be true or false", currentTarget.Name),
+		)
+		return
+	}
+
+	currentTarget.Interactive = extractBooleanNode(builder, boolNode)
+	if currentTarget.Interactive && currentTarget.Matrix != nil {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_INTERACTIVE_MATRIX,
+			fmt.Sprintf("target '%s' cannot use interactive = true with a matrix block", currentTarget.Name),
 		)
 	}
 }

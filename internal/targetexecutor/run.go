@@ -12,11 +12,12 @@ import (
 )
 
 type TargetRunRequest struct {
-	TargetName string
-	StepIndex  int
-	Command    string
-	WorkDir    string
-	Env        map[string]string
+	TargetName  string
+	StepIndex   int
+	Command     string
+	WorkDir     string
+	Env         map[string]string
+	Interactive bool
 	// LiveStdout and LiveStderr, when non-nil, receive a copy of process output as it is produced.
 	LiveStdout io.Writer
 	LiveStderr io.Writer
@@ -49,14 +50,31 @@ func TargetExecutorDefaultRunHandler(req TargetRunRequest) (TargetRunResult, err
 
 	cmd.Env = targetExecutorMergeEnv(req.Env)
 
-	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = targetExecutorRunOutputWriter(&stdoutBuf, req.LiveStdout)
-	cmd.Stderr = targetExecutorRunOutputWriter(&stderrBuf, req.LiveStderr)
+	if req.Interactive {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		var stdoutBuf, stderrBuf bytes.Buffer
+		cmd.Stdout = targetExecutorRunOutputWriter(&stdoutBuf, req.LiveStdout)
+		cmd.Stderr = targetExecutorRunOutputWriter(&stderrBuf, req.LiveStderr)
+
+		runErr := cmd.Run()
+		result.Stdout = stdoutBuf.String()
+		result.Stderr = stderrBuf.String()
+
+		if runErr != nil {
+			result.ExitCode = 1
+			if exitErr, ok := runErr.(*exec.ExitError); ok {
+				result.ExitCode = exitErr.ExitCode()
+			}
+			return result, fmt.Errorf("target '%s' step %d: %w", req.TargetName, req.StepIndex, runErr)
+		}
+
+		return result, nil
+	}
 
 	runErr := cmd.Run()
-	result.Stdout = stdoutBuf.String()
-	result.Stderr = stderrBuf.String()
-
 	if runErr != nil {
 		result.ExitCode = 1
 		if exitErr, ok := runErr.(*exec.ExitError); ok {
