@@ -24,8 +24,22 @@ const (
 	IntentCategoryError
 	IntentDefault
 	IntentMeta
+	IntentExecSuccess
+	IntentExecSkipped
+	IntentExecFailed
+	IntentExecCache
 	intentCount
 )
+
+func helmTestExecutionRenderIntents() shared.HelmExecutionRenderIntents {
+	return shared.HelmExecutionRenderIntents{
+		Success: IntentExecSuccess,
+		Skipped: IntentExecSkipped,
+		Failed:  IntentExecFailed,
+		Cache:   IntentExecCache,
+		Meta:    IntentMeta,
+	}
+}
 
 var defaultRenderingIntentMap = map[string]int{
 	"INFO":    IntentCategoryInfo,
@@ -261,7 +275,7 @@ func HelmRenderTestCache(t *testing.T) {
 		t.Fatalf("failed to seed cache_render fixtures: %v", err)
 	}
 
-	executeVisualDiagnosticHarness(t, "cache_render/cache.helm", shared.HelmExecutionOutputDetailHook(IntentMeta),
+	executeVisualDiagnosticHarness(t, "cache_render/cache.helm", shared.HelmExecutionOutputDetailHook(helmTestExecutionRenderIntents()),
 		func(res interpreter.HelmInterpreterInterpretationResult, ctx *signal.SignalContext) error {
 			opts := targetexecutor.TargetExecutorOptions{}
 			return interpreter.HelmInterpreterExecuteTarget(res, ctx, "render_downstream", nil, opts)
@@ -342,7 +356,7 @@ func cacheRenderSeedFixturesIfMissing(fixtureDir string) error {
 func HelmRenderTestExecution(t *testing.T) {
 	var execOKStdout []string
 
-	executeVisualDiagnosticHarness(t, "execution.helm", shared.HelmExecutionOutputDetailHook(IntentMeta),
+	executeVisualDiagnosticHarness(t, "execution.helm", shared.HelmExecutionOutputDetailHook(helmTestExecutionRenderIntents()),
 		func(res interpreter.HelmInterpreterInterpretationResult, ctx *signal.SignalContext) error {
 			opts := targetexecutor.TargetExecutorOptions{
 				ConfirmDependency: func(dep string, target ir.HelmTargetDependency) (bool, error) {
@@ -394,6 +408,10 @@ func executeVisualDiagnosticHarness(
 	paletteBuilder.Register(IntentCategoryInfo, splash.SPLASH_Rendering_TerminalColorAnsi16_Cyan, splash.SPLASH_Rendering_TerminalTrueColor(52, 152, 219))
 	paletteBuilder.Register(IntentDefault, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightBlack, splash.SPLASH_Rendering_TerminalTrueColor(127, 140, 141))
 	paletteBuilder.Register(IntentMeta, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightBlack, splash.SPLASH_Rendering_TerminalTrueColor(127, 140, 141))
+	paletteBuilder.Register(IntentExecSuccess, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightGreen, splash.SPLASH_Rendering_TerminalTrueColor(46, 204, 113))
+	paletteBuilder.Register(IntentExecSkipped, splash.SPLASH_Rendering_TerminalColorAnsi16_Yellow, splash.SPLASH_Rendering_TerminalTrueColor(241, 196, 15))
+	paletteBuilder.Register(IntentExecFailed, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightRed, splash.SPLASH_Rendering_TerminalTrueColor(231, 76, 60))
+	paletteBuilder.Register(IntentExecCache, splash.SPLASH_Rendering_TerminalColorAnsi16_Cyan, splash.SPLASH_Rendering_TerminalTrueColor(52, 152, 219))
 
 	palette := paletteBuilder.Build()
 

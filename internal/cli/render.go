@@ -17,6 +17,10 @@ const (
 	intentCategoryError
 	intentDefault
 	intentMeta
+	intentExecSuccess
+	intentExecSkipped
+	intentExecFailed
+	intentExecCache
 	intentCount
 )
 
@@ -29,10 +33,13 @@ const (
 )
 
 type DiagnosticRenderer struct {
-	dispatcher *signal.SignalDispatcher
-	renderer   *rendering.SignalRenderer
-	ctx        *signal.SignalContext
-	output     io.Writer
+	dispatcher      *signal.SignalDispatcher
+	renderer        *rendering.SignalRenderer
+	summaryRenderer *splash.SPLASH_Rendering_TerminalRenderer
+	execTally       *shared.HelmExecutionTally
+	execIntents     shared.HelmExecutionRenderIntents
+	ctx             *signal.SignalContext
+	output          io.Writer
 }
 
 type DiagnosticRendererConfig struct {
@@ -55,6 +62,10 @@ func DiagnosticRendererCreate(config DiagnosticRendererConfig) *DiagnosticRender
 	paletteBuilder.Register(intentCategoryInfo, splash.SPLASH_Rendering_TerminalColorAnsi16_Cyan, splash.SPLASH_Rendering_TerminalTrueColor(52, 152, 219))
 	paletteBuilder.Register(intentDefault, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightBlack, splash.SPLASH_Rendering_TerminalTrueColor(127, 140, 141))
 	paletteBuilder.Register(intentMeta, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightBlack, splash.SPLASH_Rendering_TerminalTrueColor(127, 140, 141))
+	paletteBuilder.Register(intentExecSuccess, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightGreen, splash.SPLASH_Rendering_TerminalTrueColor(46, 204, 113))
+	paletteBuilder.Register(intentExecSkipped, splash.SPLASH_Rendering_TerminalColorAnsi16_Yellow, splash.SPLASH_Rendering_TerminalTrueColor(241, 196, 15))
+	paletteBuilder.Register(intentExecFailed, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightRed, splash.SPLASH_Rendering_TerminalTrueColor(231, 76, 60))
+	paletteBuilder.Register(intentExecCache, splash.SPLASH_Rendering_TerminalColorAnsi16_Cyan, splash.SPLASH_Rendering_TerminalTrueColor(52, 152, 219))
 	palette := paletteBuilder.Build()
 
 	omitBufferedExecOutput := false
@@ -101,9 +112,17 @@ func DiagnosticRendererCreate(config DiagnosticRendererConfig) *DiagnosticRender
 		return ""
 	}
 
+	execIntents := shared.HelmExecutionRenderIntents{
+		Success: intentExecSuccess,
+		Skipped: intentExecSkipped,
+		Failed:  intentExecFailed,
+		Cache:   intentExecCache,
+		Meta:    intentMeta,
+	}
+
 	detailHook := shared.HelmCombineDetailHooks(
 		shared.HelmDiagnosticSquigglyDetailHook(intentMeta),
-		shared.HelmExecutionOutputDetailHookOmitBuffered(intentMeta, omitBufferedExecOutput),
+		shared.HelmExecutionOutputDetailHookOmitBuffered(execIntents, omitBufferedExecOutput),
 	)
 
 	renderer := rendering.SignalRendererCreate(
@@ -122,11 +141,19 @@ func DiagnosticRendererCreate(config DiagnosticRendererConfig) *DiagnosticRender
 	dispatcher := signal.SignalDispatcherCreate(manifest)
 	signal.SignalDispatcherRegisterSink(dispatcher, "cli", rendering.SignalRendererSinkGet(renderer))
 
+	execTally := &shared.HelmExecutionTally{}
+	signal.SignalDispatcherRegisterSink(dispatcher, "exec_tally", func(sig signal.Signal) {
+		shared.HelmExecutionTallyRecord(execTally, sig)
+	})
+
 	return &DiagnosticRenderer{
-		dispatcher: dispatcher,
-		renderer:   renderer,
-		ctx:        signal.SignalContextCreate(dispatcher),
-		output:     output,
+		dispatcher:      dispatcher,
+		renderer:        renderer,
+		summaryRenderer: terminalRenderer,
+		execTally:       execTally,
+		execIntents:     execIntents,
+		ctx:             signal.SignalContextCreate(dispatcher),
+		output:          output,
 	}
 }
 
@@ -139,6 +166,13 @@ func (dr *DiagnosticRenderer) Flush() {
 		return
 	}
 	_, _ = io.WriteString(dr.output, rendering.SignalRendererRender(dr.renderer))
+	if dr.summaryRenderer != nil && dr.execTally != nil {
+		_, _ = io.WriteString(
+			dr.output,
+			shared.HelmRenderExecutionSummary(dr.summaryRenderer, *dr.execTally, dr.execIntents),
+		)
+		*dr.execTally = shared.HelmExecutionTally{}
+	}
 }
 
 func ResolveDefaultColorMode() ColorMode {
