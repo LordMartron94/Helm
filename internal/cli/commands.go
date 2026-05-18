@@ -15,6 +15,14 @@ import (
 )
 
 func CommandExecute(session *Session, line string, stdin io.Reader, stdout io.Writer) (bool, error) {
+	fields, err := shlex.Split(line)
+	if err != nil {
+		return true, fmt.Errorf("could not parse command: %w", err)
+	}
+	return CommandExecuteFields(session, fields, stdin, stdout)
+}
+
+func CommandExecuteFields(session *Session, fields []string, stdin io.Reader, stdout io.Writer) (bool, error) {
 	if stdin == nil {
 		stdin = os.Stdin
 	}
@@ -22,10 +30,6 @@ func CommandExecute(session *Session, line string, stdin io.Reader, stdout io.Wr
 		stdout = os.Stdout
 	}
 
-	fields, err := shlex.Split(line)
-	if err != nil {
-		return true, fmt.Errorf("could not parse command: %w", err)
-	}
 	if len(fields) == 0 {
 		return true, nil
 	}

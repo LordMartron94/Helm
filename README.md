@@ -134,6 +134,27 @@ For more detail see: [syntax reference](./docs/syntax.md)
 
 As with all my syntaxes, the [LangSpec](https://github.com/LordMartron94/LangSpec) definition lives in [Lingua](https://github.com/LordMartron94/Lingua).
 
+## CLI
+
+With no arguments, `helm` starts an interactive shell (`helm>` prompt). Every built-in shell command also works as a one-shot invocation:
+
+```bash
+helm help
+helm run <target> [key=value ...]
+helm run --bypass-cache <target>
+helm clean-cache
+helm set stream-runs off
+helm version
+```
+
+Pass an explicit helm file before the command when needed:
+
+```bash
+helm path/to/project.helm run <target>
+```
+
+`helm -version` prints the binary version without loading a helm file. `helm version` runs through the normal session (discover helm file, interpret, then print version), matching the REPL `version` command.
+
 ## Building
 
 ### Dependencies

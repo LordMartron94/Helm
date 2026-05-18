@@ -10,6 +10,7 @@ type RunConfig struct {
 	LSpecPath       string
 	ColorMode       ColorMode
 	StreamRunOutput *bool
+	CommandFields   []string
 }
 
 func Run(config RunConfig) error {
@@ -43,6 +44,11 @@ func Run(config RunConfig) error {
 	defer SessionDestroy(session)
 
 	if err := printStartupBanner(os.Stderr, session.UI, session, helmFile, session.CacheDirectory()); err != nil {
+		return err
+	}
+
+	if len(config.CommandFields) > 0 {
+		_, err := CommandExecuteFields(session, config.CommandFields, os.Stdin, os.Stdout)
 		return err
 	}
 

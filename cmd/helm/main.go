@@ -21,10 +21,10 @@ func main() {
 		return
 	}
 
-	args := flag.Args()
-	helmFile := ""
-	if len(args) > 0 {
-		helmFile = args[0]
+	inv, err := cli.ParseInvocation(flag.Args())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "helm: %v\n", err)
+		os.Exit(2)
 	}
 
 	colorMode := cli.ColorMode(*colorModeFlag)
@@ -47,10 +47,11 @@ func main() {
 
 	streamRunOutput := *streamRunsFlag
 	if err := cli.Run(cli.RunConfig{
-		HelmFilePath:    helmFile,
+		HelmFilePath:    inv.HelmFilePath,
 		LSpecPath:       lSpecPath,
 		ColorMode:       colorMode,
 		StreamRunOutput: &streamRunOutput,
+		CommandFields:   inv.CommandFields,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "helm: %v\n", err)
 		os.Exit(1)
