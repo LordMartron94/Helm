@@ -276,8 +276,16 @@ func HelmExecutionOutputDetailHookOmitBuffered(
 				return
 			}
 			target, _ := signal.SignalPayloadGetAs[string](&sig, TargetPayloadKey)
+			instanceKey, _ := signal.SignalPayloadGetAs[string](&sig, MatrixInstancePayloadKey)
 			reason, _ := signal.SignalPayloadGetAs[string](&sig, ReasonPayloadKey)
-			helmRenderExecutionStatus(renderer, "SKIPPED", intents.Skipped, intents.Meta, target, reason)
+			helmRenderExecutionStatus(
+				renderer,
+				"SKIPPED",
+				intents.Skipped,
+				intents.Meta,
+				target,
+				helmExecutionSkipDetail(instanceKey, reason),
+			)
 			return
 		}
 
@@ -350,6 +358,17 @@ func HelmExecutionOutputDetailHookOmitBuffered(
 	}
 }
 
+func helmExecutionSkipDetail(instanceKey string, reason string) string {
+	var lines []string
+	if instanceKey != "" {
+		lines = append(lines, instanceKey)
+	}
+	if reason != "" {
+		lines = append(lines, reason)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func helmExecutionStatusDetail(command string, durationNS int64) string {
 	if command == "" && durationNS <= 0 {
 		return ""
@@ -383,11 +402,16 @@ func helmRenderExecutionStatus(
 	splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
 
 	if detail != "" {
-		splash.SPLASH_Rendering_TerminalRendererIndent(renderer)
-		splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, "  ", metaIntent)
-		splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, detail)
-		splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
-		splash.SPLASH_Rendering_TerminalRendererDedent(renderer)
+		for _, line := range strings.Split(detail, "\n") {
+			if line == "" {
+				continue
+			}
+			splash.SPLASH_Rendering_TerminalRendererIndent(renderer)
+			splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, "  ", metaIntent)
+			splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, line)
+			splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+			splash.SPLASH_Rendering_TerminalRendererDedent(renderer)
+		}
 	}
 
 	splash.SPLASH_Rendering_TerminalRendererDedent(renderer)

@@ -128,7 +128,12 @@ func TargetExecutorRunGraph(
 
 						var outputFingerprint uint64
 						if decision.Skip {
-							targetExecutorEmitCacheSkipSignals(runOpts.SignalContext, name, decision.StateFingerprint)
+							targetExecutorEmitCacheSkipSignals(
+								runOpts.SignalContext,
+								name,
+								inst.CacheKey,
+								decision.StateFingerprint,
+							)
 							outputFingerprint = decision.OutputFingerprint
 						} else {
 							runErr := TargetExecutorRunTarget(target, builtIR.GlobalVariables, effectiveInv, runOpts)

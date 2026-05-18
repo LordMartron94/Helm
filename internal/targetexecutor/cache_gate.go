@@ -146,18 +146,24 @@ func targetExecutorOutputFingerprintAfterRun(
 func targetExecutorEmitCacheSkipSignals(
 	ctx *signal.SignalContext,
 	targetName string,
+	instanceKey string,
 	stateFingerprint uint64,
 ) {
 	if ctx == nil {
 		return
 	}
 
-	signal.SignalContextBuild(ctx, shared.SignalExecSkipped, "INFO").
+	builder := signal.SignalContextBuild(ctx, shared.SignalExecSkipped, "INFO").
 		Payload(shared.PhasePayloadKey, shared.TargetExecutionPhase).
 		Payload(shared.TargetPayloadKey, targetName).
 		Payload(shared.ReasonPayloadKey, shared.CacheHitReason).
-		Payload(shared.StateFingerprintPayloadKey, stateFingerprint).
-		Emit()
+		Payload(shared.StateFingerprintPayloadKey, stateFingerprint)
+
+	if instanceKey != "" {
+		builder = builder.Payload(shared.MatrixInstancePayloadKey, instanceKey)
+	}
+
+	builder.Emit()
 }
 
 func targetExecutorEmitCacheUpdatedSignals(
