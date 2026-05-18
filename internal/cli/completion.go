@@ -234,13 +234,26 @@ func completeRun(cur, helmFilePath string, runArgs []string, runArgIndex int) []
 }
 
 func completeHelp(helmFilePath string, args []string, argIndex int, cur string) []string {
-	if argIndex > 0 {
+	showHidden := false
+	rest := args
+	for len(rest) > 0 && rest[0] == "--show-hidden" {
+		showHidden = true
+		rest = rest[1:]
+	}
+	if argIndex > len(rest) {
 		return nil
 	}
-	candidates := []string{"completion"}
+	if argIndex > 0 && rest[argIndex-1] == "completion" {
+		return nil
+	}
+
+	candidates := []string{"--show-hidden", "completion"}
 	session := sessionCreateForCompletion(helmFilePath)
 	if session != nil {
-		candidates = append(candidates, session.Catalog.CanonicalNames()...)
+		candidates = append(candidates, session.Catalog.VisibleCanonicalNames()...)
+		if showHidden {
+			candidates = append(candidates, session.Catalog.HiddenCanonicalNames()...)
+		}
 		SessionDestroy(session)
 	}
 	return prefixFilter(cur, candidates)

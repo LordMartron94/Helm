@@ -70,6 +70,21 @@ target shield() {
 * **Parallel phases**: An interactive target must be the only target in its DAG execution phase. Helm fails with `EXEC_002` if another target would run in parallel in the same phase.
 * **Typical usage**: Declare `interactive` on a leaf-style entry target (e.g. `helm run shield`) after build dependencies have finished in earlier phases.
 
+### Hidden targets (`hidden`)
+
+Use `hidden = true` to keep a target runnable but omit it from default `help` output. Hidden targets still appear in `run` tab completion and can be invoked with `helm run <name>`.
+
+```helm
+target _internal_fixup() {
+    help = "Regenerate local fixtures (maintainer only)"
+    hidden = true
+    ...
+}
+```
+
+* **`hidden = true`**: Excluded from the main target list in `help`. Use `help --show-hidden` to list them under a separate **hidden targets** section.
+* **`hidden = false`**: Default; target is shown in normal help.
+
 ---
 
 ## 3. The Execution Graph (`depends_on`)

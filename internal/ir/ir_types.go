@@ -29,6 +29,8 @@ const (
 	ERROR_DUPLICATE_INTERACTIVE      string = "TARGET_018"
 	ERROR_INTERACTIVE_MATRIX         string = "TARGET_019"
 	ERROR_INVALID_INTERACTIVE        string = "TARGET_020"
+	ERROR_DUPLICATE_HIDDEN           string = "TARGET_021"
+	ERROR_INVALID_HIDDEN             string = "TARGET_022"
 
 	ERROR_UNDECLARED_PARAMETER string = "COND_001"
 
@@ -93,6 +95,7 @@ type HelmTarget struct {
 	Matrix      *HelmMatrix
 	Artifacts   *HelmArtifacts
 	Interactive bool
+	Hidden      bool
 	Steps       []HelmTargetStep
 }
 

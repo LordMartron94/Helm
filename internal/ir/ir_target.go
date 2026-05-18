@@ -67,6 +67,7 @@ type targetParseState struct {
 	envDeclared         bool
 	dependsDeclared     bool
 	interactiveDeclared bool
+	hiddenDeclared      bool
 }
 
 func handleTargetBody(
@@ -120,6 +121,8 @@ func handleTargetBody(
 			handleTargetDependsOn(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeInteractiveStatement:
 			handleTargetInteractive(builder, contentNode, currentTarget, state)
+		case artifacts.NodeHiddenStatement:
+			handleTargetHidden(builder, contentNode, currentTarget, state)
 		default:
 			panic(fmt.Errorf("interpreter error: unhandled child kind '%v'", kind))
 		}
@@ -151,6 +154,37 @@ func handleTargetBody(
 			fmt.Sprintf("artifacts block for target '%s' is missing and required", currentTarget.Name),
 		)
 	}
+}
+
+func handleTargetHidden(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	currentTarget *HelmTarget,
+	state *targetParseState,
+) {
+	if state.hiddenDeclared {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_DUPLICATE_HIDDEN,
+			fmt.Sprintf("hidden for target '%s' already declared", currentTarget.Name),
+		)
+		return
+	}
+	state.hiddenDeclared = true
+
+	boolNode := node.FindFirstKind(artifacts.NodeBoolean)
+	if boolNode == nil {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_INVALID_HIDDEN,
+			fmt.Sprintf("hidden for target '%s' must be true or false", currentTarget.Name),
+		)
+		return
+	}
+
+	currentTarget.Hidden = extractBooleanNode(builder, boolNode)
 }
 
 func handleTargetInteractive(

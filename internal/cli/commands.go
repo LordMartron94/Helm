@@ -55,7 +55,18 @@ func CommandExecuteFields(session *Session, fields []string, stdin io.Reader, st
 	}
 }
 
+func parseHelpArgs(args []string) (showHidden bool, rest []string) {
+	rest = args
+	for len(rest) > 0 && rest[0] == "--show-hidden" {
+		showHidden = true
+		rest = rest[1:]
+	}
+	return showHidden, rest
+}
+
 func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args []string) error {
+	showHidden, args := parseHelpArgs(args)
+
 	if len(args) == 0 {
 		if err := terminalUIWrite(stdout, ui, uiIntentHeading, "commands\n"); err != nil {
 			return err
@@ -66,7 +77,7 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 		if err := printBuiltinCommand(stdout, ui, "version", "print helm version"); err != nil {
 			return err
 		}
-		if err := printBuiltinCommand(stdout, ui, "help [target]", "list commands or describe a target"); err != nil {
+		if err := printBuiltinCommand(stdout, ui, "help [--show-hidden] [target]", "list commands or describe a target"); err != nil {
 			return err
 		}
 		if err := printBuiltinCommand(stdout, ui, "clean-cache", "remove .helm/cache for this helm file"); err != nil {
@@ -88,8 +99,31 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 		if err := terminalUIWrite(stdout, ui, uiIntentHeading, "targets\n"); err != nil {
 			return err
 		}
-		for _, name := range catalog.CanonicalNames() {
+		for _, name := range catalog.VisibleCanonicalNames() {
 			if err := printTargetSummary(stdout, ui, catalog, name); err != nil {
+				return err
+			}
+		}
+		if showHidden {
+			hiddenNames := catalog.HiddenCanonicalNames()
+			if len(hiddenNames) > 0 {
+				if _, err := fmt.Fprintln(stdout); err != nil {
+					return err
+				}
+				if err := terminalUIWrite(stdout, ui, uiIntentHeading, "hidden targets\n"); err != nil {
+					return err
+				}
+				for _, name := range hiddenNames {
+					if err := printTargetSummary(stdout, ui, catalog, name); err != nil {
+						return err
+					}
+				}
+			}
+		} else if catalog.HasHiddenTargets() {
+			if _, err := fmt.Fprintln(stdout); err != nil {
+				return err
+			}
+			if err := terminalUIWrite(stdout, ui, uiIntentMuted, "  (hidden targets omitted; use help --show-hidden)\n"); err != nil {
 				return err
 			}
 		}
