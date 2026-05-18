@@ -92,10 +92,25 @@ func ArtifactGlobWithInterpolatedBase(
 	}
 	copy := *glob
 	copy.BaseDirectory = expand.ExpandInterpolateLiteral(glob.BaseDirectory, globalVars, parameters)
-	copy.Include = expand.ExpandInterpolateLiteral(glob.Include, globalVars, parameters)
-	copy.Exclude = expand.ExpandInterpolateLiteral(glob.Exclude, globalVars, parameters)
+	copy.Includes = expandInterpolateGlobPatterns(glob.Includes, globalVars, parameters)
+	copy.Excludes = expandInterpolateGlobPatterns(glob.Excludes, globalVars, parameters)
 	copy.Types = expand.ExpandInterpolateLiteral(glob.Types, globalVars, parameters)
 	return &copy
+}
+
+func expandInterpolateGlobPatterns(
+	patterns []string,
+	globalVars map[string]string,
+	parameters map[string]string,
+) []string {
+	if len(patterns) == 0 {
+		return nil
+	}
+	out := make([]string, len(patterns))
+	for i, pattern := range patterns {
+		out[i] = expand.ExpandInterpolateLiteral(pattern, globalVars, parameters)
+	}
+	return out
 }
 
 func artifactAnchorPath(helmBaseDir, path string) string {

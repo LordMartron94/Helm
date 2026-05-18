@@ -130,8 +130,8 @@ type HelmTargetDependency struct {
 
 type HelmGlob struct {
 	BaseDirectory  string
-	Include        string
-	Exclude        string
+	Includes       []string
+	Excludes       []string
 	FollowSymlinks bool
 	Recursive      bool
 	Types          string

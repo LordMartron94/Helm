@@ -19,25 +19,27 @@ func ArtifactWalkGlob(helmBaseDir string, glob *ir.HelmGlob) ([]string, error) {
 		return nil, fmt.Errorf("glob base directory is empty")
 	}
 
-	include := glob.Include
-	if include == "" {
-		include = "**"
-	}
-
-	pattern := include
-	if !strings.Contains(pattern, string(filepath.Separator)) && !strings.HasPrefix(pattern, "**") {
-		pattern = "**" + string(filepath.Separator) + pattern
-	}
-
-	candidates, err := filepath.Glob(filepath.Join(baseDir, pattern))
-	if err != nil {
-		return nil, fmt.Errorf("glob include pattern %q: %w", include, err)
+	includes := glob.Includes
+	if len(includes) == 0 {
+		includes = []string{"**"}
 	}
 
 	pathSet := map[string]struct{}{}
-	for _, candidate := range candidates {
-		if err := artifactCollectGlobCandidate(glob, baseDir, candidate, pathSet); err != nil {
-			return nil, err
+	for _, include := range includes {
+		pattern := include
+		if !strings.Contains(pattern, string(filepath.Separator)) && !strings.HasPrefix(pattern, "**") {
+			pattern = "**" + string(filepath.Separator) + pattern
+		}
+
+		candidates, err := filepath.Glob(filepath.Join(baseDir, pattern))
+		if err != nil {
+			return nil, fmt.Errorf("glob include pattern %q: %w", include, err)
+		}
+
+		for _, candidate := range candidates {
+			if err := artifactCollectGlobCandidate(glob, baseDir, candidate, pathSet); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -77,7 +79,7 @@ func artifactCollectGlobCandidate(
 		return err
 	}
 	rel = filepath.ToSlash(rel)
-	if artifactPathMatchesExclude(rel, glob.Exclude) {
+	if artifactPathMatchesAnyExclude(rel, glob.Excludes) {
 		return nil
 	}
 
@@ -120,10 +122,19 @@ func artifactWalkDirectoryFiles(
 			return false, err
 		}
 		rel = filepath.ToSlash(rel)
-		if artifactPathMatchesExclude(rel, glob.Exclude) {
+		if artifactPathMatchesAnyExclude(rel, glob.Excludes) {
 			return false, nil
 		}
 		pathSet[path] = struct{}{}
 		return false, nil
 	})
+}
+
+func artifactPathMatchesAnyExclude(relPath string, excludes []string) bool {
+	for _, exclude := range excludes {
+		if artifactPathMatchesExclude(relPath, exclude) {
+			return true
+		}
+	}
+	return false
 }

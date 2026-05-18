@@ -14,6 +14,11 @@ var supportedGlobKwargs = map[string]struct{}{
 	"types":           {},
 }
 
+var mergeableGlobKwargs = map[string]struct{}{
+	"include": {},
+	"exclude": {},
+}
+
 func newHelmGlob(baseDirectory string) *HelmGlob {
 	return &HelmGlob{
 		BaseDirectory:  baseDirectory,
@@ -66,16 +71,18 @@ func evaluateGlob(
 		nameNode := child.FindFirstKind(artifacts.NodeGlobKwargIdentifier)
 		kwargName := extractContentFromSingleTokenNode(builder, nameNode)
 
-		if _, seen := seenKwargs[kwargName]; seen {
-			emitSemanticError(
-				builder,
-				nameNode,
-				ERROR_DUPLICATE_GLOB_KWARG,
-				fmt.Sprintf("glob() keyword argument '%s' is specified more than once", kwargName),
-			)
-			return nil, false
+		if _, mergeable := mergeableGlobKwargs[kwargName]; !mergeable {
+			if _, seen := seenKwargs[kwargName]; seen {
+				emitSemanticError(
+					builder,
+					nameNode,
+					ERROR_DUPLICATE_GLOB_KWARG,
+					fmt.Sprintf("glob() keyword argument '%s' is specified more than once", kwargName),
+				)
+				return nil, false
+			}
+			seenKwargs[kwargName] = struct{}{}
 		}
-		seenKwargs[kwargName] = struct{}{}
 
 		if _, supported := supportedGlobKwargs[kwargName]; !supported {
 			emitSemanticError(
@@ -111,9 +118,9 @@ func applyGlobKwarg(
 		}
 		switch kwargName {
 		case "include":
-			result.Include = value
+			result.Includes = append(result.Includes, value)
 		case "exclude":
-			result.Exclude = value
+			result.Excludes = append(result.Excludes, value)
 		case "types":
 			result.Types = value
 		}
