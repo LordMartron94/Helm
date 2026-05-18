@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"helm/interpreter"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -19,9 +20,10 @@ type Session struct {
 }
 
 type SessionConfig struct {
-	HelmFile  string
-	LSpecPath string
-	ColorMode ColorMode
+	HelmFile         string
+	LSpecPath        string
+	ColorMode        ColorMode
+	DiagnosticOutput io.Writer
 	// StreamRunOutput defaults to true when unset at the call site (see SessionCreate).
 	StreamRunOutput *bool
 }
@@ -42,9 +44,14 @@ func SessionCreate(config SessionConfig) (*Session, error) {
 		session.StreamRunOutput = *config.StreamRunOutput
 	}
 
+	diagnosticOutput := config.DiagnosticOutput
+	if diagnosticOutput == nil {
+		diagnosticOutput = os.Stderr
+	}
+
 	session.Renderer = DiagnosticRendererCreate(DiagnosticRendererConfig{
 		ColorMode:       config.ColorMode,
-		Output:          os.Stderr,
+		Output:          diagnosticOutput,
 		StreamRunOutput: &session.StreamRunOutput,
 	})
 

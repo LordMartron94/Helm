@@ -155,6 +155,18 @@ helm path/to/project.helm run <target>
 
 `helm -version` prints the binary version without loading a helm file. `helm version` runs through the normal session (discover helm file, interpret, then print version), matching the REPL `version` command.
 
+### Bash completion
+
+Install tab completion for flags, built-in commands, helm files, and (when a helm file can be resolved) target names:
+
+```bash
+helm completion bash | sudo tee /etc/bash_completion.d/helm
+# or for the current shell only:
+source <(helm completion bash)
+```
+
+Target and parameter completion interprets the helm file on each Tab press, so it may feel slow on large projects. The internal `helm __complete` command is for shell integration only and is not intended for direct use.
+
 ## Building
 
 ### Dependencies

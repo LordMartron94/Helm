@@ -12,13 +12,34 @@ type Invocation struct {
 	CommandFields []string
 }
 
+var builtinCommands = []string{
+	"clean-cache",
+	"config",
+	"exit",
+	"help",
+	"quit",
+	"run",
+	"set",
+	"version",
+}
+
+func BuiltinCommands() []string {
+	out := make([]string, len(builtinCommands))
+	copy(out, builtinCommands)
+	return out
+}
+
 func IsBuiltinCommand(word string) bool {
-	switch word {
-	case "exit", "quit", "version", "help", "clean-cache", "set", "config", "run":
-		return true
-	default:
-		return false
+	for _, cmd := range builtinCommands {
+		if cmd == word {
+			return true
+		}
 	}
+	return false
+}
+
+func builtinCommandsList() string {
+	return strings.Join(builtinCommands, ", ")
 }
 
 func ParseInvocation(args []string) (Invocation, error) {
@@ -37,8 +58,9 @@ func ParseInvocation(args []string) (Invocation, error) {
 		}
 		if !IsBuiltinCommand(args[1]) {
 			return Invocation{}, fmt.Errorf(
-				"unexpected argument %q after helm file (expected a command: exit, quit, version, help, clean-cache, set, config, run)",
+				"unexpected argument %q after helm file (expected a command: %s)",
 				args[1],
+				builtinCommandsList(),
 			)
 		}
 		inv.CommandFields = args[1:]
@@ -46,8 +68,9 @@ func ParseInvocation(args []string) (Invocation, error) {
 	}
 
 	return Invocation{}, fmt.Errorf(
-		"unknown argument %q (expected a helm file path or command: exit, quit, version, help, clean-cache, set, config, run)",
+		"unknown argument %q (expected a helm file path or command: %s)",
 		args[0],
+		builtinCommandsList(),
 	)
 }
 
@@ -56,13 +79,21 @@ func isExplicitHelmFilePath(path string) bool {
 	if base == helmfileDefaultName {
 		return true
 	}
-	if strings.EqualFold(filepath.Ext(path), ".helm") {
-		return true
-	}
 
 	info, err := os.Stat(path)
-	if err != nil {
+	if err == nil {
+		return !info.IsDir()
+	}
+
+	return strings.EqualFold(filepath.Ext(path), ".helm")
+}
+
+func isHelmFileName(name string) bool {
+	if strings.HasPrefix(name, ".") {
 		return false
 	}
-	return !info.IsDir()
+	if name == helmfileDefaultName {
+		return true
+	}
+	return strings.EqualFold(filepath.Ext(name), ".helm")
 }
