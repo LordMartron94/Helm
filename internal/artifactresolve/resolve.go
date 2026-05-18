@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 )
 
 func ArtifactResolveInputPaths(
@@ -138,15 +137,4 @@ func artifactSortedPaths(pathSet map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func artifactPathMatchesExclude(relPath string, exclude string) bool {
-	if exclude == "" {
-		return false
-	}
-	matched, err := filepath.Match(exclude, relPath)
-	if err != nil {
-		return strings.Contains(relPath, exclude)
-	}
-	return matched
 }
