@@ -76,7 +76,12 @@ func CacheFingerprintOutput(
 		return 0, fmt.Errorf("target '%s' has no artifacts block", target.Name)
 	}
 
-	outputPaths, err := artifactresolve.ArtifactResolveOutputPaths(helmBaseDir, target.Artifacts.Outputs, globalVars, parameters)
+	outputPaths, err := artifactresolve.ArtifactResolveOutputPaths(
+		helmBaseDir,
+		target.Artifacts.Outputs,
+		globalVars,
+		parameters,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -92,6 +97,21 @@ func CacheFingerprintOutput(
 	}
 
 	return hash.XXH3HasherHash64(cacheAggregateHasher, buffer.Bytes()), nil
+}
+
+func CacheAggregateInstanceFingerprints(fingerprints []uint64) uint64 {
+	if len(fingerprints) == 0 {
+		return 0
+	}
+	sorted := append([]uint64(nil), fingerprints...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+
+	var buffer bytes.Buffer
+	buffer.WriteString("aggregate")
+	for _, fingerprint := range sorted {
+		binary.Write(&buffer, binary.LittleEndian, fingerprint)
+	}
+	return hash.XXH3HasherHash64(cacheAggregateHasher, buffer.Bytes())
 }
 
 func cacheWritePaths(buffer *bytes.Buffer, paths []string) error {

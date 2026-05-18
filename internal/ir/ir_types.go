@@ -34,6 +34,10 @@ const (
 	ERROR_INVALID_GLOB         string = "GLOB_001"
 	ERROR_UNKNOWN_GLOB_KWARG   string = "GLOB_002"
 	ERROR_DUPLICATE_GLOB_KWARG string = "GLOB_003"
+
+	ERROR_DUPLICATE_MATRIX    string = "MATRIX_001"
+	ERROR_MATRIX_PARAM_SHADOW string = "MATRIX_002"
+	ERROR_EMPTY_MATRIX        string = "MATRIX_003"
 )
 
 type HelmConditionType int
@@ -83,8 +87,27 @@ type HelmTarget struct {
 	Env     map[string]string
 
 	DependsOn []HelmTargetDependency
+	Matrix    *HelmMatrix
 	Artifacts *HelmArtifacts
 	Steps     []HelmTargetStep
+}
+
+type HelmMatrix struct {
+	VariableName string
+	Values       []HelmMatrixValue
+}
+
+type HelmMatrixValueKind int
+
+const (
+	MatrixValueLiteral HelmMatrixValueKind = iota
+	MatrixValueGlob
+)
+
+type HelmMatrixValue struct {
+	Kind    HelmMatrixValueKind
+	Literal string
+	Glob    *HelmGlob
 }
 
 type HelmTargetParameter struct {
@@ -130,5 +153,5 @@ type HelmArtifactInput struct {
 type HelmArtifacts struct {
 	Volatile bool
 	Inputs   []HelmArtifactInput
-	Outputs  []string
+	Outputs  []HelmArtifactInput
 }

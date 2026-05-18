@@ -19,10 +19,28 @@ func ArtifactResolveInputPaths(
 	if artifacts == nil {
 		return nil, nil
 	}
+	return artifactResolvePaths(helmBaseDir, artifacts.Inputs, globalVars, parameters, true)
+}
 
+func ArtifactResolveOutputPaths(
+	helmBaseDir string,
+	outputs []ir.HelmArtifactInput,
+	globalVars map[string]string,
+	parameters map[string]string,
+) ([]string, error) {
+	return artifactResolvePaths(helmBaseDir, outputs, globalVars, parameters, false)
+}
+
+func artifactResolvePaths(
+	helmBaseDir string,
+	items []ir.HelmArtifactInput,
+	globalVars map[string]string,
+	parameters map[string]string,
+	requireExistingFiles bool,
+) ([]string, error) {
 	pathSet := map[string]struct{}{}
-	for _, input := range artifacts.Inputs {
-		paths, err := artifactResolveInputItem(helmBaseDir, input, globalVars, parameters)
+	for _, item := range items {
+		paths, err := artifactResolveItem(helmBaseDir, item, globalVars, parameters, requireExistingFiles)
 		if err != nil {
 			return nil, err
 		}
@@ -30,53 +48,54 @@ func ArtifactResolveInputPaths(
 			pathSet[path] = struct{}{}
 		}
 	}
-
 	return artifactSortedPaths(pathSet), nil
 }
 
-func ArtifactResolveOutputPaths(
+func artifactResolveItem(
 	helmBaseDir string,
-	outputs []string,
+	item ir.HelmArtifactInput,
 	globalVars map[string]string,
 	parameters map[string]string,
+	requireExistingFiles bool,
 ) ([]string, error) {
-	pathSet := map[string]struct{}{}
-	for _, literal := range outputs {
-		resolved := expand.ExpandInterpolateLiteral(literal, globalVars, parameters)
-		if resolved == "" {
-			continue
-		}
-		pathSet[artifactAnchorPath(helmBaseDir, resolved)] = struct{}{}
-	}
-
-	return artifactSortedPaths(pathSet), nil
-}
-
-func artifactResolveInputItem(
-	helmBaseDir string,
-	input ir.HelmArtifactInput,
-	globalVars map[string]string,
-	parameters map[string]string,
-) ([]string, error) {
-	switch input.Kind {
+	switch item.Kind {
 	case ir.ArtifactInputString:
-		path := expand.ExpandInterpolateLiteral(input.Literal, globalVars, parameters)
+		path := expand.ExpandInterpolateLiteral(item.Literal, globalVars, parameters)
 		if path == "" {
 			return nil, nil
 		}
 		path = artifactAnchorPath(helmBaseDir, path)
-		if err := artifactEnsureFile(path); err != nil {
-			return nil, err
+		if requireExistingFiles {
+			if err := artifactEnsureFile(path); err != nil {
+				return nil, err
+			}
 		}
 		return []string{path}, nil
 	case ir.ArtifactInputGlob:
-		if input.Glob == nil {
-			return nil, fmt.Errorf("glob artifact input is missing glob configuration")
+		if item.Glob == nil {
+			return nil, fmt.Errorf("glob artifact item is missing glob configuration")
 		}
-		return ArtifactWalkGlob(helmBaseDir, input.Glob)
+		glob := ArtifactGlobWithInterpolatedBase(item.Glob, globalVars, parameters)
+		return ArtifactWalkGlob(helmBaseDir, glob)
 	default:
-		return nil, fmt.Errorf("unknown artifact input kind")
+		return nil, fmt.Errorf("unknown artifact item kind")
 	}
+}
+
+func ArtifactGlobWithInterpolatedBase(
+	glob *ir.HelmGlob,
+	globalVars map[string]string,
+	parameters map[string]string,
+) *ir.HelmGlob {
+	if glob == nil {
+		return nil
+	}
+	copy := *glob
+	copy.BaseDirectory = expand.ExpandInterpolateLiteral(glob.BaseDirectory, globalVars, parameters)
+	copy.Include = expand.ExpandInterpolateLiteral(glob.Include, globalVars, parameters)
+	copy.Exclude = expand.ExpandInterpolateLiteral(glob.Exclude, globalVars, parameters)
+	copy.Types = expand.ExpandInterpolateLiteral(glob.Types, globalVars, parameters)
+	return &copy
 }
 
 func artifactAnchorPath(helmBaseDir, path string) string {

@@ -61,6 +61,7 @@ func handleTargetDeclaration(
 type targetParseState struct {
 	helpDeclared      bool
 	aliasesDeclared   bool
+	matrixDeclared    bool
 	artifactsDeclared bool
 	workDirDeclared   bool
 	envDeclared       bool
@@ -74,22 +75,38 @@ func handleTargetBody(
 	currentTarget *HelmTarget,
 ) {
 	state := &targetParseState{}
-	scope := resolveScopeForTarget(builder.globalVariables, currentTarget.Parameters)
-
 	currentTarget.Env = make(map[string]string)
 
 	contentNodes := node.ChildrenUnsafe()
 
 	for _, contentNode := range contentNodes {
+		if contentNode.Kind() == artifacts.NodeMatrixBlock {
+			handleTargetMatrix(builder, contentNode, currentTarget, state)
+		}
+	}
+
+	matrixVariable := ""
+	if currentTarget.Matrix != nil {
+		matrixVariable = currentTarget.Matrix.VariableName
+	}
+	scope := resolveScopeForTargetWithMatrix(
+		builder.globalVariables,
+		currentTarget.Parameters,
+		matrixVariable,
+	)
+
+	for _, contentNode := range contentNodes {
 		kind := contentNode.Kind()
 
 		switch kind {
+		case artifacts.NodeMatrixBlock:
+			continue
 		case artifacts.NodeHelpStatement:
 			handleTargetHelp(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeAliases:
 			handleTargetAliases(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeArtifactsBlock:
-			handleTargetArtifacts(builder, contentNode, currentTarget, state)
+			handleTargetArtifacts(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeWorkingDirectory:
 			handleTargetWorkDir(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeEnvDeclaration:
@@ -323,6 +340,7 @@ func extractArtifactsVolatile(
 func handleTargetArtifacts(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
 	currentTarget *HelmTarget,
 	state *targetParseState,
 ) {
@@ -335,11 +353,11 @@ func handleTargetArtifacts(
 	artifactsIR := &HelmArtifacts{}
 
 	if inputsNode := node.FindFirstKind(artifacts.NodeCacheInputs); inputsNode != nil {
-		artifactsIR.Inputs = extractInputArtifactSequence(builder, inputsNode, builder.globalVariables)
+		artifactsIR.Inputs = extractInputArtifactSequence(builder, inputsNode, scope)
 	}
 
 	if outputsNode := node.FindFirstKind(artifacts.NodeCacheOutputDirectory); outputsNode != nil {
-		artifactsIR.Outputs = extractOutputArtifactSequence(builder, outputsNode, builder.globalVariables)
+		artifactsIR.Outputs = extractOutputArtifactSequence(builder, outputsNode, scope)
 	}
 
 	artifactsIR.Volatile = extractArtifactsVolatile(builder, node)

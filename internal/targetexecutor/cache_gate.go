@@ -16,6 +16,7 @@ type targetExecutorCacheDecision struct {
 func targetExecutorEvaluateCache(
 	builtIR ir.HelmIR,
 	targetName string,
+	instanceKey string,
 	inv TargetInvocation,
 	opts TargetExecutorOptions,
 	depStateFingerprints map[string]uint64,
@@ -54,7 +55,7 @@ func targetExecutorEvaluateCache(
 		return decision, nil
 	}
 
-	record, found, err := cache.TargetCacheStoreGet(opts.CacheStore, targetName)
+	record, found, err := cache.TargetCacheStoreGet(opts.CacheStore, targetName, instanceKey)
 	if err != nil {
 		return decision, err
 	}
@@ -74,6 +75,7 @@ func targetExecutorEvaluateCache(
 func targetExecutorCommitCache(
 	builtIR ir.HelmIR,
 	targetName string,
+	instanceKey string,
 	inv TargetInvocation,
 	opts TargetExecutorOptions,
 	depStateFingerprints map[string]uint64,
@@ -108,6 +110,7 @@ func targetExecutorCommitCache(
 
 	record := cache.TargetCacheRecord{
 		TargetName:        targetName,
+		InstanceKey:       instanceKey,
 		StateFingerprint:  stateFingerprint,
 		OutputFingerprint: outputFingerprint,
 	}

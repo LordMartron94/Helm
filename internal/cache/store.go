@@ -10,8 +10,16 @@ const targetCacheTableName = "targets"
 
 type TargetCacheRecord struct {
 	TargetName        string
+	InstanceKey       string
 	StateFingerprint  uint64
 	OutputFingerprint uint64
+}
+
+func TargetCacheRecordKey(targetName, instanceKey string) string {
+	if instanceKey == "" {
+		return targetName
+	}
+	return targetName + "\x00" + instanceKey
 }
 
 type TargetCacheStore struct {
@@ -28,8 +36,12 @@ func TargetCacheStoreOpen(cacheRoot string) (*TargetCacheStore, error) {
 	_, err = persistence.JSONStoreRegister[TargetCacheRecord](
 		store,
 		targetCacheTableName,
-		func(record TargetCacheRecord) string { return record.TargetName },
-		func(a, b TargetCacheRecord) bool { return a.TargetName < b.TargetName },
+		func(record TargetCacheRecord) string {
+			return TargetCacheRecordKey(record.TargetName, record.InstanceKey)
+		},
+		func(a, b TargetCacheRecord) bool {
+			return TargetCacheRecordKey(a.TargetName, a.InstanceKey) < TargetCacheRecordKey(b.TargetName, b.InstanceKey)
+		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("register cache table: %w", err)
@@ -54,7 +66,11 @@ func TargetCacheStoreSaveAll(cacheStore *TargetCacheStore) error {
 	return persistence.JSONStoreSaveAll(cacheStore.store)
 }
 
-func TargetCacheStoreGet(cacheStore *TargetCacheStore, targetName string) (TargetCacheRecord, bool, error) {
+func TargetCacheStoreGet(
+	cacheStore *TargetCacheStore,
+	targetName string,
+	instanceKey string,
+) (TargetCacheRecord, bool, error) {
 	if cacheStore == nil {
 		return TargetCacheRecord{}, false, nil
 	}
@@ -62,7 +78,8 @@ func TargetCacheStoreGet(cacheStore *TargetCacheStore, targetName string) (Targe
 	cacheStore.mu.Lock()
 	defer cacheStore.mu.Unlock()
 
-	record, err := persistence.JSONStoreGet[TargetCacheRecord](cacheStore.store, targetCacheTableName, targetName)
+	key := TargetCacheRecordKey(targetName, instanceKey)
+	record, err := persistence.JSONStoreGet[TargetCacheRecord](cacheStore.store, targetCacheTableName, key)
 	if err != nil {
 		return TargetCacheRecord{}, false, nil
 	}
@@ -77,7 +94,8 @@ func TargetCacheStorePut(cacheStore *TargetCacheStore, record TargetCacheRecord)
 	cacheStore.mu.Lock()
 	defer cacheStore.mu.Unlock()
 
-	_, err := persistence.JSONStoreGet[TargetCacheRecord](cacheStore.store, targetCacheTableName, record.TargetName)
+	key := TargetCacheRecordKey(record.TargetName, record.InstanceKey)
+	_, err := persistence.JSONStoreGet[TargetCacheRecord](cacheStore.store, targetCacheTableName, key)
 	if err != nil {
 		if appendErr := persistence.JSONStoreAppend(cacheStore.store, targetCacheTableName, record); appendErr != nil {
 			return appendErr
@@ -85,7 +103,7 @@ func TargetCacheStorePut(cacheStore *TargetCacheStore, record TargetCacheRecord)
 		return persistence.JSONStoreSaveAll(cacheStore.store)
 	}
 
-	if err := persistence.JSONStoreReplace(cacheStore.store, targetCacheTableName, record.TargetName, record); err != nil {
+	if err := persistence.JSONStoreReplace(cacheStore.store, targetCacheTableName, key, record); err != nil {
 		return err
 	}
 	return persistence.JSONStoreSaveAll(cacheStore.store)

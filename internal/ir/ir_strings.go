@@ -10,8 +10,9 @@ import (
 )
 
 type resolveScope struct {
-	globals    map[string]string
-	parameters []HelmTargetParameter
+	globals        map[string]string
+	parameters     []HelmTargetParameter
+	matrixVariable string
 }
 
 func resolveScopeForGlobals(globals map[string]string) resolveScope {
@@ -20,6 +21,22 @@ func resolveScopeForGlobals(globals map[string]string) resolveScope {
 
 func resolveScopeForTarget(globals map[string]string, parameters []HelmTargetParameter) resolveScope {
 	return resolveScope{globals: globals, parameters: parameters}
+}
+
+func resolveScopeForTargetWithMatrix(
+	globals map[string]string,
+	parameters []HelmTargetParameter,
+	matrixVariable string,
+) resolveScope {
+	return resolveScope{
+		globals:        globals,
+		parameters:     parameters,
+		matrixVariable: matrixVariable,
+	}
+}
+
+func resolveScopeMatrixVariable(scope resolveScope) string {
+	return scope.matrixVariable
 }
 
 func resolveScopeHasParameter(scope resolveScope, name string) bool {
@@ -36,6 +53,9 @@ func resolveInterpolation(scope resolveScope, ident string) (text string, ok boo
 		return value, true
 	}
 	if resolveScopeHasParameter(scope, ident) {
+		return "${" + ident + "}", true
+	}
+	if scope.matrixVariable != "" && ident == scope.matrixVariable {
 		return "${" + ident + "}", true
 	}
 	return "", false

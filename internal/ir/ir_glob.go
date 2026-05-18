@@ -26,7 +26,7 @@ func newHelmGlob(baseDirectory string) *HelmGlob {
 func evaluateGlob(
 	builder *irBuilder,
 	globNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
-	globalVariables map[string]string,
+	scope resolveScope,
 ) (*HelmGlob, bool) {
 	argsNode := globNode.FindFirstKind(artifacts.NodeGlobArguments)
 	if argsNode == nil {
@@ -50,7 +50,7 @@ func evaluateGlob(
 		return nil, false
 	}
 
-	baseDirectory, ok := resolveGlobBaseDirectory(builder, baseDirNode, globalVariables)
+	baseDirectory, ok := resolveGlobBaseDirectory(builder, baseDirNode, scope)
 	if !ok {
 		return nil, false
 	}
@@ -87,7 +87,7 @@ func evaluateGlob(
 			return nil, false
 		}
 
-		if !applyGlobKwarg(builder, child, nameNode, kwargName, globalVariables, result) {
+		if !applyGlobKwarg(builder, child, nameNode, kwargName, scope, result) {
 			return nil, false
 		}
 	}
@@ -100,12 +100,12 @@ func applyGlobKwarg(
 	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	nameNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	kwargName string,
-	globalVariables map[string]string,
+	scope resolveScope,
 	result *HelmGlob,
 ) bool {
 	switch kwargName {
 	case "include", "exclude", "types":
-		value, ok := extractGlobStringKwargValue(builder, kwargNode, nameNode, kwargName, globalVariables)
+		value, ok := extractGlobStringKwargValue(builder, kwargNode, nameNode, kwargName, scope)
 		if !ok {
 			return false
 		}
@@ -119,14 +119,14 @@ func applyGlobKwarg(
 		}
 		return true
 	case "follow_symlinks":
-		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, globalVariables)
+		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, scope)
 		if !ok {
 			return false
 		}
 		result.FollowSymlinks = parsed
 		return true
 	case "recursive":
-		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, globalVariables)
+		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, scope)
 		if !ok {
 			return false
 		}
@@ -142,7 +142,7 @@ func extractGlobStringKwargValue(
 	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	nameNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	kwargName string,
-	globalVariables map[string]string,
+	scope resolveScope,
 ) (string, bool) {
 	if kwargNode.FindDirectChildKind(artifacts.NodeBoolean) != nil {
 		emitSemanticError(
@@ -165,7 +165,6 @@ func extractGlobStringKwargValue(
 		return "", false
 	}
 
-	scope := resolveScopeForGlobals(globalVariables)
 	return extractStringFromStringNode(builder, strNode, scope), true
 }
 
@@ -174,7 +173,7 @@ func extractGlobBoolKwargValue(
 	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	nameNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	kwargName string,
-	globalVariables map[string]string,
+	scope resolveScope,
 ) (bool, bool) {
 	if boolNode := kwargNode.FindDirectChildKind(artifacts.NodeBoolean); boolNode != nil {
 		return extractBooleanNode(builder, boolNode), true
@@ -182,7 +181,6 @@ func extractGlobBoolKwargValue(
 
 	strNode := kwargNode.FindDirectChildKind(artifacts.NodeStringLiteral)
 	if strNode != nil {
-		scope := resolveScopeForGlobals(globalVariables)
 		value := extractStringFromStringNode(builder, strNode, scope)
 		return parseGlobBoolStringKwarg(builder, nameNode, kwargName, value)
 	}
@@ -221,12 +219,12 @@ func parseGlobBoolStringKwarg(
 func resolveGlobBaseDirectory(
 	builder *irBuilder,
 	baseDirNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
-	globalVariables map[string]string,
+	scope resolveScope,
 ) (string, bool) {
 	if varNode := baseDirNode.FindFirstKind(artifacts.NodeVariableReference); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
-		if val, exists := globalVariables[varName]; exists {
-			return val, true
+		if text, ok := resolveInterpolation(scope, varName); ok {
+			return text, true
 		}
 		emitSemanticError(
 			builder,
@@ -238,7 +236,6 @@ func resolveGlobBaseDirectory(
 	}
 
 	if strNode := baseDirNode.FindFirstKind(artifacts.NodeStringLiteral); strNode != nil {
-		scope := resolveScopeForGlobals(globalVariables)
 		return extractStringFromStringNode(builder, strNode, scope), true
 	}
 

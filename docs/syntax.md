@@ -143,9 +143,10 @@ target compile(OS) {
             glob("src", "*.go"),
         ]
         
-        // Outputs can mix explicit files and constructed paths
+        // Outputs can mix explicit files, globs, and constructed paths
         outputs = [
             path("bin", "app-${OS}"),
+            glob("bin", "*.exe"),
             "build.log",
         ]
     }
@@ -153,12 +154,47 @@ target compile(OS) {
 ```
 
 * **`inputs`**: A single string/glob/path, or a multiline array mixing explicit file strings and `glob()` / `path()` calls. Defines the files Helm must hash to determine if the target needs to run.
-* **`outputs`**: A single string/path, or a multiline array mixing explicit file strings and `path()` calls. Defines the deterministic files Helm expects the target to produce.
+* **`outputs`**: A single string/glob/path, or a multiline array mixing explicit file strings, `glob()` / `path()` calls. Defines the deterministic files Helm expects the target to produce.
 * **`volatile = true`**: Explicitly tells the engine to *never* cache this target (e.g., for deployments or database migrations). If `outputs` is omitted, the engine uses inputs-only caching unless `volatile` is set.
+
+Target and matrix variables may appear in `glob()` / `path()` / string literals as `${NAME}` placeholders; they are resolved at execution time using the effective parameter map for that run.
 
 ---
 
-## 5. Procedural Control Flow (`when`)
+## 5. Matrix execution (`matrix`)
+
+A `matrix` block turns one target into multiple parallel execution units. Each unit binds the matrix variable for that run. Matrix legs share the same target name in the DAG (dependents still list the target once).
+
+```helm
+target generate() {
+    help = "Generates all Go modules independently"
+
+    matrix MOD in [
+        "libs/lingua",
+        "libs/syntaxa",
+    ]
+
+    artifacts {
+        inputs = [
+            glob("${MOD}", include="*.go"),
+        ]
+        outputs = [
+            glob("${MOD}", include="*_gen.go"),
+        ]
+    }
+
+    run "cd ${MOD} && go generate ."
+}
+```
+
+* **`matrix VAR in [...]`**: Required list of literal strings, `path()` values, variable references, or a single `glob()` whose matches become separate bindings (one instance per matched path).
+* **Caching**: Each matrix leg has its own cache record keyed by target name and binding (e.g. `MOD=libs/lingua`). Unchanged legs can be skipped independently on later runs.
+* **Parallelism**: All legs of a matrix target in a phase run concurrently, like unrelated targets in the same phase.
+* The matrix variable name must not match a target parameter name.
+
+---
+
+## 6. Procedural Control Flow (`when`)
 
 While Helm targets are nodes in a DAG, their internal execution is procedural. `when` blocks allow you to conditionally gate specific `run` commands based on target parameters.
 
@@ -184,7 +220,7 @@ target publish(TAG?) {
 
 ---
 
-## 6. Execution (`run`)
+## 7. Execution (`run`)
 
 The `run` keyword accepts a single-line string. Helm parses this string and passes it directly to the native OS process spawner (shlexing), bypassing shell interpreters to enforce complexity limits.
 
@@ -198,11 +234,11 @@ target migrate() {
 
 ---
 
-## 7. Built-in Functions
+## 8. Built-in Functions
 
 Helm provides native functions for resolving paths and file trees safely across platforms.
 
-* **`glob(base_dir, kwarg="...")`**: Declares a file-tree scan boundary for cache inputs. Recognized keyword arguments (stored in IR for the runtime walker; not expanded at compile time):
+* **`glob(base_dir, kwarg="...")`**: Declares a file-tree scan boundary for artifact `inputs` and `outputs`. Recognized keyword arguments (stored in IR for the runtime walker; not expanded at compile time):
   * `include`, `exclude` (string patterns)
   * `follow_symlinks` (boolean literal `true`/`false` or string `"true"`/`"false"`, default `false`)
   * `recursive` (boolean literal `true`/`false` or string `"true"`/`"false"`, default `true`)
@@ -220,7 +256,7 @@ target clean() {
 
 ---
 
-## 8. Strings & Interpolation
+## 9. Strings & Interpolation
 
 Helm uses double quotes `"..."` for strings. Variables and parameters can be injected using `${VAR}`.
 

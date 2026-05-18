@@ -540,7 +540,7 @@ type validPathsScenarioInput struct {
 	fileName string
 }
 type validPathsScenarioOutput struct {
-	extractedOutputs []string
+	extractedOutputs []ir.HelmArtifactInput
 	parseError       error
 }
 
@@ -570,12 +570,12 @@ func runValidPathsScenario(
 					expectedPath1 := filepath.Join("build_output", "bin", "executable")
 					expectedPath2 := filepath.Join("static", "index.html")
 
-					if out.extractedOutputs[0] != expectedPath1 {
-						return false, fmt.Sprintf("path 1 mismatch: expected %q, got %q", expectedPath1, out.extractedOutputs[0])
+					if out.extractedOutputs[0].Literal != expectedPath1 {
+						return false, fmt.Sprintf("path 1 mismatch: expected %q, got %q", expectedPath1, out.extractedOutputs[0].Literal)
 					}
 
-					if out.extractedOutputs[1] != expectedPath2 {
-						return false, fmt.Sprintf("path 2 mismatch: expected %q, got %q", expectedPath2, out.extractedOutputs[1])
+					if out.extractedOutputs[1].Literal != expectedPath2 {
+						return false, fmt.Sprintf("path 2 mismatch: expected %q, got %q", expectedPath2, out.extractedOutputs[1].Literal)
 					}
 
 					return true, ""
