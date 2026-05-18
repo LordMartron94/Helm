@@ -18,7 +18,7 @@ func TargetExecutorRunTarget(
 		handler = TargetExecutorDefaultRunHandler
 	}
 
-	parameters := TargetInvocationParameters(inv)
+	parameters := TargetExecutorParametersForTarget(target, inv)
 	workDir := TargetExecutorInterpolateLiteral(target.WorkDir, globalVars, parameters)
 	env := targetExecutorInterpolateEnv(target.Env, globalVars, parameters)
 

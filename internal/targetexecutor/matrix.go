@@ -112,13 +112,11 @@ func targetExecutorMatrixBindingPath(helmBaseDir, absolutePath string) string {
 }
 
 func TargetExecutorEffectiveParameters(
+	target ir.HelmTarget,
 	inv TargetInvocation,
 	bindings map[string]string,
 ) map[string]string {
-	merged := make(map[string]string, len(TargetInvocationParameters(inv))+len(bindings))
-	for key, value := range TargetInvocationParameters(inv) {
-		merged[key] = value
-	}
+	merged := TargetExecutorParametersForTarget(target, inv)
 	for key, value := range bindings {
 		merged[key] = value
 	}

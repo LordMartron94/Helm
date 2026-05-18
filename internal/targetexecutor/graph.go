@@ -89,7 +89,7 @@ func TargetExecutorRunGraph(
 					builtIR.SourceDirectory,
 					target,
 					builtIR.GlobalVariables,
-					TargetInvocationParameters(inv),
+					TargetExecutorParametersForTarget(target, inv),
 				)
 				if instanceErr != nil {
 					mu.Lock()
@@ -109,7 +109,7 @@ func TargetExecutorRunGraph(
 					go func(inst TargetMatrixInstance) {
 						defer instWg.Done()
 
-						effectiveParams := TargetExecutorEffectiveParameters(inv, inst.Bindings)
+						effectiveParams := TargetExecutorEffectiveParameters(target, inv, inst.Bindings)
 						effectiveInv := TargetInvocation{Parameters: effectiveParams}
 
 						decision, cacheErr := targetExecutorEvaluateCache(

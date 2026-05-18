@@ -42,7 +42,7 @@ func targetExecutorEvaluateCache(
 		target,
 		builtIR.Targets,
 		builtIR.GlobalVariables,
-		TargetInvocationParameters(inv),
+		TargetExecutorParametersForTarget(target, inv),
 		depStateFingerprints,
 		depOutputFingerprints,
 	)
@@ -100,7 +100,7 @@ func targetExecutorCommitCache(
 		target,
 		builtIR.Targets,
 		builtIR.GlobalVariables,
-		TargetInvocationParameters(inv),
+		TargetExecutorParametersForTarget(target, inv),
 		depStateFingerprints,
 		depOutputFingerprints,
 	)
@@ -139,7 +139,7 @@ func targetExecutorOutputFingerprintAfterRun(
 		builtIR.SourceDirectory,
 		target,
 		builtIR.GlobalVariables,
-		TargetInvocationParameters(inv),
+		TargetExecutorParametersForTarget(target, inv),
 	)
 }
 
