@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"helm/internal/ir"
 	"os"
+	"time"
 )
 
 func TargetExecutorRunTarget(
@@ -89,9 +90,10 @@ func targetExecutorInvokeRun(
 	req TargetRunRequest,
 	opts TargetExecutorOptions,
 ) error {
+	startedAt := time.Now()
 	result, err := handler(req)
 	if opts.SignalContext != nil {
-		targetExecutorEmitRunSignals(opts.SignalContext, req, result, err)
+		targetExecutorEmitRunSignals(opts.SignalContext, req, result, err, time.Since(startedAt))
 	}
 	return err
 }

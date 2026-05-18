@@ -8,6 +8,7 @@ import (
 	"signal/rendering"
 	"splash"
 	"strings"
+	"time"
 )
 
 func HelmCombineDetailHooks(hooks ...rendering.SignalDetailExtension) rendering.SignalDetailExtension {
@@ -157,10 +158,11 @@ type HelmExecutionRenderIntents struct {
 
 // HelmExecutionTally counts target-execution signals emitted during a run.
 type HelmExecutionTally struct {
-	OK      int
-	Failed  int
-	Skipped int
-	Cache   int
+	OK           int
+	Failed       int
+	Skipped      int
+	Cache        int
+	RunDurations []time.Duration
 }
 
 func HelmExecutionTallyRecord(tally *HelmExecutionTally, sig signal.Signal) {
@@ -176,8 +178,10 @@ func HelmExecutionTallyRecord(tally *HelmExecutionTally, sig signal.Signal) {
 	switch sig.ID() {
 	case SignalExecOK:
 		tally.OK++
+		helmExecutionRecordDuration(tally, sig)
 	case SignalExecFail:
 		tally.Failed++
+		helmExecutionRecordDuration(tally, sig)
 	case SignalExecSkipped:
 		tally.Skipped++
 	case SignalCacheUpdated:
@@ -214,6 +218,15 @@ func HelmRenderExecutionSummary(
 	helmRenderExecutionSummaryCount(renderer, "SKIPPED", tally.Skipped, intents.Skipped)
 	helmRenderExecutionSummaryCount(renderer, "CACHE", tally.Cache, intents.Cache)
 
+	if len(tally.RunDurations) > 0 {
+		total := HelmDurationTotal(tally.RunDurations)
+		average := HelmDurationAverage(tally.RunDurations)
+		median := HelmDurationMedian(tally.RunDurations)
+		helmRenderExecutionSummaryDuration(renderer, "time total", total, intents.Meta)
+		helmRenderExecutionSummaryDuration(renderer, "time average", average, intents.Meta)
+		helmRenderExecutionSummaryDuration(renderer, "time median", median, intents.Meta)
+	}
+
 	splash.SPLASH_Rendering_TerminalRendererDedent(renderer)
 	splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
 
@@ -232,6 +245,17 @@ func helmRenderExecutionSummaryCount(
 
 	splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, label, intent)
 	splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, fmt.Sprintf(": %d", count))
+	splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+}
+
+func helmRenderExecutionSummaryDuration(
+	renderer *splash.SPLASH_Rendering_TerminalRenderer,
+	label string,
+	duration time.Duration,
+	intent int,
+) {
+	splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, label, intent)
+	splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, ": "+HelmFormatDuration(duration))
 	splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
 }
 
@@ -278,12 +302,27 @@ func HelmExecutionOutputDetailHookOmitBuffered(
 
 		target, _ := signal.SignalPayloadGetAs[string](&sig, TargetPayloadKey)
 		command, _ := signal.SignalPayloadGetAs[string](&sig, CommandPayloadKey)
+		durationNS, _ := signal.SignalPayloadGetAs[int64](&sig, DurationNSPayloadKey)
 
 		switch id {
 		case SignalExecOK:
-			helmRenderExecutionStatus(renderer, "OK", intents.Success, intents.Meta, target, command)
+			helmRenderExecutionStatus(
+				renderer,
+				"OK",
+				intents.Success,
+				intents.Meta,
+				target,
+				helmExecutionStatusDetail(command, durationNS),
+			)
 		case SignalExecFail:
-			helmRenderExecutionStatus(renderer, "FAILED", intents.Failed, intents.Meta, target, command)
+			helmRenderExecutionStatus(
+				renderer,
+				"FAILED",
+				intents.Failed,
+				intents.Meta,
+				target,
+				helmExecutionStatusDetail(command, durationNS),
+			)
 		}
 
 		if !omitBufferedStdoutStderr {
@@ -309,6 +348,22 @@ func HelmExecutionOutputDetailHookOmitBuffered(
 			}
 		}
 	}
+}
+
+func helmExecutionStatusDetail(command string, durationNS int64) string {
+	if command == "" && durationNS <= 0 {
+		return ""
+	}
+
+	if command == "" {
+		return HelmFormatDuration(time.Duration(durationNS))
+	}
+
+	if durationNS <= 0 {
+		return command
+	}
+
+	return command + "  (" + HelmFormatDuration(time.Duration(durationNS)) + ")"
 }
 
 func helmRenderExecutionStatus(
