@@ -242,7 +242,9 @@ Helm provides native functions for resolving paths and file trees safely across 
   * `include`, `exclude` (string patterns)
   * `follow_symlinks` (boolean literal `true`/`false` or string `"true"`/`"false"`, default `false`)
   * `recursive` (boolean literal `true`/`false` or string `"true"`/`"false"`, default `true`)
-  * `types` (string, default `"files"`)
+  * `types` (string, default `"files"`): which entries under `base_dir` are collected:
+    * `"files"` — regular files only. When `recursive = true`, directories are descended and matching files inside are included.
+    * `"directories"` — directories only (the directory paths themselves, not their contents).
 * **`path(element1, element2, ...)`**: Constructs OS-safe paths safely.
 
 ```helm
