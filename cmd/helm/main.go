@@ -86,14 +86,20 @@ func runEarlyCommand(args []string) bool {
 
 func runShellComplete(args []string) {
 	words := extractCompleteWords(args)
+	if len(words) == 0 {
+		return
+	}
 	cword := len(words) - 1
 	if cword < 0 {
 		cword = 0
 	}
 	if raw := os.Getenv("COMP_CWORD"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 && parsed < len(words) {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
 			cword = parsed
 		}
+	}
+	if cword >= len(words) {
+		words = append(words, "")
 	}
 
 	dir, err := os.Getwd()

@@ -78,6 +78,9 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 		if err := printBuiltinCommand(stdout, ui, "run [--bypass-cache] <target> [key=value ...]", "execute a target"); err != nil {
 			return err
 		}
+		if err := printBuiltinCommand(stdout, ui, "completion bash", "print bash tab-completion script (install: source <(helm completion bash))"); err != nil {
+			return err
+		}
 
 		if _, err := fmt.Fprintln(stdout); err != nil {
 			return err
@@ -93,11 +96,40 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 		return nil
 	}
 
+	if args[0] == "completion" {
+		return commandHelpCompletion(stdout, ui)
+	}
+
 	canonical, ok := catalog.ResolveTargetName(args[0])
 	if !ok {
 		return fmt.Errorf("unknown target %q", args[0])
 	}
 	return printTargetDetail(stdout, ui, catalog, canonical)
+}
+
+func commandHelpCompletion(stdout io.Writer, ui *TerminalUI) error {
+	if err := terminalUIWrite(stdout, ui, uiIntentHeading, "completion\n"); err != nil {
+		return err
+	}
+	if err := printBuiltinCommand(stdout, ui, "completion bash", "print bash tab-completion script to stdout"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(stdout); err != nil {
+		return err
+	}
+	if err := terminalUIWrite(stdout, ui, uiIntentLabel, "install\n"); err != nil {
+		return err
+	}
+	lines := []string{
+		"  source <(helm completion bash)",
+		"  helm completion bash | sudo tee /etc/bash_completion.d/helm",
+	}
+	for _, line := range lines {
+		if _, err := io.WriteString(stdout, line+"\n"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func printBuiltinCommand(stdout io.Writer, ui *TerminalUI, name, description string) error {

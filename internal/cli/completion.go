@@ -17,8 +17,11 @@ type CompletionRequest struct {
 var globalFlags = []string{"-version", "-color-mode", "-stream-runs"}
 
 func CompleteWords(req CompletionRequest) []string {
-	if len(req.Words) == 0 || req.CWord < 0 || req.CWord >= len(req.Words) {
+	if len(req.Words) == 0 || req.CWord < 0 {
 		return nil
+	}
+	if req.CWord >= len(req.Words) {
+		req.Words = append(append([]string(nil), req.Words...), "")
 	}
 
 	dir := req.Dir
@@ -55,14 +58,15 @@ func CompleteWords(req CompletionRequest) []string {
 
 	relCWord := req.CWord - posStart
 	if relCWord == 0 && (len(positionals) == 0 || (len(positionals) == 1 && positionals[0] == "")) {
-		candidates := BuiltinCommands()
-		candidates = append(candidates, helmFileCandidates(dir, cur)...)
-		return prefixFilter(cur, candidates)
+		return completeFirstPositional(dir, cur)
 	}
 
 	helmFilePath, commandFields, cmdIndex := resolveCompletionCommandContext(positionals, relCWord)
 
 	if cmdIndex < 0 {
+		if relCWord == 0 {
+			return completeFirstPositional(dir, cur)
+		}
 		return prefixFilter(cur, helmFileCandidates(dir, cur))
 	}
 
@@ -85,6 +89,8 @@ func CompleteWords(req CompletionRequest) []string {
 		return completeRun(cur, helmFilePath, args, cmdIndex-1)
 	case "help":
 		return completeHelp(helmFilePath, args, cmdIndex-1, cur)
+	case "completion":
+		return completeCompletion(args, cmdIndex-1, cur)
 	case "set", "config":
 		return completeSet(args, cmdIndex-1, cur)
 	default:
@@ -143,6 +149,19 @@ func resolveCompletionCommandContext(positionals []string, relCWord int) (helmFi
 		return "", nil, -1
 	}
 	return "", positionals, relCWord
+}
+
+func completeFirstPositional(dir, cur string) []string {
+	candidates := topLevelCommandsForCompletion()
+	candidates = append(candidates, helmFileCandidates(dir, cur)...)
+	return prefixFilter(cur, candidates)
+}
+
+func topLevelCommandsForCompletion() []string {
+	commands := BuiltinCommands()
+	commands = append(commands, "completion")
+	sort.Strings(commands)
+	return commands
 }
 
 func completeRun(cur, helmFilePath string, runArgs []string, runArgIndex int) []string {
@@ -218,12 +237,20 @@ func completeHelp(helmFilePath string, args []string, argIndex int, cur string) 
 	if argIndex > 0 {
 		return nil
 	}
+	candidates := []string{"completion"}
 	session := sessionCreateForCompletion(helmFilePath)
-	if session == nil {
-		return nil
+	if session != nil {
+		candidates = append(candidates, session.Catalog.CanonicalNames()...)
+		SessionDestroy(session)
 	}
-	defer SessionDestroy(session)
-	return prefixFilter(cur, session.Catalog.CanonicalNames())
+	return prefixFilter(cur, candidates)
+}
+
+func completeCompletion(args []string, argIndex int, cur string) []string {
+	if argIndex == 0 {
+		return prefixFilter(cur, []string{"bash"})
+	}
+	return nil
 }
 
 func completeSet(args []string, argIndex int, cur string) []string {

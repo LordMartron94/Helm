@@ -155,6 +155,8 @@ helm path/to/project.helm run <target>
 
 `helm -version` prints the binary version without loading a helm file. `helm version` runs through the normal session (discover helm file, interpret, then print version), matching the REPL `version` command.
 
+`helm completion bash` prints a bash tab-completion script (also listed under `helm help`). See `helm help completion` for install examples.
+
 ### Bash completion
 
 Install tab completion for flags, built-in commands, helm files, and (when a helm file can be resolved) target names:
