@@ -83,6 +83,16 @@ func extractMatrixValues(
 		if child.Kind() == artifacts.NodeMatrixIdentifier {
 			continue
 		}
+		if varNode := artifactItemVarRefNode(child); varNode != nil {
+			varName := extractContentFromSingleTokenNode(builder, varNode)
+			if list, ok := resolveGlobalStringList(scope, varName); ok && len(list) > 1 {
+				values := make([]HelmMatrixValue, len(list))
+				for i, literal := range list {
+					values[i] = HelmMatrixValue{Kind: MatrixValueLiteral, Literal: literal}
+				}
+				return values
+			}
+		}
 		if value, ok := extractMatrixValueFromNode(builder, child, scope); ok {
 			return []HelmMatrixValue{value}
 		}
@@ -133,8 +143,12 @@ func extractMatrixValueFromNode(
 
 	if varNode := artifactItemVarRefNode(node); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
-		if text, ok := resolveInterpolation(scope, varName); ok {
+		if text, ok := resolveGlobalString(scope, varName); ok {
 			return HelmMatrixValue{Kind: MatrixValueLiteral, Literal: text}, true
+		}
+		if _, exists := scope.globals[varName]; exists {
+			emitVariableNotScalar(builder, varNode, varName, "matrix value")
+			return HelmMatrixValue{}, false
 		}
 		emitSemanticError(
 			builder,

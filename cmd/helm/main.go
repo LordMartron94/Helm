@@ -44,16 +44,9 @@ func main() {
 		}
 	}
 
-	lSpecPath, err := cli.ResolveHelmLSpecPath()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "helm: %v\n", err)
-		os.Exit(1)
-	}
-
 	streamRunOutput := *streamRunsFlag
 	if err := cli.Run(cli.RunConfig{
 		HelmFilePath:    inv.HelmFilePath,
-		LSpecPath:       lSpecPath,
 		ColorMode:       colorMode,
 		StreamRunOutput: &streamRunOutput,
 		CommandFields:   inv.CommandFields,

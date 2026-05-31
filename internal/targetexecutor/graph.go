@@ -88,7 +88,7 @@ func TargetExecutorRunGraph(
 				instances, instanceErr := TargetExecutorMatrixInstances(
 					builtIR.SourceDirectory,
 					target,
-					builtIR.GlobalVariables,
+					ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
 					TargetExecutorParametersForTarget(target, inv),
 				)
 				if instanceErr != nil {
@@ -140,7 +140,12 @@ func TargetExecutorRunGraph(
 							)
 							outputFingerprint = decision.OutputFingerprint
 						} else {
-							runErr := TargetExecutorRunTarget(target, builtIR.GlobalVariables, effectiveInv, runOpts)
+							runErr := TargetExecutorRunTarget(
+								target,
+								ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
+								effectiveInv,
+								runOpts,
+							)
 							if runErr != nil {
 								instMu.Lock()
 								if targetErr == nil {

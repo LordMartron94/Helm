@@ -22,7 +22,7 @@ func IRFromSyntax(
 		sourceText:      sourceText,
 		signalCtx:       signalCtx,
 		seenAliases:     make(map[string]struct{}),
-		globalVariables: make(map[string]string),
+		globalVariables: make(map[string]HelmGlobalVariable),
 		targets:         make(map[string]HelmTarget),
 	}
 
@@ -70,13 +70,31 @@ func handleVariableDeclaration(
 	} else {
 		valueNode := node.FindDirectChildKind(artifacts.NodeVariableValue)
 		scope := resolveScopeForGlobals(builder.globalVariables)
-		valueString := extractStringFromStringNode(
-			builder,
-			valueNode.FindFirstKind(artifacts.NodeStringLiteral),
-			scope,
-		)
 
-		builder.globalVariables[identifierString] = valueString
+		if arrayNode := valueNode.FindFirstKind(artifacts.NodeStringArray); arrayNode != nil {
+			values := extractStringsFromStringArrayNode(builder, arrayNode, scope)
+			builder.globalVariables[identifierString] = HelmGlobalVariable{
+				Kind:         HelmGlobalVarStringArray,
+				StringValues: values,
+			}
+			return
+		}
+
+		stringNode := valueNode.FindFirstKind(artifacts.NodeStringLiteral)
+		if stringNode == nil {
+			emitSemanticError(
+				builder,
+				valueNode,
+				ERROR_INVALID_VARIABLE_VALUE,
+				fmt.Sprintf("variable '%s' must be a string literal or string array", identifierString),
+			)
+			return
+		}
+
+		builder.globalVariables[identifierString] = HelmGlobalVariable{
+			Kind:        HelmGlobalVarString,
+			StringValue: extractStringFromStringNode(builder, stringNode, scope),
+		}
 	}
 }
 

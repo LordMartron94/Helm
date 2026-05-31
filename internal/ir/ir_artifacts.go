@@ -15,6 +15,10 @@ func extractInputArtifactSequence(
 		return extractArtifactItemsFromChildren(builder, arrayNode, scope)
 	}
 
+	if items, ok := expandArtifactSequenceFromVariableRef(builder, parentNode, scope, "artifacts inputs"); ok {
+		return items
+	}
+
 	item, ok := resolveArtifactItem(builder, parentNode, scope)
 	if ok {
 		return []HelmArtifactInput{item}
@@ -31,11 +35,53 @@ func extractOutputArtifactSequence(
 		return extractArtifactItemsFromChildren(builder, arrayNode, scope)
 	}
 
+	if items, ok := expandArtifactSequenceFromVariableRef(builder, parentNode, scope, "artifacts outputs"); ok {
+		return items
+	}
+
 	item, ok := resolveArtifactItem(builder, parentNode, scope)
 	if ok {
 		return []HelmArtifactInput{item}
 	}
 	return nil
+}
+
+func expandArtifactSequenceFromVariableRef(
+	builder *irBuilder,
+	parentNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+	context string,
+) ([]HelmArtifactInput, bool) {
+	varNode := artifactItemVarRefNode(parentNode)
+	if varNode == nil {
+		return nil, false
+	}
+
+	varName := extractContentFromSingleTokenNode(builder, varNode)
+	list, ok := resolveGlobalStringList(scope, varName)
+	if !ok {
+		if _, exists := scope.globals[varName]; exists {
+			emitVariableNotScalar(builder, varNode, varName, context)
+		} else {
+			emitSemanticError(
+				builder,
+				varNode,
+				ERROR_UNDECLARED_VARIABLE,
+				fmt.Sprintf("use of undeclared variable '%s' in %s", varName, context),
+			)
+		}
+		return nil, true
+	}
+
+	if len(list) == 1 {
+		return nil, false
+	}
+
+	items := make([]HelmArtifactInput, len(list))
+	for i, literal := range list {
+		items[i] = HelmArtifactInput{Kind: ArtifactInputString, Literal: literal}
+	}
+	return items, true
 }
 
 func extractArtifactItemsFromChildren(
@@ -82,8 +128,12 @@ func resolveArtifactItem(
 
 	if varNode := artifactItemVarRefNode(node); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
-		if text, ok := resolveInterpolation(scope, varName); ok {
+		if text, ok := resolveGlobalString(scope, varName); ok {
 			return HelmArtifactInput{Kind: ArtifactInputString, Literal: text}, true
+		}
+		if _, exists := scope.globals[varName]; exists {
+			emitVariableNotScalar(builder, varNode, varName, "artifacts entry")
+			return HelmArtifactInput{}, false
 		}
 		emitSemanticError(
 			builder,

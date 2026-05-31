@@ -6,8 +6,10 @@ import (
 )
 
 const (
-	ERROR_DUPLICATE_VARIABLE  string = "VAR_001"
-	ERROR_UNDECLARED_VARIABLE string = "VAR_002"
+	ERROR_DUPLICATE_VARIABLE        string = "VAR_001"
+	ERROR_UNDECLARED_VARIABLE       string = "VAR_002"
+	ERROR_INVALID_VARIABLE_VALUE    string = "VAR_003"
+	ERROR_VARIABLE_ARRAY_NOT_SCALAR string = "VAR_004"
 
 	ERROR_DUPLICATE_TARGET           string = "TARGET_001"
 	ERROR_UNDECLARED_TARGET          string = "TARGET_002"
@@ -77,7 +79,7 @@ type HelmTargetStep struct {
 type HelmIR struct {
 	// SourceDirectory is the directory containing the interpreted .helm file.
 	SourceDirectory string
-	GlobalVariables map[string]string
+	GlobalVariables map[string]HelmGlobalVariable
 	Targets         map[string]HelmTarget
 	Succeeded       bool
 }

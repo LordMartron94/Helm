@@ -53,8 +53,12 @@ func resolvePathElement(
 ) (segment string, ok bool) {
 	if varNode := elementNode.FindFirstKind(artifacts.NodeVariableReference); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
-		if text, resolved := resolveInterpolation(scope, varName); resolved {
+		if text, ok := resolveGlobalString(scope, varName); ok {
 			return text, true
+		}
+		if _, exists := scope.globals[varName]; exists {
+			emitVariableNotScalar(builder, varNode, varName, "path() element")
+			return "", false
 		}
 		emitSemanticError(
 			builder,

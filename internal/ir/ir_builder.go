@@ -17,7 +17,7 @@ type irBuilder struct {
 	hasEmittedError bool
 
 	seenAliases     map[string]struct{}
-	globalVariables map[string]string
+	globalVariables map[string]HelmGlobalVariable
 	targets         map[string]HelmTarget
 }
 

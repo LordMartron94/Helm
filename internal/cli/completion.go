@@ -279,7 +279,7 @@ func completeSet(args []string, argIndex int, cur string) []string {
 }
 
 func sessionCreateForCompletion(helmFilePath string) *Session {
-	lSpecPath, err := ResolveHelmLSpecPath()
+	lSpecPath, releaseLSpec, err := ResolveHelmLSpecPath()
 	if err != nil {
 		return nil
 	}
@@ -295,6 +295,9 @@ func sessionCreateForCompletion(helmFilePath string) *Session {
 		DiagnosticOutput: io.Discard,
 		StreamRunOutput:  &streamRuns,
 	})
+	if releaseLSpec != nil {
+		releaseLSpec()
+	}
 	if err != nil {
 		return nil
 	}

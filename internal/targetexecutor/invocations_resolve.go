@@ -85,7 +85,7 @@ func targetExecutorCollectDependencyParamMaps(
 			}
 
 			interpolated := targetExecutorInterpolateParamMap(
-				builtIR.GlobalVariables,
+				ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
 				parentParams,
 				dep.Parameters,
 			)

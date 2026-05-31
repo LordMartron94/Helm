@@ -38,11 +38,14 @@ func init() {
 func runHelmOperation(_ struct{}, execCtx shield.SHIELD_Testing_ExecutionContext) []shield.SHIELD_Testing_ScenarioRunResult {
 	var results []shield.SHIELD_Testing_ScenarioRunResult
 
-	specPath, specErr := helmLSpecPathResolve()
+	specPath, releaseSpec, specErr := helmLSpecPathResolve()
 	casesDir, casesErr := helmTestsCasesDirResolve()
 
 	if specErr != nil {
 		panic(fmt.Sprintf("helm test setup failed (resolve spec): %v", specErr))
+	}
+	if releaseSpec != nil {
+		defer releaseSpec()
 	}
 	if casesErr != nil {
 		panic(fmt.Sprintf("helm test setup failed (resolve cases dir): %v", casesErr))
@@ -1198,7 +1201,7 @@ func containsString(slice []string, target string) bool {
 
 // ------------------------------------------------------------------ PATH RESOLUTION
 
-func helmLSpecPathResolve() (string, error) {
+func helmLSpecPathResolve() (string, func(), error) {
 	return helm.ResolveHelmLSpecPath()
 }
 

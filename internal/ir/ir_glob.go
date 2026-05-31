@@ -230,8 +230,12 @@ func resolveGlobBaseDirectory(
 ) (string, bool) {
 	if varNode := baseDirNode.FindFirstKind(artifacts.NodeVariableReference); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
-		if text, ok := resolveInterpolation(scope, varName); ok {
+		if text, ok := resolveGlobalString(scope, varName); ok {
 			return text, true
+		}
+		if _, exists := scope.globals[varName]; exists {
+			emitVariableNotScalar(builder, varNode, varName, "glob() base directory")
+			return "", false
 		}
 		emitSemanticError(
 			builder,

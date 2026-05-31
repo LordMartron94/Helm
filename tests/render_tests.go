@@ -457,9 +457,12 @@ func executeVisualDiagnosticHarness(
 	}
 
 	// 6. Bootstrap the Interpreter
-	specPath, err := helmLSpecPathResolve()
+	specPath, releaseSpec, err := helmLSpecPathResolve()
 	if err != nil {
 		t.Fatalf("helm test setup failed (resolve spec): %v", err)
+	}
+	if releaseSpec != nil {
+		defer releaseSpec()
 	}
 	casesDir, err := helmTestsCasesDirResolve()
 	if err != nil {

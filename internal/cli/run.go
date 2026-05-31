@@ -20,8 +20,9 @@ func Run(config RunConfig) error {
 	}
 
 	lSpecPath := config.LSpecPath
+	var releaseLSpec func()
 	if lSpecPath == "" {
-		lSpecPath, err = ResolveHelmLSpecPath()
+		lSpecPath, releaseLSpec, err = ResolveHelmLSpecPath()
 		if err != nil {
 			return err
 		}
@@ -38,6 +39,9 @@ func Run(config RunConfig) error {
 		ColorMode:       colorMode,
 		StreamRunOutput: config.StreamRunOutput,
 	})
+	if releaseLSpec != nil {
+		releaseLSpec()
+	}
 	if err != nil {
 		return err
 	}

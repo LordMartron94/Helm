@@ -2,6 +2,6 @@ package cli
 
 import "lingua/helm"
 
-func ResolveHelmLSpecPath() (string, error) {
+func ResolveHelmLSpecPath() (path string, release func(), err error) {
 	return helm.ResolveHelmLSpecPath()
 }

@@ -10,21 +10,21 @@ import (
 )
 
 type resolveScope struct {
-	globals        map[string]string
+	globals        map[string]HelmGlobalVariable
 	parameters     []HelmTargetParameter
 	matrixVariable string
 }
 
-func resolveScopeForGlobals(globals map[string]string) resolveScope {
+func resolveScopeForGlobals(globals map[string]HelmGlobalVariable) resolveScope {
 	return resolveScope{globals: globals}
 }
 
-func resolveScopeForTarget(globals map[string]string, parameters []HelmTargetParameter) resolveScope {
+func resolveScopeForTarget(globals map[string]HelmGlobalVariable, parameters []HelmTargetParameter) resolveScope {
 	return resolveScope{globals: globals, parameters: parameters}
 }
 
 func resolveScopeForTargetWithMatrix(
-	globals map[string]string,
+	globals map[string]HelmGlobalVariable,
 	parameters []HelmTargetParameter,
 	matrixVariable string,
 ) resolveScope {
@@ -50,7 +50,10 @@ func resolveScopeHasParameter(scope resolveScope, name string) bool {
 
 func resolveInterpolation(scope resolveScope, ident string) (text string, ok bool) {
 	if value, exists := scope.globals[ident]; exists {
-		return value, true
+		if value.Kind == HelmGlobalVarString {
+			return value.StringValue, true
+		}
+		return "", false
 	}
 	if resolveScopeHasParameter(scope, ident) {
 		return "${" + ident + "}", true
@@ -115,16 +118,28 @@ func handleStringInterpolation(
 	targetVariableNode := node.FindDirectChildKind(artifacts.NodeInterpolatedVariable)
 	targetVariableIdentifier := extractContentFromSingleTokenNode(builder, targetVariableNode)
 
-	if text, ok := resolveInterpolation(scope, targetVariableIdentifier); ok {
-		sb.WriteString(text)
-	} else {
-		emitSemanticError(
-			builder,
-			targetVariableNode,
-			ERROR_UNDECLARED_VARIABLE,
-			fmt.Sprintf("use of undeclared variable '%s'", targetVariableIdentifier),
-		)
+	if variable, exists := scope.globals[targetVariableIdentifier]; exists {
+		if variable.Kind == HelmGlobalVarString {
+			sb.WriteString(variable.StringValue)
+			return
+		}
+		emitVariableNotScalar(builder, targetVariableNode, targetVariableIdentifier, "string interpolation")
+		return
 	}
+	if resolveScopeHasParameter(scope, targetVariableIdentifier) {
+		sb.WriteString("${" + targetVariableIdentifier + "}")
+		return
+	}
+	if scope.matrixVariable != "" && targetVariableIdentifier == scope.matrixVariable {
+		sb.WriteString("${" + targetVariableIdentifier + "}")
+		return
+	}
+	emitSemanticError(
+		builder,
+		targetVariableNode,
+		ERROR_UNDECLARED_VARIABLE,
+		fmt.Sprintf("use of undeclared variable '%s'", targetVariableIdentifier),
+	)
 }
 
 func extractContentFromSingleTokenNode(

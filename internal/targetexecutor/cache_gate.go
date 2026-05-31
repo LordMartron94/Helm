@@ -41,7 +41,7 @@ func targetExecutorEvaluateCache(
 		builtIR.SourceDirectory,
 		target,
 		builtIR.Targets,
-		builtIR.GlobalVariables,
+		ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
 		TargetExecutorParametersForTarget(target, inv),
 		depStateFingerprints,
 		depOutputFingerprints,
@@ -99,7 +99,7 @@ func targetExecutorCommitCache(
 		builtIR.SourceDirectory,
 		target,
 		builtIR.Targets,
-		builtIR.GlobalVariables,
+		ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
 		TargetExecutorParametersForTarget(target, inv),
 		depStateFingerprints,
 		depOutputFingerprints,
@@ -138,7 +138,7 @@ func targetExecutorOutputFingerprintAfterRun(
 	return cache.CacheFingerprintOutput(
 		builtIR.SourceDirectory,
 		target,
-		builtIR.GlobalVariables,
+		ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
 		TargetExecutorParametersForTarget(target, inv),
 	)
 }
