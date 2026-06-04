@@ -69,9 +69,13 @@ func TargetExecutorRunGraph(
 					return
 				}
 
+				canonicalName := TargetExecutorExecutionNodeCanonical(name)
+				target := builtIR.Targets[canonicalName]
+				inv := targetExecutorInvocationForNode(plan, name, invocations)
+
 				var blockedErr error
 				resultsMu.RLock()
-				blockedErr = targetExecutorDependencyBlocked(plan, builtIR, name, results)
+				blockedErr = targetExecutorDependencyBlocked(plan, builtIR, name, inv, results)
 				resultsMu.RUnlock()
 				if blockedErr != nil {
 					resultsMu.Lock()
@@ -79,10 +83,6 @@ func TargetExecutorRunGraph(
 					resultsMu.Unlock()
 					return
 				}
-
-				canonicalName := TargetExecutorExecutionNodeCanonical(name)
-				target := builtIR.Targets[canonicalName]
-				inv := targetExecutorInvocationForNode(plan, name, invocations)
 
 				paramValues := TargetExecutorParametersForTarget(target, inv)
 				resolvedParams, resolveErr := TargetExecutorResolveInvocationParameters(
@@ -141,12 +141,21 @@ func TargetExecutorRunGraph(
 							cacheInstanceKey = paramInstanceKey
 						}
 
-						depExecNodes := plan.Outgoing[canonicalName]
-						if len(depExecNodes) != len(target.DependsOn) {
-							depExecNodes = targetExecutorFallbackDependencyNodes(builtIR, target)
+						depExecNodes, depNodesErr := targetExecutorDependencyNodes(
+							plan,
+							builtIR,
+							name,
+							inv,
+						)
+						if depNodesErr != nil {
+							instMu.Lock()
+							if targetErr == nil {
+								targetErr = depNodesErr
+							}
+							instMu.Unlock()
+							return
 						}
 
-						resultsMu.RLock()
 						fingerprintMu.RLock()
 						decision, cacheErr := targetExecutorEvaluateCache(
 							builtIR,
@@ -157,11 +166,8 @@ func TargetExecutorRunGraph(
 							runOpts,
 							depStateFingerprints,
 							depOutputFingerprints,
-							results,
-							plan.NodeInvocations,
 						)
 						fingerprintMu.RUnlock()
-						resultsMu.RUnlock()
 						if cacheErr != nil {
 							instMu.Lock()
 							if targetErr == nil {
@@ -198,7 +204,6 @@ func TargetExecutorRunGraph(
 							}
 
 							var commitErr error
-							resultsMu.RLock()
 							fingerprintMu.RLock()
 							outputFingerprint, commitErr = targetExecutorCommitCache(
 								builtIR,
@@ -209,11 +214,8 @@ func TargetExecutorRunGraph(
 								runOpts,
 								depStateFingerprints,
 								depOutputFingerprints,
-								results,
-								plan.NodeInvocations,
 							)
 							fingerprintMu.RUnlock()
-							resultsMu.RUnlock()
 							if commitErr != nil {
 								instMu.Lock()
 								if targetErr == nil {
@@ -364,22 +366,6 @@ func targetExecutorConfirmBeforeTarget(
 	}
 
 	return nil
-}
-
-func targetExecutorFallbackDependencyNodes(
-	builtIR ir.HelmIR,
-	target ir.HelmTarget,
-) []string {
-	out := make([]string, len(target.DependsOn))
-	for i, dep := range target.DependsOn {
-		canonical, ok := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
-		if ok {
-			out[i] = canonical
-		} else {
-			out[i] = dep.TargetName
-		}
-	}
-	return out
 }
 
 func targetExecutorValidatePhaseTTY(phase []string, targets map[string]ir.HelmTarget) error {

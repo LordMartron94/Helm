@@ -209,7 +209,7 @@ depends_on [
 
 The `artifacts` block defines the I/O state boundary of the target. Helm uses this block to cryptographically hash the state and automatically skip redundant executions. A cache hit also requires unchanged execution content: `workdir`, `env`, every `run` / `when` command string (after interpolation), invocation parameters, and dependency fingerprints—not only input artifact file hashes.
 
-When a dependency fails, dependents are blocked with that error (transitive over the execution graph). If a target must read an output path from a failed producer, Helm surfaces the producer’s failure instead of a bare missing-file fingerprint error. A recorded cache hit is ignored when declared `outputs` are absent on disk (for example after a failed compile or a manual clean).
+When a dependency fails, dependents are blocked with that error (transitive over the execution graph), including parametric `depends_on` edges (`_build_code` instances keyed by bound `params`). A recorded cache hit is ignored when declared `outputs` are absent on disk (for example after a failed compile or a manual clean).
 
 ```helm
 target compile(OS) {
