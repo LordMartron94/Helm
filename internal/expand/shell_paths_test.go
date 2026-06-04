@@ -14,7 +14,16 @@ func TestPathsFromShellParameterList(t *testing.T) {
 		t.Fatalf("got %v", paths)
 	}
 
+	single := JoinPathsForShell([]string{"/home/user/project/libs/splash/src/test.c"})
+	paths, ok = PathsFromShellParameterList(single)
+	if !ok || len(paths) != 1 {
+		t.Fatalf("single quoted list: got %v, %v; want one path", paths, ok)
+	}
+	if paths[0] != "/home/user/project/libs/splash/src/test.c" {
+		t.Fatalf("got %q", paths[0])
+	}
+
 	if _, ok := PathsFromShellParameterList("build/out.so"); ok {
-		t.Fatal("expected single path to stay unsplit")
+		t.Fatal("expected plain relative path to stay unsplit")
 	}
 }
