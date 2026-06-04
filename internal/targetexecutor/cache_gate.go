@@ -18,6 +18,7 @@ func targetExecutorEvaluateCache(
 	targetName string,
 	instanceKey string,
 	inv TargetInvocation,
+	depExecutionNodeIDs []string,
 	opts TargetExecutorOptions,
 	depStateFingerprints map[string]uint64,
 	depOutputFingerprints map[string]uint64,
@@ -61,6 +62,7 @@ func targetExecutorEvaluateCache(
 		builtIR.Targets,
 		globalVars,
 		parameters,
+		depExecutionNodeIDs,
 		depStateFingerprints,
 		depOutputFingerprints,
 	)
@@ -95,6 +97,7 @@ func targetExecutorCommitCache(
 	targetName string,
 	instanceKey string,
 	inv TargetInvocation,
+	depExecutionNodeIDs []string,
 	opts TargetExecutorOptions,
 	depStateFingerprints map[string]uint64,
 	depOutputFingerprints map[string]uint64,
@@ -124,6 +127,7 @@ func targetExecutorCommitCache(
 		builtIR.Targets,
 		globalVars,
 		parameters,
+		depExecutionNodeIDs,
 		depStateFingerprints,
 		depOutputFingerprints,
 	)

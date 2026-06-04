@@ -23,6 +23,7 @@ func CacheFingerprintState(
 	targets map[string]ir.HelmTarget,
 	globalVars map[string]string,
 	parameters map[string]string,
+	depExecutionNodeIDs []string,
 	depStateFingerprints map[string]uint64,
 	depOutputFingerprints map[string]uint64,
 ) (uint64, error) {
@@ -55,19 +56,19 @@ func CacheFingerprintState(
 		}
 	}
 
-	depNames := make([]string, 0, len(target.DependsOn))
-	for _, dep := range target.DependsOn {
-		canonical, ok := ir.IRResolveTargetName(targets, dep.TargetName)
-		if !ok {
-			continue
+	for i, dep := range target.DependsOn {
+		execNode := dep.TargetName
+		if i < len(depExecutionNodeIDs) && depExecutionNodeIDs[i] != "" {
+			execNode = depExecutionNodeIDs[i]
+		} else {
+			canonical, ok := ir.IRResolveTargetName(targets, dep.TargetName)
+			if ok {
+				execNode = canonical
+			}
 		}
-		depNames = append(depNames, canonical)
-	}
-	sort.Strings(depNames)
-	for _, depName := range depNames {
-		buffer.WriteString(depName)
-		binary.Write(&buffer, binary.LittleEndian, depStateFingerprints[depName])
-		binary.Write(&buffer, binary.LittleEndian, depOutputFingerprints[depName])
+		buffer.WriteString(execNode)
+		binary.Write(&buffer, binary.LittleEndian, depStateFingerprints[execNode])
+		binary.Write(&buffer, binary.LittleEndian, depOutputFingerprints[execNode])
 	}
 
 	paramKeys := make([]string, 0, len(parameters))
