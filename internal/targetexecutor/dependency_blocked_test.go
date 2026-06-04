@@ -53,12 +53,12 @@ func TestTargetExecutorDependencyBlockedParametricProducerFailure(t *testing.T) 
 					{
 						TargetName: "_build_code",
 						Parameters: map[string]ir.HelmParameterValue{
-							"SOURCE_FILES":     {Kind: ir.HelmParameterScalar, Scalar: "main.c"},
-							"OUT_NAME":           {Kind: ir.HelmParameterScalar, Scalar: "testbed"},
-							"DEFINES":            {Kind: ir.HelmParameterScalar},
-							"COMPILER_FLAGS":     {Kind: ir.HelmParameterScalar, Scalar: "-g"},
-							"INCLUDE_FLAGS":      {Kind: ir.HelmParameterScalar},
-							"LINKER_FLAGS":       {Kind: ir.HelmParameterScalar},
+							"SOURCE_FILES":   {Kind: ir.HelmParameterScalar, Scalar: "main.c"},
+							"OUT_NAME":       {Kind: ir.HelmParameterScalar, Scalar: "testbed"},
+							"DEFINES":        {Kind: ir.HelmParameterScalar},
+							"COMPILER_FLAGS": {Kind: ir.HelmParameterScalar, Scalar: "-g"},
+							"INCLUDE_FLAGS":  {Kind: ir.HelmParameterScalar},
+							"LINKER_FLAGS":   {Kind: ir.HelmParameterScalar},
 						},
 					},
 				},
@@ -74,11 +74,11 @@ func TestTargetExecutorDependencyBlockedParametricProducerFailure(t *testing.T) 
 					{
 						TargetName: "build_application",
 						Parameters: map[string]ir.HelmParameterValue{
-							"SOURCE_FILES": {Kind: ir.HelmParameterScalar, Scalar: "main.c"},
-							"OUT_NAME":       {Kind: ir.HelmParameterScalar, Scalar: "testbed"},
-							"DEFINES":        {Kind: ir.HelmParameterScalar},
-							"INCLUDE_FLAGS":  {Kind: ir.HelmParameterScalar},
-							"LINKER_FLAGS":   {Kind: ir.HelmParameterScalar},
+							"SOURCE_FILES":  {Kind: ir.HelmParameterScalar, Scalar: "main.c"},
+							"OUT_NAME":      {Kind: ir.HelmParameterScalar, Scalar: "testbed"},
+							"DEFINES":       {Kind: ir.HelmParameterScalar},
+							"INCLUDE_FLAGS": {Kind: ir.HelmParameterScalar},
+							"LINKER_FLAGS":  {Kind: ir.HelmParameterScalar},
 						},
 					},
 				},
@@ -102,11 +102,11 @@ func TestTargetExecutorDependencyBlockedParametricProducerFailure(t *testing.T) 
 	}
 
 	message := err.Error()
-	if !strings.Contains(message, "blocked") {
-		t.Fatalf("expected blocked error, got %v", err)
+	if !strings.Contains(message, `blocked (build_application → _build_code)`) {
+		t.Fatalf("expected compact chain on build_testbed, got %v", err)
 	}
-	if !strings.Contains(message, "_build_code") {
-		t.Fatalf("expected _build_code in chain, got %v", err)
+	if strings.Contains(message, "dependency '") {
+		t.Fatalf("expected no nested dependency failed wording, got %v", err)
 	}
 	if !strings.Contains(message, "compile failed") {
 		t.Fatalf("expected root compile error, got %v", err)
@@ -134,7 +134,7 @@ func TestTargetExecutorDependencyNodesMatchesPlanOutgoing(t *testing.T) {
 				},
 			},
 			"_build_code": {
-				Name: "_build_code",
+				Name:       "_build_code",
 				Parameters: []ir.HelmTargetParameter{{Name: "OUT"}},
 			},
 		},
