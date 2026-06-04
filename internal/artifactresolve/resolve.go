@@ -9,6 +9,16 @@ import (
 	"sort"
 )
 
+func ArtifactResolveItems(
+	helmBaseDir string,
+	items []ir.HelmArtifactInput,
+	globalVars map[string]string,
+	parameters map[string]string,
+	requireExistingFiles bool,
+) ([]string, error) {
+	return artifactResolvePaths(helmBaseDir, items, globalVars, parameters, requireExistingFiles)
+}
+
 func ArtifactResolveInputPaths(
 	helmBaseDir string,
 	artifacts *ir.HelmArtifacts,

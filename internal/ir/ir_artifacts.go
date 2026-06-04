@@ -12,10 +12,10 @@ func extractInputArtifactSequence(
 	scope resolveScope,
 ) []HelmArtifactInput {
 	if arrayNode := parentNode.FindFirstKind(artifacts.NodeInputArray); arrayNode != nil {
-		return extractArtifactItemsFromChildren(builder, arrayNode, scope)
+		return extractArtifactItemsFromPathArrayRoot(builder, arrayNode, scope)
 	}
 
-	if items, ok := expandArtifactSequenceFromVariableRef(builder, parentNode, scope, "artifacts inputs"); ok {
+	if items, ok := expandArtifactSequenceFromVariableRef(builder, parentNode, scope); ok {
 		return items
 	}
 
@@ -32,10 +32,10 @@ func extractOutputArtifactSequence(
 	scope resolveScope,
 ) []HelmArtifactInput {
 	if arrayNode := parentNode.FindFirstKind(artifacts.NodeOutputArray); arrayNode != nil {
-		return extractArtifactItemsFromChildren(builder, arrayNode, scope)
+		return extractArtifactItemsFromPathArrayRoot(builder, arrayNode, scope)
 	}
 
-	if items, ok := expandArtifactSequenceFromVariableRef(builder, parentNode, scope, "artifacts outputs"); ok {
+	if items, ok := expandArtifactSequenceFromVariableRef(builder, parentNode, scope); ok {
 		return items
 	}
 
@@ -50,7 +50,6 @@ func expandArtifactSequenceFromVariableRef(
 	builder *irBuilder,
 	parentNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	scope resolveScope,
-	context string,
 ) ([]HelmArtifactInput, bool) {
 	varNode := artifactItemVarRefNode(parentNode)
 	if varNode == nil {
@@ -58,45 +57,14 @@ func expandArtifactSequenceFromVariableRef(
 	}
 
 	varName := extractContentFromSingleTokenNode(builder, varNode)
-	list, ok := resolveGlobalStringList(scope, varName)
+	items, ok := resolveGlobalArtifactItems(scope, varName)
 	if !ok {
-		if _, exists := scope.globals[varName]; exists {
-			emitVariableNotScalar(builder, varNode, varName, context)
-		} else {
-			emitSemanticError(
-				builder,
-				varNode,
-				ERROR_UNDECLARED_VARIABLE,
-				fmt.Sprintf("use of undeclared variable '%s' in %s", varName, context),
-			)
-		}
-		return nil, true
-	}
-
-	if len(list) == 1 {
 		return nil, false
 	}
 
-	items := make([]HelmArtifactInput, len(list))
-	for i, literal := range list {
-		items[i] = HelmArtifactInput{Kind: ArtifactInputString, Literal: literal}
-	}
-	return items, true
-}
-
-func extractArtifactItemsFromChildren(
-	builder *irBuilder,
-	arrayNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
-	scope resolveScope,
-) []HelmArtifactInput {
-	var items []HelmArtifactInput
-	for _, child := range arrayNode.ChildrenUnsafe() {
-		item, ok := resolveArtifactItem(builder, child, scope)
-		if ok {
-			items = append(items, item)
-		}
-	}
-	return items
+	out := make([]HelmArtifactInput, len(items))
+	copy(out, items)
+	return out, true
 }
 
 func resolveArtifactItem(
@@ -131,7 +99,7 @@ func resolveArtifactItem(
 		if text, ok := resolveGlobalString(scope, varName); ok {
 			return HelmArtifactInput{Kind: ArtifactInputString, Literal: text}, true
 		}
-		if _, exists := scope.globals[varName]; exists {
+		if globalVariableIsArtifactArray(scope, varName) {
 			emitVariableNotScalar(builder, varNode, varName, "artifacts entry")
 			return HelmArtifactInput{}, false
 		}

@@ -85,11 +85,7 @@ func extractMatrixValues(
 		}
 		if varNode := artifactItemVarRefNode(child); varNode != nil {
 			varName := extractContentFromSingleTokenNode(builder, varNode)
-			if list, ok := resolveGlobalStringList(scope, varName); ok && len(list) > 1 {
-				values := make([]HelmMatrixValue, len(list))
-				for i, literal := range list {
-					values[i] = HelmMatrixValue{Kind: MatrixValueLiteral, Literal: literal}
-				}
+			if values, ok := matrixValuesFromGlobalArtifactItems(builder, varNode, scope, varName); ok {
 				return values
 			}
 		}
@@ -146,7 +142,7 @@ func extractMatrixValueFromNode(
 		if text, ok := resolveGlobalString(scope, varName); ok {
 			return HelmMatrixValue{Kind: MatrixValueLiteral, Literal: text}, true
 		}
-		if _, exists := scope.globals[varName]; exists {
+		if globalVariableIsArtifactArray(scope, varName) {
 			emitVariableNotScalar(builder, varNode, varName, "matrix value")
 			return HelmMatrixValue{}, false
 		}
@@ -160,4 +156,48 @@ func extractMatrixValueFromNode(
 	}
 
 	return HelmMatrixValue{}, false
+}
+
+func matrixValuesFromGlobalArtifactItems(
+	builder *irBuilder,
+	varNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+	varName string,
+) ([]HelmMatrixValue, bool) {
+	items, ok := resolveGlobalArtifactItems(scope, varName)
+	if !ok {
+		return nil, false
+	}
+
+	values := make([]HelmMatrixValue, 0, len(items))
+	for _, item := range items {
+		switch item.Kind {
+		case ArtifactInputString:
+			values = append(values, HelmMatrixValue{
+				Kind:    MatrixValueLiteral,
+				Literal: item.Literal,
+			})
+		case ArtifactInputGlob:
+			if item.Glob == nil {
+				emitSemanticError(
+					builder,
+					varNode,
+					ERROR_INVALID_GLOB,
+					fmt.Sprintf("variable '%s' contains an invalid glob entry for matrix", varName),
+				)
+				return nil, true
+			}
+			globCopy := *item.Glob
+			values = append(values, HelmMatrixValue{Kind: MatrixValueGlob, Glob: &globCopy})
+		default:
+			emitSemanticError(
+				builder,
+				varNode,
+				ERROR_INVALID_VARIABLE_VALUE,
+				fmt.Sprintf("variable '%s' contains an unsupported matrix entry", varName),
+			)
+			return nil, true
+		}
+	}
+	return values, true
 }

@@ -71,11 +71,20 @@ func handleVariableDeclaration(
 		valueNode := node.FindDirectChildKind(artifacts.NodeVariableValue)
 		scope := resolveScopeForGlobals(builder.globalVariables)
 
-		if arrayNode := valueNode.FindFirstKind(artifacts.NodeStringArray); arrayNode != nil {
-			values := extractStringsFromStringArrayNode(builder, arrayNode, scope)
+		if valueNode.FindFirstKind(artifacts.NodeVariableArray) != nil {
+			items := extractArtifactItemsFromPathArrayRoot(builder, valueNode, scope)
+			if len(items) == 0 {
+				emitSemanticError(
+					builder,
+					valueNode,
+					ERROR_INVALID_VARIABLE_VALUE,
+					fmt.Sprintf("variable '%s' array must contain at least one entry", identifierString),
+				)
+				return
+			}
 			builder.globalVariables[identifierString] = HelmGlobalVariable{
-				Kind:         HelmGlobalVarStringArray,
-				StringValues: values,
+				Kind:          HelmGlobalVarArtifactArray,
+				ArtifactItems: items,
 			}
 			return
 		}
@@ -86,7 +95,7 @@ func handleVariableDeclaration(
 				builder,
 				valueNode,
 				ERROR_INVALID_VARIABLE_VALUE,
-				fmt.Sprintf("variable '%s' must be a string literal or string array", identifierString),
+				fmt.Sprintf("variable '%s' must be a string literal or artifact array", identifierString),
 			)
 			return
 		}

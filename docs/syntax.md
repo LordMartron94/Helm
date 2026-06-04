@@ -11,19 +11,24 @@ A `.helm` file consists of global variable declarations and target definitions.
 * **Whitespace:** Newlines are structurally significant to terminate statements. Semicolons are not used.
 
 ### Global Variables
-Variables are declared at the root level and can be interpolated into strings. A variable may be a string literal or a string array.
+Variables are declared at the root level. A variable may be a string literal or an artifact array (the same path/glob/string forms used in `inputs` / `outputs`).
 ```helm
 BUILD_DIR = "bin"
 VERSION = "1.0.0"
 
-SHARED_INPUTS = [
-    "src/**/*.go",
-    "go.mod",
+C_SOURCES = [
+    glob("libs", includes = ["**/*.c"], recursive = true),
+    path("tools", "extra.c"),
 ]
+
+target compile() {
+    run "clang ${C_SOURCES} -o out.o"
+    inputs = C_SOURCES
+}
 ```
 
 * **String variables** expand in `${NAME}` interpolation, `path()`, `glob()` base directories, and scalar `VAR_REF` sites.
-* **String array variables** expand where a list is expected: `matrix VAR in LIST_VAR`, `inputs = LIST_VAR`, `outputs = LIST_VAR`, and inline artifact arrays via a single variable reference. They cannot be used inside `${...}` or as a single path segment (`VAR_004`).
+* **Artifact array variables** hold paths, `path()` values, `glob()` patterns, and string literals. Use them as `inputs = VAR`, `outputs = VAR`, `matrix X in VAR`, or inline inside `[ ... ]`. In `run` commands, `${VAR}` resolves each entry at execution time (globs are walked) and expands to a shell-safe, space-separated list of paths (`VAR_004` if used where a single scalar is required).
 
 ---
 

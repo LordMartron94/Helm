@@ -233,7 +233,7 @@ func resolveGlobBaseDirectory(
 		if text, ok := resolveGlobalString(scope, varName); ok {
 			return text, true
 		}
-		if _, exists := scope.globals[varName]; exists {
+		if globalVariableIsArtifactArray(scope, varName) {
 			emitVariableNotScalar(builder, varNode, varName, "glob() base directory")
 			return "", false
 		}

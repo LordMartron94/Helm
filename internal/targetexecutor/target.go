@@ -8,8 +8,9 @@ import (
 )
 
 func TargetExecutorRunTarget(
+	helmBaseDir string,
 	target ir.HelmTarget,
-	globalVars map[string]string,
+	globals map[string]ir.HelmGlobalVariable,
 	inv TargetInvocation,
 	opts TargetExecutorOptions,
 ) error {
@@ -19,6 +20,11 @@ func TargetExecutorRunTarget(
 	}
 
 	parameters := TargetExecutorParametersForTarget(target, inv)
+	globalVars, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, parameters)
+	if err != nil {
+		return err
+	}
+
 	workDir := TargetExecutorInterpolateLiteral(target.WorkDir, globalVars, parameters)
 	env := targetExecutorInterpolateEnv(target.Env, globalVars, parameters)
 

@@ -123,8 +123,10 @@ func handleStringInterpolation(
 			sb.WriteString(variable.StringValue)
 			return
 		}
-		emitVariableNotScalar(builder, targetVariableNode, targetVariableIdentifier, "string interpolation")
-		return
+		if variable.Kind == HelmGlobalVarArtifactArray {
+			emitVariableNotScalar(builder, targetVariableNode, targetVariableIdentifier, "string interpolation")
+			return
+		}
 	}
 	if resolveScopeHasParameter(scope, targetVariableIdentifier) {
 		sb.WriteString("${" + targetVariableIdentifier + "}")

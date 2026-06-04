@@ -8,15 +8,15 @@ import (
 
 const (
 	HelmGlobalVarString HelmGlobalVariableKind = iota
-	HelmGlobalVarStringArray
+	HelmGlobalVarArtifactArray
 )
 
 type HelmGlobalVariableKind int
 
 type HelmGlobalVariable struct {
-	Kind         HelmGlobalVariableKind
-	StringValue  string
-	StringValues []string
+	Kind          HelmGlobalVariableKind
+	StringValue   string
+	ArtifactItems []HelmArtifactInput
 }
 
 func InterpolationGlobalsFromHelmGlobals(globals map[string]HelmGlobalVariable) map[string]string {
@@ -43,21 +43,22 @@ func resolveGlobalString(scope resolveScope, name string) (string, bool) {
 	return variable.StringValue, true
 }
 
-func resolveGlobalStringList(scope resolveScope, name string) ([]string, bool) {
+func resolveGlobalArtifactItems(scope resolveScope, name string) ([]HelmArtifactInput, bool) {
 	variable, ok := scope.globals[name]
 	if !ok {
 		return nil, false
 	}
-	switch variable.Kind {
-	case HelmGlobalVarString:
-		return []string{variable.StringValue}, true
-	case HelmGlobalVarStringArray:
-		out := make([]string, len(variable.StringValues))
-		copy(out, variable.StringValues)
-		return out, true
-	default:
+	if variable.Kind != HelmGlobalVarArtifactArray {
 		return nil, false
 	}
+	out := make([]HelmArtifactInput, len(variable.ArtifactItems))
+	copy(out, variable.ArtifactItems)
+	return out, true
+}
+
+func globalVariableIsArtifactArray(scope resolveScope, name string) bool {
+	variable, ok := scope.globals[name]
+	return ok && variable.Kind == HelmGlobalVarArtifactArray
 }
 
 func emitVariableNotScalar(
@@ -70,6 +71,6 @@ func emitVariableNotScalar(
 		builder,
 		node,
 		ERROR_VARIABLE_ARRAY_NOT_SCALAR,
-		fmt.Sprintf("variable '%s' is a string array and cannot be used as a single %s", name, context),
+		fmt.Sprintf("variable '%s' is an artifact array and cannot be used as a single %s", name, context),
 	)
 }

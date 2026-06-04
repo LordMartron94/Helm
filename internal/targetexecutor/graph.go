@@ -141,8 +141,9 @@ func TargetExecutorRunGraph(
 							outputFingerprint = decision.OutputFingerprint
 						} else {
 							runErr := TargetExecutorRunTarget(
+								builtIR.SourceDirectory,
 								target,
-								ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
+								builtIR.GlobalVariables,
 								effectiveInv,
 								runOpts,
 							)
