@@ -139,7 +139,7 @@ func extractMatrixValueFromNode(
 
 	if varNode := artifactItemVarRefNode(node); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
-		if text, ok := resolveGlobalString(scope, varName); ok {
+		if text, ok := resolveScopeVariableAsLiteral(scope, varName); ok {
 			return HelmMatrixValue{Kind: MatrixValueLiteral, Literal: text}, true
 		}
 		if globalVariableIsArtifactArray(scope, varName) {

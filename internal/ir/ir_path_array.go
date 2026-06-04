@@ -19,6 +19,13 @@ func extractArtifactItemsFromPathArrayRoot(
 				items = append(items, nested...)
 				continue
 			}
+			if placeholder, ok := resolveScopeParameterPlaceholder(scope, varName); ok {
+				items = append(items, HelmArtifactInput{
+					Kind:    ArtifactInputString,
+					Literal: placeholder,
+				})
+				continue
+			}
 		}
 
 		if item, ok := resolveArtifactItem(builder, child, scope); ok {

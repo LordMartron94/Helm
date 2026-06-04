@@ -73,6 +73,9 @@ func artifactResolveItem(
 		if path == "" {
 			return nil, nil
 		}
+		if paths, ok := expand.PathsFromShellParameterList(path); ok {
+			return artifactResolveAnchoredPaths(helmBaseDir, paths, requireExistingFiles)
+		}
 		path = artifactAnchorPath(helmBaseDir, path)
 		if requireExistingFiles {
 			if err := artifactEnsureFile(path); err != nil {
@@ -132,6 +135,24 @@ func artifactAnchorPath(helmBaseDir, path string) string {
 		return path
 	}
 	return filepath.Join(helmBaseDir, path)
+}
+
+func artifactResolveAnchoredPaths(
+	helmBaseDir string,
+	paths []string,
+	requireExistingFiles bool,
+) ([]string, error) {
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = artifactAnchorPath(helmBaseDir, path)
+		if requireExistingFiles {
+			if err := artifactEnsureFile(path); err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, path)
+	}
+	return out, nil
 }
 
 func artifactEnsureFile(path string) error {

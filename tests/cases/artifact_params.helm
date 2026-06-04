@@ -1,0 +1,43 @@
+DEV_BIN_DIR = "build/dev-bin"
+
+C_SOURCES = [
+	glob("tools/helm", include="**/*.go", exclude="**/*_test.go"),
+]
+
+target build_shared_library(SOURCE_FILES, OUT_NAME) {
+	help = "test parameter refs in artifacts"
+	hidden = true
+
+	artifacts {
+		inputs = [
+			SOURCE_FILES
+		]
+
+		dynamic = path(DEV_BIN_DIR, "${OUT_NAME}.deps")
+
+		outputs = [
+			"${DEV_BIN_DIR}/lib${OUT_NAME}.so"
+		]
+	}
+
+	run "echo build ${SOURCE_FILES} ${OUT_NAME}"
+}
+
+target consumer() {
+	help = "invoke build_shared_library with artifact-array param"
+
+	depends_on [
+		build_shared_library {
+			params {
+				SOURCE_FILES = C_SOURCES
+				OUT_NAME = "helm"
+			}
+		}
+	]
+
+	artifacts {
+		volatile = true
+	}
+
+	run "echo done"
+}

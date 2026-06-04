@@ -57,14 +57,19 @@ func expandArtifactSequenceFromVariableRef(
 	}
 
 	varName := extractContentFromSingleTokenNode(builder, varNode)
-	items, ok := resolveGlobalArtifactItems(scope, varName)
-	if !ok {
-		return nil, false
+	if items, ok := resolveGlobalArtifactItems(scope, varName); ok {
+		out := make([]HelmArtifactInput, len(items))
+		copy(out, items)
+		return out, true
+	}
+	if placeholder, ok := resolveScopeParameterPlaceholder(scope, varName); ok {
+		return []HelmArtifactInput{{
+			Kind:    ArtifactInputString,
+			Literal: placeholder,
+		}}, true
 	}
 
-	out := make([]HelmArtifactInput, len(items))
-	copy(out, items)
-	return out, true
+	return nil, false
 }
 
 func resolveArtifactItem(
@@ -96,7 +101,7 @@ func resolveArtifactItem(
 
 	if varNode := artifactItemVarRefNode(node); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
-		if text, ok := resolveGlobalString(scope, varName); ok {
+		if text, ok := resolveScopeVariableAsLiteral(scope, varName); ok {
 			return HelmArtifactInput{Kind: ArtifactInputString, Literal: text}, true
 		}
 		if globalVariableIsArtifactArray(scope, varName) {

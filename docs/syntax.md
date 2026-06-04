@@ -236,6 +236,8 @@ target compile(OS) {
 
 Target and matrix variables may appear in `glob()` / `path()` / string literals as `${NAME}` placeholders; they are resolved at execution time using the effective parameter map for that run.
 
+Bare variable references in `inputs`, `outputs`, and `dynamic` (for example `SOURCE_FILES` in an array) may name a **target parameter** as well as a global. Globals that hold artifact arrays still expand at IR build time; parameters become `${NAME}` placeholders and resolve at execution (including artifact-array values passed via `params` on dependencies).
+
 ---
 
 ## 5. Matrix execution (`matrix`)

@@ -48,6 +48,29 @@ func resolveScopeHasParameter(scope resolveScope, name string) bool {
 	return false
 }
 
+func resolveScopeParameterPlaceholder(scope resolveScope, name string) (string, bool) {
+	if resolveScopeHasParameter(scope, name) {
+		return "${" + name + "}", true
+	}
+	return "", false
+}
+
+// resolveScopeVariableAsLiteral resolves a bare variable reference for scalar contexts
+// (path segments, artifact string literals). Globals are expanded at IR build time;
+// target and matrix variables become runtime placeholders.
+func resolveScopeVariableAsLiteral(scope resolveScope, name string) (string, bool) {
+	if text, ok := resolveGlobalString(scope, name); ok {
+		return text, true
+	}
+	if placeholder, ok := resolveScopeParameterPlaceholder(scope, name); ok {
+		return placeholder, true
+	}
+	if scope.matrixVariable != "" && name == scope.matrixVariable {
+		return "${" + name + "}", true
+	}
+	return "", false
+}
+
 func resolveInterpolation(scope resolveScope, ident string) (text string, ok bool) {
 	if value, exists := scope.globals[ident]; exists {
 		if value.Kind == HelmGlobalVarString {

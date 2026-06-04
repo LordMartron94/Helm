@@ -53,7 +53,7 @@ func resolvePathElement(
 ) (segment string, ok bool) {
 	if varNode := elementNode.FindFirstKind(artifacts.NodeVariableReference); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
-		if text, ok := resolveGlobalString(scope, varName); ok {
+		if text, ok := resolveScopeVariableAsLiteral(scope, varName); ok {
 			return text, true
 		}
 		if globalVariableIsArtifactArray(scope, varName) {
