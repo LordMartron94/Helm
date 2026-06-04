@@ -146,6 +146,7 @@ func TargetExecutorRunGraph(
 							depExecNodes = targetExecutorFallbackDependencyNodes(builtIR, target)
 						}
 
+						resultsMu.RLock()
 						fingerprintMu.RLock()
 						decision, cacheErr := targetExecutorEvaluateCache(
 							builtIR,
@@ -156,8 +157,11 @@ func TargetExecutorRunGraph(
 							runOpts,
 							depStateFingerprints,
 							depOutputFingerprints,
+							results,
+							plan.NodeInvocations,
 						)
 						fingerprintMu.RUnlock()
+						resultsMu.RUnlock()
 						if cacheErr != nil {
 							instMu.Lock()
 							if targetErr == nil {
@@ -194,6 +198,7 @@ func TargetExecutorRunGraph(
 							}
 
 							var commitErr error
+							resultsMu.RLock()
 							fingerprintMu.RLock()
 							outputFingerprint, commitErr = targetExecutorCommitCache(
 								builtIR,
@@ -204,8 +209,11 @@ func TargetExecutorRunGraph(
 								runOpts,
 								depStateFingerprints,
 								depOutputFingerprints,
+								results,
+								plan.NodeInvocations,
 							)
 							fingerprintMu.RUnlock()
+							resultsMu.RUnlock()
 							if commitErr != nil {
 								instMu.Lock()
 								if targetErr == nil {
@@ -353,42 +361,6 @@ func targetExecutorConfirmBeforeTarget(
 				return fmt.Errorf("execution aborted: user declined dependency '%s' required by '%s'", canonical, dependentName)
 			}
 		}
-	}
-
-	return nil
-}
-
-func targetExecutorDependencyBlocked(
-	plan *TargetExecutionPlan,
-	builtIR ir.HelmIR,
-	executionNodeID string,
-	results map[string]error,
-) error {
-	canonicalName := TargetExecutorExecutionNodeCanonical(executionNodeID)
-	target := builtIR.Targets[canonicalName]
-
-	depNodes := plan.Outgoing[canonicalName]
-	if len(depNodes) != len(target.DependsOn) {
-		depNodes = targetExecutorFallbackDependencyNodes(builtIR, target)
-	}
-
-	for i, dep := range target.DependsOn {
-		depNode := dep.TargetName
-		if i < len(depNodes) {
-			depNode = depNodes[i]
-		}
-
-		depErr := results[depNode]
-		if depErr == nil {
-			continue
-		}
-
-		if dep.Optional {
-			continue
-		}
-
-		depCanonical := TargetExecutorExecutionNodeCanonical(depNode)
-		return TargetExecutorFormatDependencyBlockedError(canonicalName, depCanonical, depErr)
 	}
 
 	return nil

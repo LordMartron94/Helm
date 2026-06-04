@@ -22,6 +22,8 @@ func targetExecutorEvaluateCache(
 	opts TargetExecutorOptions,
 	depStateFingerprints map[string]uint64,
 	depOutputFingerprints map[string]uint64,
+	results map[string]error,
+	nodeInvocations map[string]TargetInvocation,
 ) (targetExecutorCacheDecision, error) {
 	target := builtIR.Targets[targetName]
 	decision := targetExecutorCacheDecision{}
@@ -67,7 +69,13 @@ func targetExecutorEvaluateCache(
 		depOutputFingerprints,
 	)
 	if err != nil {
-		return decision, err
+		return decision, targetExecutorWrapCacheError(
+			builtIR,
+			targetName,
+			err,
+			results,
+			nodeInvocations,
+		)
 	}
 	decision.StateFingerprint = stateFingerprint
 
@@ -89,6 +97,10 @@ func targetExecutorEvaluateCache(
 
 	decision.Skip = true
 	decision.OutputFingerprint = record.OutputFingerprint
+	if staleErr := targetExecutorInvalidateStaleCacheHit(builtIR, target, inv, &decision); staleErr != nil {
+		return decision, staleErr
+	}
+
 	return decision, nil
 }
 
@@ -101,6 +113,8 @@ func targetExecutorCommitCache(
 	opts TargetExecutorOptions,
 	depStateFingerprints map[string]uint64,
 	depOutputFingerprints map[string]uint64,
+	results map[string]error,
+	nodeInvocations map[string]TargetInvocation,
 ) (uint64, error) {
 	target := builtIR.Targets[targetName]
 	if target.Artifacts == nil {
@@ -109,7 +123,13 @@ func targetExecutorCommitCache(
 
 	outputFingerprint, err := targetExecutorOutputFingerprintAfterRun(builtIR, target, inv)
 	if err != nil {
-		return 0, err
+		return 0, targetExecutorWrapCacheError(
+			builtIR,
+			targetName,
+			err,
+			results,
+			nodeInvocations,
+		)
 	}
 
 	if target.Artifacts.Volatile || target.Interactive || opts.CacheStore == nil {
@@ -132,7 +152,13 @@ func targetExecutorCommitCache(
 		depOutputFingerprints,
 	)
 	if err != nil {
-		return 0, err
+		return 0, targetExecutorWrapCacheError(
+			builtIR,
+			targetName,
+			err,
+			results,
+			nodeInvocations,
+		)
 	}
 
 	record := cache.TargetCacheRecord{

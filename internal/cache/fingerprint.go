@@ -3,14 +3,46 @@ package cache
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"foundation/hash"
 	"foundation/system"
 	"helm/internal/artifactresolve"
 	"helm/internal/expand"
 	"helm/internal/ir"
+	"os"
 	"sort"
 )
+
+// CacheFingerprintFileError is returned when hashing an artifact path for a fingerprint fails.
+type CacheFingerprintFileError struct {
+	Path  string
+	Cause error
+}
+
+func (e *CacheFingerprintFileError) Error() string {
+	return fmt.Sprintf("fingerprint file '%s': %s", e.Path, e.Cause)
+}
+
+func (e *CacheFingerprintFileError) Unwrap() error {
+	return e.Cause
+}
+
+func CacheFingerprintFileErrorPath(err error) (string, bool) {
+	var fileErr *CacheFingerprintFileError
+	if errors.As(err, &fileErr) {
+		return fileErr.Path, true
+	}
+	return "", false
+}
+
+func CacheFingerprintFileErrorIsNotExist(err error) bool {
+	var fileErr *CacheFingerprintFileError
+	if !errors.As(err, &fileErr) {
+		return false
+	}
+	return os.IsNotExist(fileErr.Cause)
+}
 
 var (
 	cacheFileHasher      = hash.XXH3HasherCreateWithSeed(0)
@@ -189,7 +221,7 @@ func cacheWritePaths(buffer *bytes.Buffer, paths []string) error {
 func cacheFileContentHash(path string) (uint64, error) {
 	content, err := system.FileReadAllBytes(path)
 	if err != nil {
-		return 0, fmt.Errorf("fingerprint file '%s': %w", path, err)
+		return 0, &CacheFingerprintFileError{Path: path, Cause: err}
 	}
 	return hash.XXH3HasherHash64(cacheFileHasher, content), nil
 }
