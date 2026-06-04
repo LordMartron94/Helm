@@ -341,61 +341,85 @@ func extractDependencyParameters(
 	scope resolveScope,
 	dep *HelmTargetDependency,
 ) {
-	for _, child := range paramsNode.ChildrenUnsafe() {
-		keyNode := child.FindFirstKind(artifacts.NodeDependencyParameterName)
-		if keyNode == nil {
-			continue
-		}
+	var pendingKey string
+	var pendingKeyNode *syntaxa.SyntaxaLSTNode[artifacts.Node]
 
-		keyStr := extractContentFromSingleTokenNode(builder, keyNode)
-		if _, exists := dep.Parameters[keyStr]; exists {
-			emitSemanticError(
-				builder,
-				keyNode,
-				ERROR_DUPLICATE_DEPENDENCY_PARAM,
-				fmt.Sprintf("parameter '%s' declared multiple times for dependency '%s'", keyStr, dep.TargetName),
-			)
-			continue
-		}
-
-		if strNode := child.FindFirstKind(artifacts.NodeStringLiteral); strNode != nil {
-			dep.Parameters[keyStr] = HelmParameterValue{
-				Kind:   HelmParameterScalar,
-				Scalar: extractStringFromStringNode(builder, strNode, scope),
+	_ = paramsNode.WalkPre(func(cur *syntaxa.SyntaxaLSTNode[artifacts.Node]) (bool, bool) {
+		switch cur.Kind() {
+		case artifacts.NodeDependencyParameterName:
+			keyStr := extractContentFromSingleTokenNode(builder, cur)
+			if pendingKey != "" {
+				emitSemanticError(
+					builder,
+					pendingKeyNode,
+					ERROR_INVALID_VARIABLE_VALUE,
+					fmt.Sprintf(
+						"parameter '%s' for dependency '%s' must be a string literal or variable reference",
+						pendingKey,
+						dep.TargetName,
+					),
+				)
 			}
-			continue
-		}
-
-		if varNode := child.FindFirstKind(artifacts.NodeVariableReference); varNode != nil {
-			globalName := extractContentFromSingleTokenNode(builder, varNode)
+			if _, exists := dep.Parameters[keyStr]; exists {
+				emitSemanticError(
+					builder,
+					cur,
+					ERROR_DUPLICATE_DEPENDENCY_PARAM,
+					fmt.Sprintf("parameter '%s' declared multiple times for dependency '%s'", keyStr, dep.TargetName),
+				)
+				pendingKey = ""
+				pendingKeyNode = nil
+				return false, false
+			}
+			pendingKey = keyStr
+			pendingKeyNode = cur
+		case artifacts.NodeStringLiteral:
+			if pendingKey == "" {
+				return false, false
+			}
+			dep.Parameters[pendingKey] = HelmParameterValue{
+				Kind:   HelmParameterScalar,
+				Scalar: extractStringFromStringNode(builder, cur, scope),
+			}
+			pendingKey = ""
+			pendingKeyNode = nil
+		case artifacts.NodeVariableReference:
+			if pendingKey == "" {
+				return false, false
+			}
+			globalName := extractContentFromSingleTokenNode(builder, cur)
 			if _, ok := scope.globals[globalName]; !ok {
 				emitSemanticError(
 					builder,
-					varNode,
+					cur,
 					ERROR_UNDECLARED_VARIABLE,
 					fmt.Sprintf(
 						"parameter '%s' references undeclared global '%s' for dependency '%s'",
-						keyStr,
+						pendingKey,
 						globalName,
 						dep.TargetName,
 					),
 				)
-				continue
+			} else {
+				dep.Parameters[pendingKey] = HelmParameterValue{
+					Kind:       HelmParameterGlobalRef,
+					GlobalName: globalName,
+				}
 			}
-			dep.Parameters[keyStr] = HelmParameterValue{
-				Kind:       HelmParameterGlobalRef,
-				GlobalName: globalName,
-			}
-			continue
+			pendingKey = ""
+			pendingKeyNode = nil
 		}
+		return false, false
+	})
 
+	if pendingKey != "" {
 		emitSemanticError(
 			builder,
-			child,
+			pendingKeyNode,
 			ERROR_INVALID_VARIABLE_VALUE,
 			fmt.Sprintf(
 				"parameter '%s' for dependency '%s' must be a string literal or variable reference",
-				keyStr,
+				pendingKey,
 				dep.TargetName,
 			),
 		)
