@@ -190,6 +190,7 @@ target build_app() {
 * Each dependency target runs **at most once per distinct bound `params` map** per graph execution. Edges with `params` create a parametric instance (same target definition, different invocation); **identical** bound parameters are deduplicated to a single run. Edges without a `params` block still share the canonical target name (one run). Targets that receive parameters only from upstream `depends_on` edges (no CLI invocation) merge those edges when resolving the dependent’s own parameters; conflicting maps for the **same** canonical target name still abort.
 * Parameters supplied on the CLI for the entry target (`helm run build_linux_amd64` / `run build GOOS=linux`) apply only to that target’s own signature, not automatically to its dependencies—you wire dependency arguments explicitly in `params`.
 * A target parameter may be a **dependency array**: in `params`, assign `DEPS = [ other_target, wrapper { params { ... } } ]`. The callee splices that list via `depends_on [ param DEPS ]` (the `param` keyword avoids ambiguity with target names in the grammar). Arrays may be forwarded with `DEPS = DEPS` on inner `params` blocks (including nested wrappers such as `_build_code` → `build_application` → `build_testbed`).
+* Leaf call sites with no extra deps may declare the parameter optional (`DEPS?`); omitted parameters default to an empty dependency array at runtime.
 
 `params` can be combined with `optional` and `confirm` in the same braced dependency entry:
 

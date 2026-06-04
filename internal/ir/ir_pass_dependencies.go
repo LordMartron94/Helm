@@ -47,9 +47,18 @@ func validateDependencyParameters(
 		declared[param.Name] = struct{}{}
 	}
 
+	dependentCanonical, _ := IRResolveTargetName(builder.targets, dependentName)
+
 	for key, value := range dep.Parameters {
 		if value.Kind == HelmParameterDependencyList {
 			irMarkTargetParameterDependencyList(builder.targets, dependencyCanonical, key)
+		}
+		if value.Kind == HelmParameterTargetParamRef {
+			if calleeParam, ok := irTargetParameterByName(dependencyTarget.Parameters, key); ok &&
+				calleeParam.DependencyList &&
+				dependencyParameterSatisfiesDependencyList(builder, dependentCanonical, key, value) {
+				irMarkTargetParameterDependencyList(builder.targets, dependentCanonical, value.TargetParamName)
+			}
 		}
 		if _, ok := declared[key]; !ok {
 			emitSemanticError(
@@ -85,7 +94,8 @@ func validateDependencyParameters(
 			continue
 		}
 		value := dep.Parameters[param.Name]
-		if param.DependencyList && value.Kind != HelmParameterDependencyList {
+		if param.DependencyList &&
+			!dependencyParameterSatisfiesDependencyList(builder, dependentCanonical, param.Name, value) {
 			emitSemanticError(
 				builder,
 				dep.SourceNode,
@@ -109,5 +119,44 @@ func validateDependencyParameters(
 				),
 			)
 		}
+	}
+}
+
+func irTargetParameterByName(parameters []HelmTargetParameter, name string) (HelmTargetParameter, bool) {
+	for _, param := range parameters {
+		if param.Name == name {
+			return param, true
+		}
+	}
+	return HelmTargetParameter{}, false
+}
+
+// dependencyParameterSatisfiesDependencyList accepts literal dependency arrays and
+// caller parameter forwards (DEPENDENCIES = DEPENDENCIES) used by template wrappers.
+func dependencyParameterSatisfiesDependencyList(
+	builder *irBuilder,
+	dependentCanonical string,
+	dependencyParamName string,
+	value HelmParameterValue,
+) bool {
+	switch value.Kind {
+	case HelmParameterDependencyList:
+		return true
+	case HelmParameterTargetParamRef:
+		if value.TargetParamName == dependencyParamName {
+			return true
+		}
+		dependent, ok := builder.targets[dependentCanonical]
+		if !ok {
+			return false
+		}
+		for _, param := range dependent.Parameters {
+			if param.Name == value.TargetParamName && param.DependencyList {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
 	}
 }
