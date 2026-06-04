@@ -33,6 +33,7 @@ const (
 	ERROR_INVALID_INTERACTIVE        string = "TARGET_020"
 	ERROR_DUPLICATE_HIDDEN           string = "TARGET_021"
 	ERROR_INVALID_HIDDEN             string = "TARGET_022"
+	ERROR_DUPLICATE_DYNAMIC          string = "TARGET_023"
 
 	ERROR_UNDECLARED_PARAMETER string = "COND_001"
 
@@ -176,4 +177,7 @@ type HelmArtifacts struct {
 	Volatile bool
 	Inputs   []HelmArtifactInput
 	Outputs  []HelmArtifactInput
+	// Dynamic holds manifest file paths (one path per line format). Cache evaluation
+	// hashes the files listed inside each manifest, not the manifest bytes alone.
+	Dynamic []HelmArtifactInput
 }

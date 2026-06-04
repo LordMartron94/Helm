@@ -35,9 +35,25 @@ func CacheFingerprintState(
 		return 0, err
 	}
 
+	discoveredPaths, err := DynamicManifestDiscoveredPaths(
+		helmBaseDir,
+		target.Artifacts,
+		globalVars,
+		parameters,
+	)
+	if err != nil {
+		return 0, err
+	}
+
 	var buffer bytes.Buffer
 	buffer.WriteString("state")
 	cacheWritePaths(&buffer, inputPaths)
+	if len(discoveredPaths) > 0 {
+		buffer.WriteString("dynamic-discovered")
+		if err := cacheWritePaths(&buffer, discoveredPaths); err != nil {
+			return 0, err
+		}
+	}
 
 	depNames := make([]string, 0, len(target.DependsOn))
 	for _, dep := range target.DependsOn {

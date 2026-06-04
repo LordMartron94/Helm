@@ -230,6 +230,7 @@ target compile(OS) {
 ```
 
 * **`inputs`**: A single string/glob/path, or a multiline array mixing explicit file strings and `glob()` / `path()` calls. Defines the files Helm must hash to determine if the target needs to run.
+* **`dynamic`**: Path(s) to a **manifest file** (not the tool-native `.d` / `.tsbuildinfo` format). At **cache evaluation time** (current run), Helm reads each manifest line-by-line (one absolute or helm-relative path per line; `#` comments and blank lines ignored) and hashes the **contents of those paths** alongside `inputs`. Helm does not hash the manifest file’s own bytes as a stand-in for its entries. If `dynamic` is set but the manifest file does not exist yet, Helm forces a cache miss (bootstrap) so the target runs once to generate it. Adapters in `run` steps convert compiler output into the manifest contract; the engine stays language-agnostic.
 * **`outputs`**: A single string/glob/path, or a multiline array mixing explicit file strings, `glob()` / `path()` calls. Defines the deterministic files Helm expects the target to produce.
 * **`volatile = true`**: Explicitly tells the engine to *never* cache this target (e.g., for deployments or database migrations). If `outputs` is omitted, the engine uses inputs-only caching unless `volatile` is set.
 

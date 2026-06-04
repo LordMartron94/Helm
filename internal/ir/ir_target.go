@@ -68,6 +68,7 @@ type targetParseState struct {
 	dependsDeclared     bool
 	interactiveDeclared bool
 	hiddenDeclared      bool
+	dynamicDeclared     bool
 }
 
 func handleTargetBody(
@@ -480,6 +481,20 @@ func handleTargetArtifacts(
 
 	if outputsNode := node.FindFirstKind(artifacts.NodeCacheOutputDirectory); outputsNode != nil {
 		artifactsIR.Outputs = extractOutputArtifactSequence(builder, outputsNode, scope)
+	}
+
+	if dynamicNode := node.FindFirstKind(artifacts.NodeDynamic); dynamicNode != nil {
+		if state.dynamicDeclared {
+			emitSemanticError(
+				builder,
+				dynamicNode,
+				ERROR_DUPLICATE_DYNAMIC,
+				fmt.Sprintf("dynamic for target '%s' already declared", currentTarget.Name),
+			)
+		} else {
+			state.dynamicDeclared = true
+			artifactsIR.Dynamic = extractDynamicArtifactSequence(builder, dynamicNode, scope)
+		}
 	}
 
 	artifactsIR.Volatile = extractArtifactsVolatile(builder, node)

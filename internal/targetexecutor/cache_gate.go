@@ -42,6 +42,19 @@ func targetExecutorEvaluateCache(
 		return decision, interpErr
 	}
 
+	bootstrapMiss, bootstrapErr := cache.DynamicManifestBootstrapMiss(
+		builtIR.SourceDirectory,
+		target.Artifacts,
+		globalVars,
+		parameters,
+	)
+	if bootstrapErr != nil {
+		return decision, bootstrapErr
+	}
+	if bootstrapMiss {
+		return decision, nil
+	}
+
 	stateFingerprint, err := cache.CacheFingerprintState(
 		builtIR.SourceDirectory,
 		target,
