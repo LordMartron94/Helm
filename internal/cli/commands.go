@@ -337,7 +337,7 @@ func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []stri
 	}
 
 	invocations := map[string]targetexecutor.TargetInvocation{
-		canonical: {Parameters: parameters},
+		canonical: targetexecutor.TargetInvocationWithScalars(parameters),
 	}
 
 	opts := targetexecutor.TargetExecutorOptions{

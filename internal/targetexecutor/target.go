@@ -19,19 +19,24 @@ func TargetExecutorRunTarget(
 		handler = TargetExecutorDefaultRunHandler
 	}
 
-	parameters := TargetExecutorParametersForTarget(target, inv)
-	globalVars, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, parameters)
+	paramValues := TargetExecutorParametersForTarget(target, inv)
+	resolvedParams, err := TargetExecutorResolveInvocationParameters(helmBaseDir, globals, paramValues)
 	if err != nil {
 		return err
 	}
 
-	workDir := TargetExecutorInterpolateLiteral(target.WorkDir, globalVars, parameters)
-	env := targetExecutorInterpolateEnv(target.Env, globalVars, parameters)
+	globalVars, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, resolvedParams)
+	if err != nil {
+		return err
+	}
+
+	workDir := TargetExecutorInterpolateLiteral(target.WorkDir, globalVars, resolvedParams)
+	env := targetExecutorInterpolateEnv(target.Env, globalVars, resolvedParams)
 
 	for stepIndex, step := range target.Steps {
 		switch step.Kind {
 		case ir.TargetStepRun:
-			command := TargetExecutorInterpolateLiteral(step.Run, globalVars, parameters)
+			command := TargetExecutorInterpolateLiteral(step.Run, globalVars, resolvedParams)
 			req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, target.Interactive, opts)
 			if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
 				return err
@@ -40,11 +45,11 @@ func TargetExecutorRunTarget(
 			if step.When == nil {
 				continue
 			}
-			if !TargetExecutorEvaluateCondition(*step.When, parameters) {
+			if !TargetExecutorEvaluateCondition(*step.When, resolvedParams) {
 				continue
 			}
 			for _, runLiteral := range step.When.Runs {
-				command := TargetExecutorInterpolateLiteral(runLiteral, globalVars, parameters)
+				command := TargetExecutorInterpolateLiteral(runLiteral, globalVars, resolvedParams)
 				req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, target.Interactive, opts)
 				if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
 					return err

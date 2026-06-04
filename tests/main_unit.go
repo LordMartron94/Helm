@@ -1008,7 +1008,7 @@ func runTargetExecutionScenario(
 			}
 
 			invocations := map[string]targetexecutor.TargetInvocation{
-				input.entryTarget: {Parameters: input.parameters},
+				input.entryTarget: targetexecutor.TargetInvocationWithScalars(input.parameters),
 			}
 
 			// 4. Execute the pipeline

@@ -124,16 +124,29 @@ type HelmTargetParameter struct {
 	Optional bool
 }
 
+type HelmParameterValueKind int
+
+const (
+	HelmParameterScalar HelmParameterValueKind = iota
+	HelmParameterGlobalRef
+)
+
+// HelmParameterValue is a dependency or invocation parameter at IR/runtime.
+// Scalar values come from string literals; GlobalRef binds a global by name (string or artifact array).
+type HelmParameterValue struct {
+	Kind       HelmParameterValueKind
+	Scalar     string
+	GlobalName string
+}
+
 // HelmTargetDependency describes an edge in depends_on.
-// Parameters holds literal values from params { ... }; values may retain ${NAME}
-// placeholders until runtime using the dependent target's invocation. Each dependency
-// target runs at most once per graph execution, so all edges supplying params for the
-// same dependency must agree (enforced at runtime).
+// Parameters holds values from params { ... }. Each dependency target runs at most once
+// per graph execution, so all edges supplying params for the same dependency must agree.
 type HelmTargetDependency struct {
 	TargetName string
 	Optional   bool
 	Confirm    bool
-	Parameters map[string]string
+	Parameters map[string]HelmParameterValue
 	SourceNode *syntaxa.SyntaxaLSTNode[artifacts.Node]
 }
 

@@ -163,16 +163,24 @@ func targetExecutorCacheInterpolationGlobals(
 	target ir.HelmTarget,
 	inv TargetInvocation,
 ) (map[string]string, map[string]string, error) {
-	parameters := TargetExecutorParametersForTarget(target, inv)
-	globalVars, err := TargetExecutorInterpolationGlobals(
+	paramValues := TargetExecutorParametersForTarget(target, inv)
+	resolvedParams, err := TargetExecutorResolveInvocationParameters(
 		builtIR.SourceDirectory,
 		builtIR.GlobalVariables,
-		parameters,
+		paramValues,
 	)
 	if err != nil {
 		return nil, nil, err
 	}
-	return globalVars, parameters, nil
+	globalVars, err := TargetExecutorInterpolationGlobals(
+		builtIR.SourceDirectory,
+		builtIR.GlobalVariables,
+		resolvedParams,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	return globalVars, resolvedParams, nil
 }
 
 func targetExecutorEmitCacheSkipSignals(

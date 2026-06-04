@@ -85,11 +85,35 @@ func TargetExecutorRunGraph(
 					inv = mapped
 				}
 
+				paramValues := TargetExecutorParametersForTarget(target, inv)
+				resolvedParams, resolveErr := TargetExecutorResolveInvocationParameters(
+					builtIR.SourceDirectory,
+					builtIR.GlobalVariables,
+					paramValues,
+				)
+				if resolveErr != nil {
+					mu.Lock()
+					results[name] = resolveErr
+					mu.Unlock()
+					return
+				}
+				globalVars, globalErr := TargetExecutorInterpolationGlobals(
+					builtIR.SourceDirectory,
+					builtIR.GlobalVariables,
+					resolvedParams,
+				)
+				if globalErr != nil {
+					mu.Lock()
+					results[name] = globalErr
+					mu.Unlock()
+					return
+				}
+
 				instances, instanceErr := TargetExecutorMatrixInstances(
 					builtIR.SourceDirectory,
 					target,
-					ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
-					TargetExecutorParametersForTarget(target, inv),
+					globalVars,
+					resolvedParams,
 				)
 				if instanceErr != nil {
 					mu.Lock()
@@ -109,8 +133,8 @@ func TargetExecutorRunGraph(
 					go func(inst TargetMatrixInstance) {
 						defer instWg.Done()
 
-						effectiveParams := TargetExecutorEffectiveParameters(target, inv, inst.Bindings)
-						effectiveInv := TargetInvocation{Parameters: effectiveParams}
+						effectiveParamValues := targetExecutorEffectiveParameterValues(target, inv, inst.Bindings)
+						effectiveInv := TargetInvocation{Parameters: effectiveParamValues}
 
 						decision, cacheErr := targetExecutorEvaluateCache(
 							builtIR,

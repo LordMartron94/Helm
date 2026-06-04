@@ -153,6 +153,29 @@ target build_linux_amd64() {
 }
 ```
 
+Pass an artifact-array global by **variable reference** (not a quoted string):
+
+```helm
+C_SOURCES = [
+    glob("src", include="**/*.c", recursive = true),
+]
+
+target link(SOURCE_FILES, OUT) {
+    run "clang ${SOURCE_FILES} -o ${OUT}"
+}
+
+target build_app() {
+    depends_on [
+        link {
+            params {
+                SOURCE_FILES = C_SOURCES
+                OUT = "bin/app.so"
+            }
+        }
+    ]
+}
+```
+
 **Compile-time rules (semantic validation):**
 
 * Every key in `params { ... }` must name a parameter on the dependency target (`TARGET_015` if unknown).
@@ -162,7 +185,7 @@ target build_linux_amd64() {
 
 **Runtime behavior:**
 
-* Parameter values are string literals. They may contain `${NAME}` placeholders; Helm resolves those using **global variables** and the **invocation parameters of the dependent target** (the target that owns the `depends_on` edge), then passes the resolved map to the dependency.
+* Parameter values are **string literals** or **variable references** to globals. String literals may contain `${NAME}` placeholders; Helm resolves those using **global variables** and the **invocation parameters of the dependent target** (the target that owns the `depends_on` edge). A variable reference binds the global directly: string globals become scalar parameters; **artifact-array** globals (paths/globs) expand to a shell-safe file list for the dependency’s `${PARAM}` placeholders in `run` commands.
 * Resolved parameters are in scope for the dependency’s `run` strings, `env` values, and `workdir` (same interpolation rules as a directly invoked target).
 * Each dependency target runs **at most once** per graph execution. If two dependents in the same run both list the same dependency with `params`, every edge must supply the **same** resolved parameter map; otherwise the engine reports a conflict and aborts.
 * Parameters supplied on the CLI for the entry target (`helm run build_linux_amd64` / `run build GOOS=linux`) apply only to that target’s own signature, not automatically to its dependencies—you wire dependency arguments explicitly in `params`.

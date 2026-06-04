@@ -294,7 +294,7 @@ func extractDependency(
 	scope resolveScope,
 ) HelmTargetDependency {
 	dep := HelmTargetDependency{
-		Parameters: make(map[string]string),
+		Parameters: make(map[string]HelmParameterValue),
 	}
 
 	targetNameNode := node.FindDirectChildKind(artifacts.NodeInvokeTarget)
@@ -340,16 +340,13 @@ func extractDependencyParameters(
 	scope resolveScope,
 	dep *HelmTargetDependency,
 ) {
-	keyNodes := paramsNode.FindAllKind(artifacts.NodeDependencyParameterName)
-	valueNodes := paramsNode.FindAllKind(artifacts.NodeStringLiteral)
+	for _, child := range paramsNode.ChildrenUnsafe() {
+		keyNode := child.FindFirstKind(artifacts.NodeDependencyParameterName)
+		if keyNode == nil {
+			continue
+		}
 
-	if len(keyNodes) != len(valueNodes) {
-		return
-	}
-
-	for i, keyNode := range keyNodes {
 		keyStr := extractContentFromSingleTokenNode(builder, keyNode)
-
 		if _, exists := dep.Parameters[keyStr]; exists {
 			emitSemanticError(
 				builder,
@@ -360,7 +357,47 @@ func extractDependencyParameters(
 			continue
 		}
 
-		dep.Parameters[keyStr] = extractStringFromStringNode(builder, valueNodes[i], scope)
+		if strNode := child.FindFirstKind(artifacts.NodeStringLiteral); strNode != nil {
+			dep.Parameters[keyStr] = HelmParameterValue{
+				Kind:   HelmParameterScalar,
+				Scalar: extractStringFromStringNode(builder, strNode, scope),
+			}
+			continue
+		}
+
+		if varNode := child.FindFirstKind(artifacts.NodeVariableReference); varNode != nil {
+			globalName := extractContentFromSingleTokenNode(builder, varNode)
+			if _, ok := scope.globals[globalName]; !ok {
+				emitSemanticError(
+					builder,
+					varNode,
+					ERROR_UNDECLARED_VARIABLE,
+					fmt.Sprintf(
+						"parameter '%s' references undeclared global '%s' for dependency '%s'",
+						keyStr,
+						globalName,
+						dep.TargetName,
+					),
+				)
+				continue
+			}
+			dep.Parameters[keyStr] = HelmParameterValue{
+				Kind:       HelmParameterGlobalRef,
+				GlobalName: globalName,
+			}
+			continue
+		}
+
+		emitSemanticError(
+			builder,
+			child,
+			ERROR_INVALID_VARIABLE_VALUE,
+			fmt.Sprintf(
+				"parameter '%s' for dependency '%s' must be a string literal or variable reference",
+				keyStr,
+				dep.TargetName,
+			),
+		)
 	}
 }
 
