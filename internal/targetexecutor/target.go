@@ -2,6 +2,7 @@ package targetexecutor
 
 import (
 	"fmt"
+	"helm/internal/artifactresolve"
 	"helm/internal/ir"
 	"os"
 	"time"
@@ -31,6 +32,7 @@ func TargetExecutorRunTarget(
 	}
 
 	workDir := TargetExecutorInterpolateLiteral(target.WorkDir, globalVars, resolvedParams)
+	workDir = artifactresolve.ArtifactAnchorPath(helmBaseDir, workDir)
 	env := targetExecutorInterpolateEnv(target.Env, globalVars, resolvedParams)
 
 	for stepIndex, step := range target.Steps {

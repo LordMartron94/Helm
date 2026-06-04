@@ -122,6 +122,11 @@ func expandInterpolateGlobPatterns(
 	return out
 }
 
+// ArtifactAnchorPath resolves a helm-relative path against the helm file directory.
+func ArtifactAnchorPath(helmBaseDir, path string) string {
+	return artifactAnchorPath(helmBaseDir, path)
+}
+
 func artifactAnchorPath(helmBaseDir, path string) string {
 	if path == "" || helmBaseDir == "" || filepath.IsAbs(path) {
 		return path
