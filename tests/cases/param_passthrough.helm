@@ -1,0 +1,57 @@
+DEV_BIN_DIR = "build/dev-bin"
+
+C_SOURCES = [
+	glob("tools/helm", include="**/*.go", exclude="**/*_test.go"),
+]
+
+target _build_code(SOURCE_FILES, OUT_NAME, DEFINES) {
+	help = "inner build"
+	hidden = true
+
+	artifacts {
+		volatile = true
+	}
+
+	run "echo inner ${OUT_NAME} ${DEFINES} ${SOURCE_FILES}"
+}
+
+target build_wrapper(SOURCE_FILES, OUT_NAME, DEFINES) {
+	help = "wraps _build_code with passthrough params"
+	hidden = true
+
+	depends_on [
+		_build_code {
+			params {
+				SOURCE_FILES = SOURCE_FILES
+				OUT_NAME = OUT_NAME
+				DEFINES = DEFINES
+			}
+		}
+	]
+
+	artifacts {
+		volatile = true
+	}
+
+	run "echo wrapper done"
+}
+
+target run_passthrough() {
+	help = "exercise param passthrough chain"
+
+	depends_on [
+		build_wrapper {
+			params {
+				SOURCE_FILES = C_SOURCES
+				OUT_NAME = "helm-test"
+				DEFINES = ""
+			}
+		}
+	]
+
+	artifacts {
+		volatile = true
+	}
+
+	run "echo top done"
+}

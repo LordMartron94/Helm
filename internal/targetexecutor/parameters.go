@@ -89,6 +89,12 @@ func TargetExecutorResolveInvocationParameters(
 				return nil, fmt.Errorf("parameter '%s': %w", key, err)
 			}
 			resolved[key] = text
+		case ir.HelmParameterTargetParamRef:
+			return nil, fmt.Errorf(
+				"parameter '%s': caller parameter '%s' was not bound (internal error)",
+				key,
+				value.TargetParamName,
+			)
 		default:
 			return nil, fmt.Errorf("parameter '%s': unknown parameter value kind", key)
 		}
@@ -157,6 +163,19 @@ func targetExecutorBindDependencyParams(
 				return nil, fmt.Errorf("parameter '%s' references undeclared global '%s'", key, value.GlobalName)
 			}
 			out[key] = value
+		case ir.HelmParameterTargetParamRef:
+			text, ok := parentResolved[value.TargetParamName]
+			if !ok {
+				return nil, fmt.Errorf(
+					"parameter '%s' references caller parameter '%s' which is not in scope",
+					key,
+					value.TargetParamName,
+				)
+			}
+			out[key] = ir.HelmParameterValue{
+				Kind:   ir.HelmParameterScalar,
+				Scalar: text,
+			}
 		default:
 			return nil, fmt.Errorf("parameter '%s': unknown parameter value kind", key)
 		}
@@ -188,6 +207,8 @@ func targetExecutorParameterMapFingerprint(parameters map[string]ir.HelmParamete
 			buffer.WriteString(value.Scalar)
 		case ir.HelmParameterGlobalRef:
 			buffer.WriteString(value.GlobalName)
+		case ir.HelmParameterTargetParamRef:
+			buffer.WriteString(value.TargetParamName)
 		}
 		buffer.WriteByte(0)
 	}

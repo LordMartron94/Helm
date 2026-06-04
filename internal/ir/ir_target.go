@@ -387,24 +387,29 @@ func extractDependencyParameters(
 			if pendingKey == "" {
 				return false, false
 			}
-			globalName := extractContentFromSingleTokenNode(builder, cur)
-			if _, ok := scope.globals[globalName]; !ok {
+			refName := extractContentFromSingleTokenNode(builder, cur)
+			if _, ok := scope.globals[refName]; ok {
+				dep.Parameters[pendingKey] = HelmParameterValue{
+					Kind:       HelmParameterGlobalRef,
+					GlobalName: refName,
+				}
+			} else if resolveScopeHasParameter(scope, refName) {
+				dep.Parameters[pendingKey] = HelmParameterValue{
+					Kind:            HelmParameterTargetParamRef,
+					TargetParamName: refName,
+				}
+			} else {
 				emitSemanticError(
 					builder,
 					cur,
 					ERROR_UNDECLARED_VARIABLE,
 					fmt.Sprintf(
-						"parameter '%s' references undeclared global '%s' for dependency '%s'",
+						"parameter '%s' references undeclared name '%s' for dependency '%s' (not a global or target parameter)",
 						pendingKey,
-						globalName,
+						refName,
 						dep.TargetName,
 					),
 				)
-			} else {
-				dep.Parameters[pendingKey] = HelmParameterValue{
-					Kind:       HelmParameterGlobalRef,
-					GlobalName: globalName,
-				}
 			}
 			pendingKey = ""
 			pendingKeyNode = nil

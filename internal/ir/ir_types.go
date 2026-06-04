@@ -130,14 +130,17 @@ type HelmParameterValueKind int
 const (
 	HelmParameterScalar HelmParameterValueKind = iota
 	HelmParameterGlobalRef
+	HelmParameterTargetParamRef
 )
 
 // HelmParameterValue is a dependency or invocation parameter at IR/runtime.
 // Scalar values come from string literals; GlobalRef binds a global by name (string or artifact array).
+// TargetParamRef forwards a parameter from the depending target (e.g. SOURCE_FILES = SOURCE_FILES).
 type HelmParameterValue struct {
-	Kind       HelmParameterValueKind
-	Scalar     string
-	GlobalName string
+	Kind            HelmParameterValueKind
+	Scalar          string
+	GlobalName      string
+	TargetParamName string
 }
 
 // HelmTargetDependency describes an edge in depends_on.
