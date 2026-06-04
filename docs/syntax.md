@@ -184,7 +184,7 @@ depends_on [
 
 ## 4. State & Caching (`artifacts`)
 
-The `artifacts` block defines the I/O state boundary of the target. Helm uses this block to cryptographically hash the state and automatically skip redundant executions.
+The `artifacts` block defines the I/O state boundary of the target. Helm uses this block to cryptographically hash the state and automatically skip redundant executions. A cache hit also requires unchanged execution content: `workdir`, `env`, every `run` / `when` command string (after interpolation), invocation parameters, and dependency fingerprints—not only input artifact file hashes.
 
 ```helm
 target compile(OS) {

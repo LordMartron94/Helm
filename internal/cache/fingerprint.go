@@ -7,6 +7,7 @@ import (
 	"foundation/hash"
 	"foundation/system"
 	"helm/internal/artifactresolve"
+	"helm/internal/expand"
 	"helm/internal/ir"
 	"sort"
 )
@@ -63,7 +64,49 @@ func CacheFingerprintState(
 		buffer.WriteString(parameters[key])
 	}
 
+	cacheWriteTargetExecution(&buffer, target, globalVars, parameters)
+
 	return hash.XXH3HasherHash64(cacheAggregateHasher, buffer.Bytes()), nil
+}
+
+func cacheWriteTargetExecution(
+	buffer *bytes.Buffer,
+	target ir.HelmTarget,
+	globalVars map[string]string,
+	parameters map[string]string,
+) {
+	buffer.WriteString("execution")
+	buffer.WriteString(expand.ExpandInterpolateLiteral(target.WorkDir, globalVars, parameters))
+
+	envKeys := make([]string, 0, len(target.Env))
+	for key := range target.Env {
+		envKeys = append(envKeys, key)
+	}
+	sort.Strings(envKeys)
+	for _, key := range envKeys {
+		buffer.WriteString(key)
+		buffer.WriteString(expand.ExpandInterpolateLiteral(target.Env[key], globalVars, parameters))
+	}
+
+	for _, step := range target.Steps {
+		switch step.Kind {
+		case ir.TargetStepRun:
+			buffer.WriteString("run")
+			buffer.WriteString(expand.ExpandInterpolateLiteral(step.Run, globalVars, parameters))
+		case ir.TargetStepWhen:
+			if step.When == nil {
+				continue
+			}
+			condition := step.When
+			buffer.WriteString("when")
+			binary.Write(buffer, binary.LittleEndian, int32(condition.ConditionType))
+			buffer.WriteString(condition.Parameter)
+			buffer.WriteString(condition.TargetValue)
+			for _, runLiteral := range condition.Runs {
+				buffer.WriteString(expand.ExpandInterpolateLiteral(runLiteral, globalVars, parameters))
+			}
+		}
+	}
 }
 
 func CacheFingerprintOutput(

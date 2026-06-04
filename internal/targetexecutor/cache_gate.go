@@ -37,12 +37,17 @@ func targetExecutorEvaluateCache(
 		return decision, nil
 	}
 
+	globalVars, parameters, interpErr := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
+	if interpErr != nil {
+		return decision, interpErr
+	}
+
 	stateFingerprint, err := cache.CacheFingerprintState(
 		builtIR.SourceDirectory,
 		target,
 		builtIR.Targets,
-		ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
-		TargetExecutorParametersForTarget(target, inv),
+		globalVars,
+		parameters,
 		depStateFingerprints,
 		depOutputFingerprints,
 	)
@@ -95,12 +100,17 @@ func targetExecutorCommitCache(
 		return outputFingerprint, nil
 	}
 
+	globalVars, parameters, interpErr := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
+	if interpErr != nil {
+		return 0, interpErr
+	}
+
 	stateFingerprint, err := cache.CacheFingerprintState(
 		builtIR.SourceDirectory,
 		target,
 		builtIR.Targets,
-		ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
-		TargetExecutorParametersForTarget(target, inv),
+		globalVars,
+		parameters,
 		depStateFingerprints,
 		depOutputFingerprints,
 	)
@@ -135,12 +145,34 @@ func targetExecutorOutputFingerprintAfterRun(
 		return 0, nil
 	}
 
+	globalVars, parameters, err := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
+	if err != nil {
+		return 0, err
+	}
+
 	return cache.CacheFingerprintOutput(
 		builtIR.SourceDirectory,
 		target,
-		ir.InterpolationGlobalsFromHelmGlobals(builtIR.GlobalVariables),
-		TargetExecutorParametersForTarget(target, inv),
+		globalVars,
+		parameters,
 	)
+}
+
+func targetExecutorCacheInterpolationGlobals(
+	builtIR ir.HelmIR,
+	target ir.HelmTarget,
+	inv TargetInvocation,
+) (map[string]string, map[string]string, error) {
+	parameters := TargetExecutorParametersForTarget(target, inv)
+	globalVars, err := TargetExecutorInterpolationGlobals(
+		builtIR.SourceDirectory,
+		builtIR.GlobalVariables,
+		parameters,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	return globalVars, parameters, nil
 }
 
 func targetExecutorEmitCacheSkipSignals(
