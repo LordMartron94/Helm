@@ -31,6 +31,8 @@ func TargetExecutorRunGraph(
 	results := make(map[string]error)
 	depStateFingerprints := make(map[string]uint64)
 	depOutputFingerprints := make(map[string]uint64)
+	var resultsMu sync.RWMutex
+	var fingerprintMu sync.RWMutex
 
 	runOpts := opts
 	var ownedCacheStore *cache.TargetCacheStore
@@ -67,10 +69,14 @@ func TargetExecutorRunGraph(
 					return
 				}
 
-				if blockedErr := targetExecutorDependencyBlocked(plan, builtIR, name, results); blockedErr != nil {
-					mu.Lock()
+				var blockedErr error
+				resultsMu.RLock()
+				blockedErr = targetExecutorDependencyBlocked(plan, builtIR, name, results)
+				resultsMu.RUnlock()
+				if blockedErr != nil {
+					resultsMu.Lock()
 					results[name] = blockedErr
-					mu.Unlock()
+					resultsMu.Unlock()
 					return
 				}
 
@@ -85,9 +91,9 @@ func TargetExecutorRunGraph(
 					paramValues,
 				)
 				if resolveErr != nil {
-					mu.Lock()
+					resultsMu.Lock()
 					results[name] = resolveErr
-					mu.Unlock()
+					resultsMu.Unlock()
 					return
 				}
 				globalVars, globalErr := TargetExecutorInterpolationGlobals(
@@ -96,9 +102,9 @@ func TargetExecutorRunGraph(
 					resolvedParams,
 				)
 				if globalErr != nil {
-					mu.Lock()
+					resultsMu.Lock()
 					results[name] = globalErr
-					mu.Unlock()
+					resultsMu.Unlock()
 					return
 				}
 
@@ -109,9 +115,9 @@ func TargetExecutorRunGraph(
 					resolvedParams,
 				)
 				if instanceErr != nil {
-					mu.Lock()
+					resultsMu.Lock()
 					results[name] = instanceErr
-					mu.Unlock()
+					resultsMu.Unlock()
 					return
 				}
 
@@ -140,6 +146,7 @@ func TargetExecutorRunGraph(
 							depExecNodes = targetExecutorFallbackDependencyNodes(builtIR, target)
 						}
 
+						fingerprintMu.RLock()
 						decision, cacheErr := targetExecutorEvaluateCache(
 							builtIR,
 							canonicalName,
@@ -150,6 +157,7 @@ func TargetExecutorRunGraph(
 							depStateFingerprints,
 							depOutputFingerprints,
 						)
+						fingerprintMu.RUnlock()
 						if cacheErr != nil {
 							instMu.Lock()
 							if targetErr == nil {
@@ -186,6 +194,7 @@ func TargetExecutorRunGraph(
 							}
 
 							var commitErr error
+							fingerprintMu.RLock()
 							outputFingerprint, commitErr = targetExecutorCommitCache(
 								builtIR,
 								canonicalName,
@@ -196,6 +205,7 @@ func TargetExecutorRunGraph(
 								depStateFingerprints,
 								depOutputFingerprints,
 							)
+							fingerprintMu.RUnlock()
 							if commitErr != nil {
 								instMu.Lock()
 								if targetErr == nil {
@@ -231,19 +241,26 @@ func TargetExecutorRunGraph(
 
 				instWg.Wait()
 
-				mu.Lock()
-				defer mu.Unlock()
 				if targetErr != nil {
+					resultsMu.Lock()
 					results[name] = targetErr
+					resultsMu.Unlock()
 					return
 				}
+				mu.Lock()
 				if phaseErr != nil {
+					mu.Unlock()
 					return
 				}
+				mu.Unlock()
 
-				results[name] = nil
+				fingerprintMu.Lock()
 				depStateFingerprints[name] = cache.CacheAggregateInstanceFingerprints(instStateFingerprints)
 				depOutputFingerprints[name] = cache.CacheAggregateInstanceFingerprints(instOutputFingerprints)
+				fingerprintMu.Unlock()
+				resultsMu.Lock()
+				results[name] = nil
+				resultsMu.Unlock()
 			}(targetName)
 		}
 
@@ -255,8 +272,11 @@ func TargetExecutorRunGraph(
 	}
 
 	entryNode := canonicalEntry
-	if err := results[entryNode]; err != nil {
-		return err
+	resultsMu.RLock()
+	entryErr := results[entryNode]
+	resultsMu.RUnlock()
+	if entryErr != nil {
+		return entryErr
 	}
 
 	return nil
@@ -293,7 +313,11 @@ func targetExecutorClosureNames(chain [][]string) map[string]struct{} {
 
 func targetExecutorClosureRequiresConfirm(builtIR ir.HelmIR, closure map[string]struct{}) bool {
 	for name := range closure {
-		target := builtIR.Targets[name]
+		canonical := TargetExecutorExecutionNodeCanonical(name)
+		target, ok := builtIR.Targets[canonical]
+		if !ok {
+			continue
+		}
 		for _, dep := range target.DependsOn {
 			if dep.Confirm {
 				return true
@@ -309,8 +333,12 @@ func targetExecutorConfirmBeforeTarget(
 	closure map[string]struct{},
 	opts TargetExecutorOptions,
 ) error {
-	for dependentName := range closure {
-		dependent := builtIR.Targets[dependentName]
+	for dependentNodeID := range closure {
+		dependentName := TargetExecutorExecutionNodeCanonical(dependentNodeID)
+		dependent, ok := builtIR.Targets[dependentName]
+		if !ok {
+			continue
+		}
 		for _, dep := range dependent.DependsOn {
 			canonical, ok := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
 			if !ok || canonical != dependencyName || !dep.Confirm {
@@ -386,7 +414,8 @@ func targetExecutorValidatePhaseTTY(phase []string, targets map[string]ir.HelmTa
 	var interactiveTargets []string
 
 	for _, targetName := range phase {
-		target, ok := targets[targetName]
+		canonical := TargetExecutorExecutionNodeCanonical(targetName)
+		target, ok := targets[canonical]
 		if !ok {
 			continue
 		}
