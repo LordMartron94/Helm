@@ -50,6 +50,8 @@ func CommandExecuteFields(session *Session, fields []string, stdin io.Reader, st
 		return true, commandSet(session, stdout, args)
 	case "run":
 		return true, commandRun(session, stdin, stdout, args)
+	case "export-graph":
+		return true, commandExportGraph(session, stdout, args)
 	default:
 		return true, fmt.Errorf("unknown command %q (try help)", verb)
 	}
@@ -87,6 +89,9 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 			return err
 		}
 		if err := printBuiltinCommand(stdout, ui, "run [--bypass-cache] <target> [key=value ...]", "execute a target"); err != nil {
+			return err
+		}
+		if err := printBuiltinCommand(stdout, ui, "export-graph [-o path] <target> [key=value ...]", "dump resolved execution graph as JSON (no runs)"); err != nil {
 			return err
 		}
 		if err := printBuiltinCommand(stdout, ui, "completion bash", "print bash tab-completion script (install: source <(helm completion bash))"); err != nil {

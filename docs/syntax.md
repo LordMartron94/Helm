@@ -350,3 +350,16 @@ target greet(NAME) {
     run "echo 'Hello ${NAME}, starting build in ${BUILD_DIR}'"
 }
 ```
+
+---
+
+## 10. Graph introspection (`export-graph`)
+
+The CLI command `export-graph` resolves the same execution graph as `run` (parameters, parametric instances, matrix expansion, interpolated `run` strings) but does not execute commands or read the artifact cache. Output is JSON for external tools:
+
+```bash
+helm Helmfile export-graph run_tests
+helm Helmfile export-graph -o graph.json build_testbed
+```
+
+Each object under `targets` uses the execution node id as its key (`canonical_target`, or `name#<hash>` for parametric edges). Fields include `directory` (absolute working directory) and `run_commands` (expanded command strings).

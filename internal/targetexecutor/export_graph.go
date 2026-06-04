@@ -1,0 +1,208 @@
+package targetexecutor
+
+import (
+	"encoding/json"
+	"fmt"
+	"helm/internal/ir"
+	"path/filepath"
+	"sort"
+)
+
+// TargetExecutionGraphExport is the resolved execution graph for introspection (no runs executed).
+type TargetExecutionGraphExport struct {
+	EntryTarget     string                            `json:"entry_target"`
+	SourceDirectory string                            `json:"source_directory"`
+	Phases          [][]string                        `json:"phases"`
+	Targets         map[string]TargetGraphExportEntry `json:"targets"`
+}
+
+// TargetGraphExportEntry describes one execution node after parameter and template expansion.
+type TargetGraphExportEntry struct {
+	CanonicalTarget string            `json:"canonical_target"`
+	Directory       string            `json:"directory"`
+	RunCommands     []string          `json:"run_commands"`
+	DependsOn       []string          `json:"depends_on,omitempty"`
+	MatrixInstance  string            `json:"matrix_instance,omitempty"`
+	Parameters      map[string]string `json:"parameters,omitempty"`
+}
+
+// TargetExecutorExportExecutionGraph builds the full resolved graph for entryTarget without executing it.
+func TargetExecutorExportExecutionGraph(
+	builtIR ir.HelmIR,
+	entryTarget string,
+	callerInvocations map[string]TargetInvocation,
+) (*TargetExecutionGraphExport, error) {
+	canonicalEntry, ok := ir.IRResolveTargetName(builtIR.Targets, entryTarget)
+	if !ok {
+		return nil, fmt.Errorf("target '%s' does not exist in IR", entryTarget)
+	}
+
+	plan, err := TargetExecutorBuildExecutionPlan(builtIR, canonicalEntry, callerInvocations)
+	if err != nil {
+		return nil, err
+	}
+
+	export := &TargetExecutionGraphExport{
+		EntryTarget:     canonicalEntry,
+		SourceDirectory: builtIR.SourceDirectory,
+		Phases:          plan.Phases,
+		Targets:         make(map[string]TargetGraphExportEntry),
+	}
+
+	nodeNames := targetExecutorOrderedPlanNodes(plan)
+	for _, nodeName := range nodeNames {
+		if err := targetExecutorExportGraphNode(
+			builtIR,
+			plan,
+			nodeName,
+			callerInvocations,
+			export,
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	return export, nil
+}
+
+// TargetExecutorExportExecutionGraphJSON marshals the resolved graph with stable key ordering.
+func TargetExecutorExportExecutionGraphJSON(
+	builtIR ir.HelmIR,
+	entryTarget string,
+	callerInvocations map[string]TargetInvocation,
+) ([]byte, error) {
+	export, err := TargetExecutorExportExecutionGraph(builtIR, entryTarget, callerInvocations)
+	if err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(export, "", "  ")
+}
+
+func targetExecutorOrderedPlanNodes(plan *TargetExecutionPlan) []string {
+	seen := make(map[string]struct{}, len(plan.Outgoing))
+	var order []string
+	for _, phase := range plan.Phases {
+		for _, name := range phase {
+			if _, exists := seen[name]; exists {
+				continue
+			}
+			seen[name] = struct{}{}
+			order = append(order, name)
+		}
+	}
+	for name := range plan.Outgoing {
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		order = append(order, name)
+	}
+	sort.Strings(order)
+	return order
+}
+
+func targetExecutorExportGraphNode(
+	builtIR ir.HelmIR,
+	plan *TargetExecutionPlan,
+	nodeName string,
+	callerInvocations map[string]TargetInvocation,
+	export *TargetExecutionGraphExport,
+) error {
+	canonical := TargetExecutorExecutionNodeCanonical(nodeName)
+	target, ok := builtIR.Targets[canonical]
+	if !ok {
+		return fmt.Errorf("target '%s' does not exist in IR", canonical)
+	}
+
+	inv := targetExecutorInvocationForNode(plan, nodeName, callerInvocations)
+	paramValues := TargetExecutorParametersForTarget(target, inv)
+	resolvedParams, err := TargetExecutorResolveInvocationParameters(
+		builtIR.SourceDirectory,
+		builtIR.GlobalVariables,
+		paramValues,
+	)
+	if err != nil {
+		return fmt.Errorf("node '%s': %w", nodeName, err)
+	}
+
+	globalVars, err := TargetExecutorInterpolationGlobals(
+		builtIR.SourceDirectory,
+		builtIR.GlobalVariables,
+		resolvedParams,
+	)
+	if err != nil {
+		return fmt.Errorf("node '%s': %w", nodeName, err)
+	}
+
+	instances, err := TargetExecutorMatrixInstances(
+		builtIR.SourceDirectory,
+		target,
+		globalVars,
+		resolvedParams,
+	)
+	if err != nil {
+		return fmt.Errorf("node '%s': %w", nodeName, err)
+	}
+
+	dependsOn := plan.Outgoing[nodeName]
+	if dependsOn == nil {
+		dependsOn = []string{}
+	}
+
+	for _, instance := range instances {
+		effectiveInv := TargetInvocation{Parameters: targetExecutorEffectiveParameterValues(target, inv, instance.Bindings)}
+		workDir, commands, resolveErr := TargetExecutorResolveTargetRuns(
+			builtIR.SourceDirectory,
+			target,
+			builtIR.GlobalVariables,
+			effectiveInv,
+		)
+		if resolveErr != nil {
+			return fmt.Errorf("node '%s': %w", nodeName, resolveErr)
+		}
+
+		absDir, absErr := filepath.Abs(workDir)
+		if absErr != nil {
+			return fmt.Errorf("node '%s': resolve directory: %w", nodeName, absErr)
+		}
+
+		exportKey := targetExecutorExportGraphNodeKey(nodeName, instance.CacheKey)
+		entry := TargetGraphExportEntry{
+			CanonicalTarget: canonical,
+			Directory:       absDir,
+			RunCommands:     commands,
+			DependsOn:       append([]string(nil), dependsOn...),
+		}
+		if instance.CacheKey != "" {
+			entry.MatrixInstance = instance.CacheKey
+		}
+		if len(resolvedParams) > 0 {
+			entry.Parameters = copyStringMap(resolvedParams)
+			for key, value := range instance.Bindings {
+				entry.Parameters[key] = value
+			}
+		}
+
+		export.Targets[exportKey] = entry
+	}
+
+	return nil
+}
+
+func targetExecutorExportGraphNodeKey(nodeName string, matrixCacheKey string) string {
+	if matrixCacheKey == "" {
+		return nodeName
+	}
+	return nodeName + "#matrix:" + matrixCacheKey
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}

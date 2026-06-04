@@ -87,6 +87,8 @@ func CompleteWords(req CompletionRequest) []string {
 	switch verb {
 	case "run":
 		return completeRun(cur, helmFilePath, args, cmdIndex-1)
+	case "export-graph":
+		return completeExportGraph(cur, helmFilePath, args, cmdIndex-1)
 	case "help":
 		return completeHelp(helmFilePath, args, cmdIndex-1, cur)
 	case "completion":
@@ -188,6 +190,84 @@ func completeRun(cur, helmFilePath string, runArgs []string, runArgIndex int) []
 		session := sessionCreateForCompletion(helmFilePath)
 		if session == nil {
 			return prefixFilter(cur, []string{"--bypass-cache"})
+		}
+		defer SessionDestroy(session)
+		return prefixFilter(cur, session.Catalog.AllRunNames())
+	}
+
+	if len(rest) == 0 {
+		return nil
+	}
+
+	targetName := rest[0]
+	session := sessionCreateForCompletion(helmFilePath)
+	if session == nil {
+		return nil
+	}
+	defer SessionDestroy(session)
+
+	canonical, ok := session.Catalog.ResolveTargetName(targetName)
+	if !ok {
+		return nil
+	}
+	entry, ok := session.Catalog.Entry(canonical)
+	if !ok {
+		return nil
+	}
+
+	if strings.Contains(cur, "=") {
+		key, _, found := strings.Cut(cur, "=")
+		if !found {
+			return nil
+		}
+		for _, param := range entry.Parameters {
+			if param.Name == key {
+				return prefixFilter(cur, []string{key + "="})
+			}
+		}
+		return nil
+	}
+
+	names := make([]string, 0, len(entry.Parameters))
+	for _, param := range entry.Parameters {
+		names = append(names, param.Name+"=")
+	}
+	return prefixFilter(cur, names)
+}
+
+func completeExportGraph(cur, helmFilePath string, exportArgs []string, exportArgIndex int) []string {
+	rest := exportArgs
+	for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
+		switch rest[0] {
+		case "--output", "-o":
+			if len(rest) < 2 {
+				return nil
+			}
+			rest = rest[2:]
+			exportArgIndex -= 2
+		default:
+			rest = rest[1:]
+			exportArgIndex--
+		}
+	}
+
+	if exportArgIndex <= 0 {
+		candidates := []string{"--output", "-o"}
+		session := sessionCreateForCompletion(helmFilePath)
+		if session != nil {
+			candidates = append(candidates, session.Catalog.AllRunNames()...)
+			SessionDestroy(session)
+		}
+		return prefixFilter(cur, candidates)
+	}
+
+	if exportArgIndex == 1 {
+		if strings.HasPrefix(cur, "-") {
+			return prefixFilter(cur, []string{"--output", "-o"})
+		}
+		session := sessionCreateForCompletion(helmFilePath)
+		if session == nil {
+			return prefixFilter(cur, []string{"--output", "-o"})
 		}
 		defer SessionDestroy(session)
 		return prefixFilter(cur, session.Catalog.AllRunNames())

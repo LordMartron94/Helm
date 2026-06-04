@@ -146,6 +146,8 @@ With no arguments, `helm` starts an interactive shell (`helm>` prompt). Every bu
 helm help
 helm run <target> [key=value ...]
 helm run --bypass-cache <target>
+helm export-graph <target> [key=value ...]
+helm export-graph -o build-graph.json <target>
 helm clean-cache
 helm set stream-runs off
 helm version
@@ -160,6 +162,17 @@ helm path/to/project.helm run <target>
 `helm -version` prints the binary version without loading a helm file. `helm version` runs through the normal session (discover helm file, interpret, then print version), matching the REPL `version` command.
 
 `helm completion bash` prints a bash tab-completion script (also listed under `helm help`). See `helm help completion` for install examples.
+
+### Graph introspection (`export-graph`)
+
+Before executing anything, Helm can resolve the full dependency graph, expand parameters on every edge, and interpolate every `run` string. The `export-graph` command writes that resolved state as JSON (language-agnostic introspection for external tools):
+
+```bash
+helm path/to/Helmfile export-graph run_tests
+helm path/to/Helmfile export-graph -o graph.json build_testbed
+```
+
+Each key under `targets` is an execution node (canonical target name, or `target#<hash>` for parametric instances). Fields include `directory` (absolute working directory) and `run_commands` (expanded command strings). No subprocesses are started and the artifact cache is not consulted.
 
 ### Bash completion
 

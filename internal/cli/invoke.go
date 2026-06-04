@@ -16,6 +16,7 @@ var builtinCommands = []string{
 	"clean-cache",
 	"config",
 	"exit",
+	"export-graph",
 	"help",
 	"quit",
 	"run",

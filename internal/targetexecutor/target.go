@@ -1,8 +1,6 @@
 package targetexecutor
 
 import (
-	"fmt"
-	"helm/internal/artifactresolve"
 	"helm/internal/ir"
 	"os"
 	"time"
@@ -20,6 +18,11 @@ func TargetExecutorRunTarget(
 		handler = TargetExecutorDefaultRunHandler
 	}
 
+	workDir, commands, err := TargetExecutorResolveTargetRuns(helmBaseDir, target, globals, inv)
+	if err != nil {
+		return err
+	}
+
 	paramValues := TargetExecutorParametersForTarget(target, inv)
 	resolvedParams, err := TargetExecutorResolveInvocationParameters(helmBaseDir, globals, paramValues)
 	if err != nil {
@@ -31,34 +34,12 @@ func TargetExecutorRunTarget(
 		return err
 	}
 
-	workDir := TargetExecutorInterpolateLiteral(target.WorkDir, globalVars, resolvedParams)
-	workDir = artifactresolve.ArtifactAnchorPath(helmBaseDir, workDir)
 	env := targetExecutorInterpolateEnv(target.Env, globalVars, resolvedParams)
 
-	for stepIndex, step := range target.Steps {
-		switch step.Kind {
-		case ir.TargetStepRun:
-			command := TargetExecutorInterpolateLiteral(step.Run, globalVars, resolvedParams)
-			req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, target.Interactive, opts)
-			if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
-				return err
-			}
-		case ir.TargetStepWhen:
-			if step.When == nil {
-				continue
-			}
-			if !TargetExecutorEvaluateCondition(*step.When, resolvedParams) {
-				continue
-			}
-			for _, runLiteral := range step.When.Runs {
-				command := TargetExecutorInterpolateLiteral(runLiteral, globalVars, resolvedParams)
-				req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, target.Interactive, opts)
-				if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
-					return err
-				}
-			}
-		default:
-			return fmt.Errorf("target '%s' step %d: unknown step kind", target.Name, stepIndex)
+	for stepIndex, command := range commands {
+		req := targetExecutorRunRequestCreate(target.Name, stepIndex, command, workDir, env, target.Interactive, opts)
+		if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
+			return err
 		}
 	}
 
