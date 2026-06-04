@@ -94,12 +94,13 @@ type HelmTarget struct {
 	WorkDir string
 	Env     map[string]string
 
-	DependsOn   []HelmTargetDependency
-	Matrix      *HelmMatrix
-	Artifacts   *HelmArtifacts
-	Interactive bool
-	Hidden      bool
-	Steps       []HelmTargetStep
+	DependsOn           []HelmTargetDependency
+	DependsOnParamNames []string
+	Matrix              *HelmMatrix
+	Artifacts           *HelmArtifacts
+	Interactive         bool
+	Hidden              bool
+	Steps               []HelmTargetStep
 }
 
 type HelmMatrix struct {
@@ -121,8 +122,9 @@ type HelmMatrixValue struct {
 }
 
 type HelmTargetParameter struct {
-	Name     string
-	Optional bool
+	Name           string
+	Optional       bool
+	DependencyList bool
 }
 
 type HelmParameterValueKind int
@@ -131,16 +133,19 @@ const (
 	HelmParameterScalar HelmParameterValueKind = iota
 	HelmParameterGlobalRef
 	HelmParameterTargetParamRef
+	HelmParameterDependencyList
 )
 
 // HelmParameterValue is a dependency or invocation parameter at IR/runtime.
 // Scalar values come from string literals; GlobalRef binds a global by name (string or artifact array).
 // TargetParamRef forwards a parameter from the depending target (e.g. SOURCE_FILES = SOURCE_FILES).
+// DependencyList holds nested depends_on entries (including braced targets with params).
 type HelmParameterValue struct {
 	Kind            HelmParameterValueKind
 	Scalar          string
 	GlobalName      string
 	TargetParamName string
+	Dependencies    []HelmTargetDependency
 }
 
 // HelmTargetDependency describes an edge in depends_on.

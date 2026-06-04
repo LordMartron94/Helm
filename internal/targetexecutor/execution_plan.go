@@ -108,6 +108,8 @@ func targetExecutorInsertExecutionNode(
 		return fmt.Errorf("target '%s' does not exist in IR", dependentName)
 	}
 
+	inv := targetExecutorInvocationForInsert(dependentName, callerInvocations, nodeInvocations)
+
 	parentResolved, err := targetExecutorResolvedParamsForTarget(
 		builtIR,
 		targetExecutorClosureFromGraph(graph),
@@ -119,37 +121,24 @@ func targetExecutorInsertExecutionNode(
 		return fmt.Errorf("target '%s': %w", dependentName, err)
 	}
 
-	depNodes := make([]string, 0, len(target.DependsOn))
-	for _, dep := range target.DependsOn {
-		canonical, ok := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
-		if !ok {
-			return fmt.Errorf("target '%s' depends on undeclared target '%s'", dependentName, dep.TargetName)
-		}
+	effectiveDeps, err := targetExecutorEffectiveDependsOn(
+		builtIR,
+		target,
+		inv,
+		parentResolved,
+	)
+	if err != nil {
+		return fmt.Errorf("target '%s': %w", dependentName, err)
+	}
 
-		if len(dep.Parameters) == 0 {
-			depNodes = append(depNodes, canonical)
-			continue
-		}
-
-		bound, bindErr := targetExecutorBindDependencyParams(
-			builtIR.GlobalVariables,
-			parentResolved,
-			dep.Parameters,
-		)
-		if bindErr != nil {
-			return fmt.Errorf("target '%s' dependency '%s': %w", dependentName, dep.TargetName, bindErr)
-		}
-
-		execNode := targetExecutorParametricInstanceID(canonical, bound)
-		if existing, exists := nodeInvocations[execNode]; exists {
-			if targetExecutorParameterMapFingerprint(existing.Parameters) !=
-				targetExecutorParameterMapFingerprint(bound) {
-				return fmt.Errorf("parametric instance collision for '%s'", canonical)
-			}
-		} else {
-			nodeInvocations[execNode] = TargetInvocation{Parameters: bound}
-		}
-		depNodes = append(depNodes, execNode)
+	depNodes, err := targetExecutorRegisterDependencyNodes(
+		builtIR,
+		dependentName,
+		effectiveDeps,
+		nodeInvocations,
+	)
+	if err != nil {
+		return err
 	}
 
 	graph[dependentName] = depNodes
@@ -221,37 +210,24 @@ func targetExecutorInsertParametricInstanceNode(
 		return fmt.Errorf("parametric instance '%s': %w", execNode, err)
 	}
 
-	depNodes := make([]string, 0, len(target.DependsOn))
-	for _, dep := range target.DependsOn {
-		depCanonical, ok := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
-		if !ok {
-			return fmt.Errorf("target '%s' depends on undeclared target '%s'", canonical, dep.TargetName)
-		}
+	effectiveDeps, err := targetExecutorEffectiveDependsOn(
+		builtIR,
+		target,
+		inv,
+		parentResolved,
+	)
+	if err != nil {
+		return fmt.Errorf("parametric instance '%s': %w", execNode, err)
+	}
 
-		if len(dep.Parameters) == 0 {
-			depNodes = append(depNodes, depCanonical)
-			continue
-		}
-
-		bound, bindErr := targetExecutorBindDependencyParams(
-			builtIR.GlobalVariables,
-			parentResolved,
-			dep.Parameters,
-		)
-		if bindErr != nil {
-			return fmt.Errorf("target '%s' dependency '%s': %w", execNode, dep.TargetName, bindErr)
-		}
-
-		childExecNode := targetExecutorParametricInstanceID(depCanonical, bound)
-		if existing, exists := nodeInvocations[childExecNode]; exists {
-			if targetExecutorParameterMapFingerprint(existing.Parameters) !=
-				targetExecutorParameterMapFingerprint(bound) {
-				return fmt.Errorf("parametric instance collision for '%s'", depCanonical)
-			}
-		} else {
-			nodeInvocations[childExecNode] = TargetInvocation{Parameters: bound}
-		}
-		depNodes = append(depNodes, childExecNode)
+	depNodes, err := targetExecutorRegisterDependencyNodes(
+		builtIR,
+		canonical,
+		effectiveDeps,
+		nodeInvocations,
+	)
+	if err != nil {
+		return err
 	}
 
 	graph[execNode] = depNodes

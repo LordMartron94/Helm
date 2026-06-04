@@ -287,6 +287,72 @@ func handleTargetDependsOn(
 	for _, depNode := range dependencyNodes {
 		currentTarget.DependsOn = append(currentTarget.DependsOn, extractDependency(builder, depNode, scope))
 	}
+
+	paramRefNodes := node.FindAllKind(artifacts.NodeDependsOnParameterRef)
+	for _, refNode := range paramRefNodes {
+		nameNode := refNode.FindDirectChildKind(artifacts.NodeDependencyParameterName)
+		refName := extractContentFromSingleTokenNode(builder, nameNode)
+		if !resolveScopeHasParameter(scope, refName) {
+			emitSemanticError(
+				builder,
+				refNode,
+				ERROR_UNDECLARED_VARIABLE,
+				fmt.Sprintf(
+					"depends_on param '%s' is not declared on target '%s'",
+					refName,
+					currentTarget.Name,
+				),
+			)
+			continue
+		}
+		duplicate := false
+		for _, existing := range currentTarget.DependsOnParamNames {
+			if existing == refName {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		currentTarget.DependsOnParamNames = append(currentTarget.DependsOnParamNames, refName)
+		irMarkTargetParameterDependencyListOnTarget(currentTarget, refName)
+	}
+}
+
+func irMarkTargetParameterDependencyListOnTarget(target *HelmTarget, parameterName string) {
+	for i := range target.Parameters {
+		if target.Parameters[i].Name == parameterName {
+			target.Parameters[i].DependencyList = true
+			return
+		}
+	}
+}
+
+func irMarkTargetParameterDependencyList(
+	targets map[string]HelmTarget,
+	targetName string,
+	parameterName string,
+) {
+	target, ok := targets[targetName]
+	if !ok {
+		return
+	}
+	irMarkTargetParameterDependencyListOnTarget(&target, parameterName)
+	targets[targetName] = target
+}
+
+func extractTargetArrayDependencies(
+	builder *irBuilder,
+	arrayNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+) []HelmTargetDependency {
+	dependencyNodes := arrayNode.FindAllKind(artifacts.NodeTargetDependency)
+	out := make([]HelmTargetDependency, 0, len(dependencyNodes))
+	for _, depNode := range dependencyNodes {
+		out = append(out, extractDependency(builder, depNode, scope))
+	}
+	return out
 }
 
 func extractDependency(
@@ -380,6 +446,16 @@ func extractDependencyParameters(
 			dep.Parameters[pendingKey] = HelmParameterValue{
 				Kind:   HelmParameterScalar,
 				Scalar: extractStringFromStringNode(builder, cur, scope),
+			}
+			pendingKey = ""
+			pendingKeyNode = nil
+		case artifacts.NodeTargetArray:
+			if pendingKey == "" {
+				return false, false
+			}
+			dep.Parameters[pendingKey] = HelmParameterValue{
+				Kind:         HelmParameterDependencyList,
+				Dependencies: extractTargetArrayDependencies(builder, cur, scope),
 			}
 			pendingKey = ""
 			pendingKeyNode = nil

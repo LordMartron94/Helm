@@ -21,8 +21,27 @@ func targetExecutorDependencyNodes(
 
 	for _, key := range []string{executionNodeID, canonical} {
 		depNodes, exists := plan.Outgoing[key]
-		if exists && len(depNodes) == len(target.DependsOn) {
-			return depNodes, nil
+		if exists {
+			parentResolved, resolveErr := targetExecutorResolvedParamsForExecutionNode(
+				builtIR,
+				executionNodeID,
+				inv,
+			)
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			effectiveDeps, expandErr := targetExecutorEffectiveDependsOn(
+				builtIR,
+				target,
+				inv,
+				parentResolved,
+			)
+			if expandErr != nil {
+				return nil, expandErr
+			}
+			if len(depNodes) == len(effectiveDeps) {
+				return depNodes, nil
+			}
 		}
 	}
 
@@ -35,35 +54,17 @@ func targetExecutorDependencyNodes(
 		return nil, fmt.Errorf("target '%s': %w", canonical, err)
 	}
 
-	out := make([]string, len(target.DependsOn))
-	for i, dep := range target.DependsOn {
-		depCanonical, ok := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
-		if !ok {
-			return nil, fmt.Errorf(
-				"target '%s' depends on undeclared target '%s'",
-				canonical,
-				dep.TargetName,
-			)
-		}
-
-		if len(dep.Parameters) == 0 {
-			out[i] = depCanonical
-			continue
-		}
-
-		bound, bindErr := targetExecutorBindDependencyParams(
-			builtIR.GlobalVariables,
-			parentResolved,
-			dep.Parameters,
-		)
-		if bindErr != nil {
-			return nil, fmt.Errorf("target '%s' dependency '%s': %w", canonical, dep.TargetName, bindErr)
-		}
-
-		out[i] = targetExecutorParametricInstanceID(depCanonical, bound)
+	effectiveDeps, err := targetExecutorEffectiveDependsOn(
+		builtIR,
+		target,
+		inv,
+		parentResolved,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	return out, nil
+	return targetExecutorDependencyNodesFromEdges(builtIR, canonical, effectiveDeps)
 }
 
 func targetExecutorResolvedParamsForExecutionNode(
@@ -89,22 +90,41 @@ func targetExecutorDependencyBlocked(
 	results map[string]error,
 ) error {
 	canonicalName := TargetExecutorExecutionNodeCanonical(executionNodeID)
+	target := builtIR.Targets[canonicalName]
 
-	depNodes, err := targetExecutorDependencyNodes(plan, builtIR, executionNodeID, inv)
+	parentResolved, err := targetExecutorResolvedParamsForExecutionNode(
+		builtIR,
+		executionNodeID,
+		inv,
+	)
 	if err != nil {
 		return err
 	}
 
-	target := builtIR.Targets[canonicalName]
+	effectiveDeps, err := targetExecutorEffectiveDependsOn(
+		builtIR,
+		target,
+		inv,
+		parentResolved,
+	)
+	if err != nil {
+		return err
+	}
+
 	visited := make(map[string]struct{})
-	for i, dep := range target.DependsOn {
-		depNode := depNodes[i]
+	for _, dep := range effectiveDeps {
+		depNode, nodeErr := targetExecutorDependencyNodeFromEdge(builtIR, dep)
+		if nodeErr != nil {
+			return nodeErr
+		}
+
 		if blocked := targetExecutorDependencyBlockedVisit(
 			plan,
 			builtIR,
 			canonicalName,
 			depNode,
 			dep.Optional,
+			inv,
 			results,
 			visited,
 		); blocked != nil {
@@ -115,12 +135,24 @@ func targetExecutorDependencyBlocked(
 	return nil
 }
 
+func targetExecutorDependencyNodeFromEdge(
+	builtIR ir.HelmIR,
+	dep ir.HelmTargetDependency,
+) (string, error) {
+	nodes, err := targetExecutorDependencyNodesFromEdges(builtIR, dep.TargetName, []ir.HelmTargetDependency{dep})
+	if err != nil {
+		return "", err
+	}
+	return nodes[0], nil
+}
+
 func targetExecutorDependencyBlockedVisit(
 	plan *TargetExecutionPlan,
 	builtIR ir.HelmIR,
 	dependentCanonical string,
 	depNode string,
 	optional bool,
+	inv TargetInvocation,
 	results map[string]error,
 	visited map[string]struct{},
 ) error {
@@ -136,22 +168,37 @@ func targetExecutorDependencyBlockedVisit(
 	}
 
 	childInv := targetExecutorInvocationForNode(plan, depNode, nil)
-	childNodes, err := targetExecutorDependencyNodes(plan, builtIR, depNode, childInv)
+	childCanonical := TargetExecutorExecutionNodeCanonical(depNode)
+	childTarget := builtIR.Targets[childCanonical]
+
+	childResolved, err := targetExecutorResolvedParamsForExecutionNode(builtIR, depNode, childInv)
 	if err != nil {
 		return err
 	}
 
-	depCanonical := TargetExecutorExecutionNodeCanonical(depNode)
-	depTarget := builtIR.Targets[depCanonical]
+	childDeps, err := targetExecutorEffectiveDependsOn(
+		builtIR,
+		childTarget,
+		childInv,
+		childResolved,
+	)
+	if err != nil {
+		return err
+	}
 
-	for i, dep := range depTarget.DependsOn {
-		childNode := childNodes[i]
+	for _, dep := range childDeps {
+		childNode, nodeErr := targetExecutorDependencyNodeFromEdge(builtIR, dep)
+		if nodeErr != nil {
+			return nodeErr
+		}
+
 		if blocked := targetExecutorDependencyBlockedVisit(
 			plan,
 			builtIR,
 			dependentCanonical,
 			childNode,
 			dep.Optional,
+			childInv,
 			results,
 			visited,
 		); blocked != nil {

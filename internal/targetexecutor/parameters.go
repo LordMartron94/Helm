@@ -47,6 +47,13 @@ func TargetExecutorParametersForTarget(target ir.HelmTarget, inv TargetInvocatio
 		if _, exists := parameters[param.Name]; exists {
 			continue
 		}
+		if param.DependencyList {
+			parameters[param.Name] = ir.HelmParameterValue{
+				Kind:         ir.HelmParameterDependencyList,
+				Dependencies: nil,
+			}
+			continue
+		}
 		parameters[param.Name] = ir.HelmParameterValue{Kind: ir.HelmParameterScalar}
 	}
 	return parameters
@@ -95,6 +102,8 @@ func TargetExecutorResolveInvocationParameters(
 				key,
 				value.TargetParamName,
 			)
+		case ir.HelmParameterDependencyList:
+			continue
 		default:
 			return nil, fmt.Errorf("parameter '%s': unknown parameter value kind", key)
 		}
@@ -142,6 +151,7 @@ func targetExecutorResolveGlobalRefParameter(
 func targetExecutorBindDependencyParams(
 	globals map[string]ir.HelmGlobalVariable,
 	parentResolved map[string]string,
+	parentParameters map[string]ir.HelmParameterValue,
 	raw map[string]ir.HelmParameterValue,
 ) (map[string]ir.HelmParameterValue, error) {
 	if len(raw) == 0 {
@@ -164,7 +174,7 @@ func targetExecutorBindDependencyParams(
 			}
 			out[key] = value
 		case ir.HelmParameterTargetParamRef:
-			text, ok := parentResolved[value.TargetParamName]
+			parentValue, ok := parentParameters[value.TargetParamName]
 			if !ok {
 				return nil, fmt.Errorf(
 					"parameter '%s' references caller parameter '%s' which is not in scope",
@@ -172,10 +182,25 @@ func targetExecutorBindDependencyParams(
 					value.TargetParamName,
 				)
 			}
-			out[key] = ir.HelmParameterValue{
-				Kind:   ir.HelmParameterScalar,
-				Scalar: text,
+			switch parentValue.Kind {
+			case ir.HelmParameterDependencyList:
+				out[key] = parentValue
+			case ir.HelmParameterScalar:
+				out[key] = ir.HelmParameterValue{
+					Kind:   ir.HelmParameterScalar,
+					Scalar: expand.ExpandInterpolateLiteral(parentValue.Scalar, scalarGlobals, parentResolved),
+				}
+			case ir.HelmParameterGlobalRef:
+				out[key] = parentValue
+			default:
+				return nil, fmt.Errorf(
+					"parameter '%s' cannot forward caller parameter '%s' of that kind",
+					key,
+					value.TargetParamName,
+				)
 			}
+		case ir.HelmParameterDependencyList:
+			out[key] = value
 		default:
 			return nil, fmt.Errorf("parameter '%s': unknown parameter value kind", key)
 		}
@@ -209,6 +234,14 @@ func targetExecutorParameterMapFingerprint(parameters map[string]ir.HelmParamete
 			buffer.WriteString(value.GlobalName)
 		case ir.HelmParameterTargetParamRef:
 			buffer.WriteString(value.TargetParamName)
+		case ir.HelmParameterDependencyList:
+			buffer.WriteString("deps:")
+			for _, dep := range value.Dependencies {
+				buffer.WriteString(dep.TargetName)
+				buffer.WriteByte(0)
+				buffer.WriteString(targetExecutorParameterMapFingerprint(dep.Parameters))
+				buffer.WriteByte(0)
+			}
 		}
 		buffer.WriteByte(0)
 	}

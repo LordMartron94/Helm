@@ -62,9 +62,18 @@ func targetExecutorResolvedParamsForTarget(
 				return nil, err
 			}
 
+			dependentInv := TargetInvocation{}
+			if callerInvocations != nil {
+				if inv, exists := callerInvocations[dependentName]; exists {
+					dependentInv = inv
+				}
+			}
+			parentParameters := TargetExecutorParametersForTarget(dependent, dependentInv)
+
 			bound, err := targetExecutorBindDependencyParams(
 				builtIR.GlobalVariables,
 				dependentResolved,
+				parentParameters,
 				dep.Parameters,
 			)
 			if err != nil {

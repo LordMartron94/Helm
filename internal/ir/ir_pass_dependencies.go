@@ -29,7 +29,7 @@ func validateTargetDependencies(builder *irBuilder) {
 			}
 			seenDeps[canonical] = struct{}{}
 
-			validateDependencyParameters(builder, target.Name, dep, builder.targets[canonical])
+			validateDependencyParameters(builder, target.Name, dep, canonical)
 		}
 	}
 }
@@ -38,14 +38,19 @@ func validateDependencyParameters(
 	builder *irBuilder,
 	dependentName string,
 	dep HelmTargetDependency,
-	dependencyTarget HelmTarget,
+	dependencyCanonical string,
 ) {
+	dependencyTarget := builder.targets[dependencyCanonical]
+
 	declared := make(map[string]struct{}, len(dependencyTarget.Parameters))
 	for _, param := range dependencyTarget.Parameters {
 		declared[param.Name] = struct{}{}
 	}
 
-	for key := range dep.Parameters {
+	for key, value := range dep.Parameters {
+		if value.Kind == HelmParameterDependencyList {
+			irMarkTargetParameterDependencyList(builder.targets, dependencyCanonical, key)
+		}
 		if _, ok := declared[key]; !ok {
 			emitSemanticError(
 				builder,
@@ -73,6 +78,32 @@ func validateDependencyParameters(
 				fmt.Sprintf(
 					"target '%s' must pass required parameter '%s' to dependency '%s'",
 					dependentName,
+					param.Name,
+					dep.TargetName,
+				),
+			)
+			continue
+		}
+		value := dep.Parameters[param.Name]
+		if param.DependencyList && value.Kind != HelmParameterDependencyList {
+			emitSemanticError(
+				builder,
+				dep.SourceNode,
+				ERROR_INVALID_VARIABLE_VALUE,
+				fmt.Sprintf(
+					"parameter '%s' for dependency '%s' must be a target dependency array",
+					param.Name,
+					dep.TargetName,
+				),
+			)
+		}
+		if !param.DependencyList && value.Kind == HelmParameterDependencyList {
+			emitSemanticError(
+				builder,
+				dep.SourceNode,
+				ERROR_INVALID_VARIABLE_VALUE,
+				fmt.Sprintf(
+					"parameter '%s' for dependency '%s' cannot be a target dependency array",
 					param.Name,
 					dep.TargetName,
 				),

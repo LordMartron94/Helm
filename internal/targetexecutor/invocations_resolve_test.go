@@ -23,7 +23,12 @@ func TestTargetExecutorBindDependencyParamsTargetParamRef(t *testing.T) {
 		},
 	}
 
-	bound, err := targetExecutorBindDependencyParams(nil, parentResolved, raw)
+	parentParameters := map[string]ir.HelmParameterValue{
+		"SOURCE_FILES": {Kind: ir.HelmParameterScalar, Scalar: parentResolved["SOURCE_FILES"]},
+		"OUT_NAME":     {Kind: ir.HelmParameterScalar, Scalar: parentResolved["OUT_NAME"]},
+	}
+
+	bound, err := targetExecutorBindDependencyParams(nil, parentResolved, parentParameters, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
