@@ -3,6 +3,7 @@ package targetexecutor
 import (
 	"encoding/json"
 	"fmt"
+	"helm/internal/entityexecutor"
 	"helm/internal/ir"
 	"path/filepath"
 	"sort"
@@ -14,6 +15,18 @@ type TargetExecutionGraphExport struct {
 	SourceDirectory string                            `json:"source_directory"`
 	Phases          [][]string                        `json:"phases"`
 	Targets         map[string]TargetGraphExportEntry `json:"targets"`
+	Entities        map[string]EntityGraphExportEntry `json:"entities,omitempty"`
+}
+
+// EntityGraphExportEntry re-exports entity graph shape for JSON output.
+type EntityGraphExportEntry struct {
+	Label       string              `json:"label"`
+	Adapter     string              `json:"adapter"`
+	Directory   string              `json:"directory"`
+	RunArgvs    [][]string          `json:"run_argvs,omitempty"`
+	DependsOn   []string            `json:"depends_on,omitempty"`
+	PropertyBag map[string][]string `json:"property_bag,omitempty"`
+	OutputPath  string              `json:"output_path,omitempty"`
 }
 
 // TargetExecutionGraphExportBundle holds one resolved graph per entry target.
@@ -66,6 +79,21 @@ func TargetExecutorExportExecutionGraph(
 			export,
 		); err != nil {
 			return nil, err
+		}
+	}
+
+	if builtIR.Mode == ir.HelmModeWorkspace && len(builtIR.Entities) > 0 {
+		roots := entityexecutor.EntityRootsFromTargetDeps(builtIR, canonicalEntry)
+		if len(roots) == 0 {
+			roots = entityexecutor.EntityCollectAllRoots(builtIR)
+		}
+		entityExport, entityErr := entityexecutor.EntityExportExecutionGraph(builtIR, roots)
+		if entityErr != nil {
+			return nil, entityErr
+		}
+		export.Entities = make(map[string]EntityGraphExportEntry, len(entityExport.Entities))
+		for key, entry := range entityExport.Entities {
+			export.Entities[key] = EntityGraphExportEntry(entry)
 		}
 	}
 
@@ -164,7 +192,7 @@ func targetExecutorExportGraphNode(
 	paramValues := TargetExecutorParametersForTarget(target, inv)
 	resolved, err := TargetExecutorResolveInvocationParameters(
 		builtIR.SourceDirectory,
-		builtIR.GlobalVariables,
+		ir.IRGlobalsForRootManifest(builtIR),
 		paramValues,
 	)
 	if err != nil {
@@ -173,7 +201,7 @@ func targetExecutorExportGraphNode(
 
 	baseInterpCtx, err := TargetExecutorInterpolationGlobals(
 		builtIR.SourceDirectory,
-		builtIR.GlobalVariables,
+		ir.IRGlobalsForRootManifest(builtIR),
 		resolved,
 	)
 	if err != nil {
@@ -188,7 +216,7 @@ func targetExecutorExportGraphNode(
 		builtIR.SourceDirectory,
 		target,
 		paramValues,
-		builtIR.GlobalVariables,
+		ir.IRGlobalsForRootManifest(builtIR),
 		interpCtx,
 	)
 	if err != nil {
@@ -204,7 +232,7 @@ func targetExecutorExportGraphNode(
 		effectiveParamValues := targetExecutorEffectiveParameterValues(target, inv, instance.Bindings)
 		effectiveResolved, resolveErr := TargetExecutorResolveInvocationParameters(
 			builtIR.SourceDirectory,
-			builtIR.GlobalVariables,
+			ir.IRGlobalsForRootManifest(builtIR),
 			effectiveParamValues,
 		)
 		if resolveErr != nil {
@@ -213,7 +241,7 @@ func targetExecutorExportGraphNode(
 
 		instanceInterpCtx, interpErr := TargetExecutorInterpolationGlobals(
 			builtIR.SourceDirectory,
-			builtIR.GlobalVariables,
+			ir.IRGlobalsForRootManifest(builtIR),
 			effectiveResolved,
 		)
 		if interpErr != nil {
@@ -232,7 +260,7 @@ func targetExecutorExportGraphNode(
 			builtIR.SourceDirectory,
 			target,
 			builtIR.Targets,
-			builtIR.GlobalVariables,
+			ir.IRGlobalsForRootManifest(builtIR),
 			effectiveParamValues,
 			instanceInterpCtx,
 			effectiveResolved,

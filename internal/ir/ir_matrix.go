@@ -52,7 +52,7 @@ func handleTargetMatrix(
 		}
 	}
 
-	scope := resolveScopeForTarget(builder.globalVariables, currentTarget.Parameters)
+	scope := resolveScopeForTarget(builder.effectiveGlobals(), currentTarget.Parameters)
 	values := extractMatrixValues(builder, node, scope)
 	if len(values) == 0 {
 		emitSemanticError(

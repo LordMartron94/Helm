@@ -32,7 +32,7 @@ func targetExecutorResolvedParamsForTarget(
 			paramValues := TargetExecutorParametersForTarget(target, inv)
 			return TargetExecutorResolveInvocationParameters(
 				builtIR.SourceDirectory,
-				builtIR.GlobalVariables,
+				ir.IRGlobalsForRootManifest(builtIR),
 				paramValues,
 			)
 		}
@@ -71,7 +71,7 @@ func targetExecutorResolvedParamsForTarget(
 			parentParameters := TargetExecutorParametersForTarget(dependent, dependentInv)
 
 			bound, err := targetExecutorBindDependencyParams(
-				builtIR.GlobalVariables,
+				ir.IRGlobalsForRootManifest(builtIR),
 				dependentResolved,
 				parentParameters,
 				dep.Parameters,
@@ -96,7 +96,7 @@ func targetExecutorResolvedParamsForTarget(
 
 	return TargetExecutorResolveInvocationParameters(
 		builtIR.SourceDirectory,
-		builtIR.GlobalVariables,
+		ir.IRGlobalsForRootManifest(builtIR),
 		merged,
 	)
 }

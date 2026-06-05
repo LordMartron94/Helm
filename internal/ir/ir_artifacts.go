@@ -117,6 +117,12 @@ func resolveArtifactItem(
 			emitVariableNotScalar(builder, varNode, varName, "artifacts entry")
 			return HelmArtifactInput{}, false
 		}
+		if scope.permissiveGlobals {
+			return HelmArtifactInput{
+				Kind:    ArtifactInputString,
+				Literal: "${" + varName + "}",
+			}, true
+		}
 		emitSemanticError(
 			builder,
 			varNode,

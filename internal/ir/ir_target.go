@@ -94,7 +94,7 @@ func handleTargetBody(
 		matrixVariable = currentTarget.Matrix.VariableName
 	}
 	baseScope := resolveScopeForTargetWithMatrix(
-		builder.globalVariables,
+		builder.effectiveGlobals(),
 		currentTarget.Parameters,
 		matrixVariable,
 	)
@@ -153,7 +153,7 @@ func handleTargetBody(
 		)
 	}
 
-	if !state.artifactsDeclared {
+	if !state.artifactsDeclared && !builder.workspaceDeclared && len(builder.entities) == 0 {
 		emitSemanticError(
 			builder,
 			targetNode,
@@ -292,6 +292,28 @@ func handleTargetDependsOn(
 	dependencyNodes := node.FindAllKind(artifacts.NodeTargetDependency)
 	for _, depNode := range dependencyNodes {
 		currentTarget.DependsOn = append(currentTarget.DependsOn, extractDependency(builder, depNode, scope))
+	}
+
+	labelDepNodes := node.FindAllKind(artifacts.NodeEntityLabelDependency)
+	for _, labelDepNode := range labelDepNodes {
+		labelRef := labelDepNode.FindFirstKind(artifacts.NodeLabelRef)
+		if labelRef == nil {
+			continue
+		}
+		stringNode := labelRef.FindFirstKind(artifacts.NodeStringLiteral)
+		if stringNode == nil {
+			continue
+		}
+		text := extractStringFromStringNode(builder, stringNode, scope)
+		label, ok := helmLabelFromStringLiteral(builder, text)
+		if !ok {
+			emitSemanticError(builder, labelRef, ERROR_INVALID_LABEL, fmt.Sprintf("invalid entity label %q", text))
+			continue
+		}
+		currentTarget.DependsOn = append(currentTarget.DependsOn, HelmTargetDependency{
+			EntityLabel: &label,
+			SourceNode:  labelRef,
+		})
 	}
 
 	paramRefNodes := node.FindAllKind(artifacts.NodeDependsOnParameterRef)
@@ -690,6 +712,7 @@ func handleTargetEnv(
 			)
 			pendingKey = ""
 			pendingKeyNode = nil
+			return true, false
 		}
 		return false, false
 	})

@@ -60,6 +60,9 @@ func resolvePathElement(
 			emitVariableNotScalar(builder, varNode, varName, "path() element")
 			return "", false
 		}
+		if scope.permissiveGlobals {
+			return "${" + varName + "}", true
+		}
 		emitSemanticError(
 			builder,
 			varNode,

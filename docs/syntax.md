@@ -495,3 +495,46 @@ Pass one target for a single graph (same JSON shape as before). Pass comma-separ
 `key=value` CLI parameters are only supported when exporting a single entry target.
 
 Each object under `targets` uses the execution node id as its key (`canonical_target`, or `name#<hash>` for parametric edges). Fields include `directory` (absolute working directory) and `run_commands` (expanded command strings).
+
+Workspace-mode graphs also include an `entities` section with resolved `run_argvs` per entity label.
+
+---
+
+## 13. Flag propagation (`export` / `collect`)
+
+Legacy v1.7 targets propagate build flags through named property bags:
+
+```helm
+target lib() {
+    help = "library"
+    artifacts { outputs = [ "lib.so" ] }
+    export {
+        LD_FLAGS = [ "-lmylib" ]
+        C_INCLUDES = [ "-Iinclude" ]
+    }
+    run "true"
+}
+
+target app(DEPS?) {
+    help = "application"
+    artifacts { outputs = [ "app" ] }
+    env {
+        LDFLAGS = [ collect(DEPS, "LD_FLAGS") ]
+        CPPFLAGS = [ collect(DEPS, "C_INCLUDES") ]
+    }
+    run "true"
+}
+```
+
+* `export { KEY = [ ... ] }` publishes string-list fragments on a target.
+* `collect(DEPS, "KEY")` flattens matching keys from dependency targets in deterministic order.
+* Helm 2.0 entities use the same flattening model via `interface { CPPFLAGS = [ ... ] }` and `deps` — no type checking; Clang/linker validate flags.
+
+---
+
+## 14. Helm 2.0 workspace mode
+
+Helm 2.0 adds `workspace`, `entity`, `interface`, and `adapter` blocks with strict entity/target segregation.
+
+* [Helm 2.0 syntax reference](helm2-syntax.md)
+* [Migration guide](helm2-migration.md)

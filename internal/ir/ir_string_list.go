@@ -63,7 +63,7 @@ func extractStringListFromArrayNode(
 			}
 			nameNode := child.FindDirectChildKind(artifacts.NodeStringListParamName)
 			paramName := extractContentFromSingleTokenNode(builder, nameNode)
-			if !resolveScopeHasParameter(scope, paramName) {
+			if !resolveScopeAllowsParamRef(scope, paramName) {
 				emitSemanticError(
 					builder,
 					nameNode,

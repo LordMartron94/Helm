@@ -10,10 +10,12 @@ import (
 )
 
 type resolveScope struct {
-	globals        map[string]HelmGlobalVariable
-	parameters     []HelmTargetParameter
-	matrixVariable string
-	letBindings    []string
+	globals           map[string]HelmGlobalVariable
+	parameters        []HelmTargetParameter
+	matrixVariable    string
+	letBindings       []string
+	permissiveParams  bool
+	permissiveGlobals bool
 }
 
 func resolveScopeForGlobals(globals map[string]HelmGlobalVariable) resolveScope {
@@ -34,6 +36,46 @@ func resolveScopeForTargetWithMatrix(
 		parameters:     parameters,
 		matrixVariable: matrixVariable,
 	}
+}
+
+// resolveScopeForAdapter builds a scope for adapter argv templates (declared parameters + engine params).
+func resolveScopeForAdapter(
+	base resolveScope,
+	parameters []HelmTargetParameter,
+	matrixVariable string,
+) resolveScope {
+	adapterParams := append([]HelmTargetParameter(nil), parameters...)
+	seen := make(map[string]struct{}, len(adapterParams)+2)
+	for _, parameter := range adapterParams {
+		seen[parameter.Name] = struct{}{}
+	}
+	if _, ok := seen["MATRIX_OUTPUTS"]; !ok {
+		adapterParams = append(adapterParams, HelmTargetParameter{Name: "MATRIX_OUTPUTS"})
+	}
+	for name, variable := range base.globals {
+		if variable.Kind == HelmGlobalVarArtifactArray {
+			if _, ok := seen[name]; !ok {
+				adapterParams = append(adapterParams, HelmTargetParameter{Name: name})
+			}
+		}
+	}
+	scope := resolveScopeForTargetWithMatrix(base.globals, adapterParams, matrixVariable)
+	scope.permissiveParams = true
+	scope.permissiveGlobals = true
+	return scope
+}
+
+func resolveScopeAllowsParamRef(scope resolveScope, name string) bool {
+	if resolveScopeHasParameter(scope, name) {
+		return true
+	}
+	if resolveScopeHasLetBinding(scope, name) {
+		return true
+	}
+	if globalVariableIsArtifactArray(scope, name) {
+		return true
+	}
+	return scope.permissiveParams
 }
 
 func resolveScopeMatrixVariable(scope resolveScope) string {
@@ -76,6 +118,9 @@ func resolveScopeVariableAsLiteral(scope resolveScope, name string) (string, boo
 		return placeholder, true
 	}
 	if scope.matrixVariable != "" && name == scope.matrixVariable {
+		return "${" + name + "}", true
+	}
+	if scope.permissiveGlobals {
 		return "${" + name + "}", true
 	}
 	return "", false
@@ -181,6 +226,10 @@ func handleStringInterpolation(
 		sb.WriteString("${" + targetVariableIdentifier + "}")
 		return
 	}
+	if scope.permissiveGlobals {
+		sb.WriteString("${" + targetVariableIdentifier + "}")
+		return
+	}
 	emitSemanticError(
 		builder,
 		targetVariableNode,
@@ -193,18 +242,37 @@ func extractContentFromSingleTokenNode(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
 ) string {
-	tks := node.Tokens()
-	amnt := len(tks)
-
-	if amnt != 1 {
-		panic(fmt.Errorf("interpreter error: node does not have exactly 1 tokens but got %d\ndiagnostic:\n%s", amnt,
+	text, ok := tryExtractTokenTextFromNode(node)
+	if !ok {
+		panic(fmt.Errorf(
+			"interpreter error: node does not contain exactly one token\ndiagnostic:\n%s",
 			node.DebugDump(syntaxa.LSTDebugFormatter[artifacts.Node]{
 				FormatKind: artifacts.Node.String,
 			}),
 		))
 	}
+	return text
+}
 
-	return string(tks[0].Raw)
+func tryExtractTokenTextFromNode(
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+) (string, bool) {
+	if node == nil {
+		return "", false
+	}
+
+	tks := node.Tokens()
+	if len(tks) == 1 {
+		return string(tks[0].Raw), true
+	}
+
+	for _, child := range node.ChildrenUnsafe() {
+		if text, ok := tryExtractTokenTextFromNode(child); ok {
+			return text, true
+		}
+	}
+
+	return "", false
 }
 
 func handleStringEscape(

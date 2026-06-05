@@ -62,9 +62,7 @@ func extractRunArgvFromArrayNode(
 		case artifacts.NodeRunParameterRef:
 			nameNode := child.FindDirectChildKind(artifacts.NodeRunParameterName)
 			paramName := extractContentFromSingleTokenNode(builder, nameNode)
-			if !resolveScopeHasParameter(scope, paramName) &&
-				!resolveScopeHasLetBinding(scope, paramName) &&
-				!globalVariableIsArtifactArray(scope, paramName) {
+			if !resolveScopeAllowsParamRef(scope, paramName) {
 				emitSemanticError(
 					builder,
 					nameNode,

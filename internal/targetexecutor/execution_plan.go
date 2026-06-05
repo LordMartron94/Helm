@@ -203,7 +203,7 @@ func targetExecutorInsertParametricInstanceNode(
 
 	parentResolved, err := TargetExecutorResolveInvocationParameters(
 		builtIR.SourceDirectory,
-		builtIR.GlobalVariables,
+		ir.IRGlobalsForRootManifest(builtIR),
 		TargetExecutorParametersForTarget(target, inv),
 	)
 	if err != nil {

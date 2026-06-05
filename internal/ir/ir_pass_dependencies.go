@@ -7,6 +7,9 @@ func validateTargetDependencies(builder *irBuilder) {
 		seenDeps := make(map[string]struct{}, len(target.DependsOn))
 
 		for _, dep := range target.DependsOn {
+			if dep.EntityLabel != nil {
+				continue
+			}
 			canonical, exists := IRResolveTargetName(builder.targets, dep.TargetName)
 			if !exists {
 				emitSemanticError(
@@ -35,6 +38,9 @@ func validateTargetDependencies(builder *irBuilder) {
 
 	for _, target := range builder.targets {
 		for _, dep := range target.DependsOn {
+			if dep.EntityLabel != nil {
+				continue
+			}
 			canonical, exists := IRResolveTargetName(builder.targets, dep.TargetName)
 			if !exists {
 				continue
@@ -55,6 +61,9 @@ func irFixpointPropagateDependencyListMarks(builder *irBuilder) {
 		changed := false
 		for _, target := range builder.targets {
 			for _, dep := range target.DependsOn {
+				if dep.EntityLabel != nil {
+					continue
+				}
 				dependencyCanonical, exists := IRResolveTargetName(builder.targets, dep.TargetName)
 				if !exists {
 					continue

@@ -195,7 +195,7 @@ func targetExecutorCacheExecutionContext(
 	paramValues := TargetExecutorParametersForTarget(target, inv)
 	resolved, err := TargetExecutorResolveInvocationParameters(
 		builtIR.SourceDirectory,
-		builtIR.GlobalVariables,
+		ir.IRGlobalsForRootManifest(builtIR),
 		paramValues,
 	)
 	if err != nil {
@@ -203,7 +203,7 @@ func targetExecutorCacheExecutionContext(
 	}
 	interpCtx, err := TargetExecutorInterpolationGlobals(
 		builtIR.SourceDirectory,
-		builtIR.GlobalVariables,
+		ir.IRGlobalsForRootManifest(builtIR),
 		resolved,
 	)
 	if err != nil {

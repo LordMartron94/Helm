@@ -136,11 +136,21 @@ type HelmTargetStep struct {
 }
 
 type HelmIR struct {
-	// SourceDirectory is the directory containing the interpreted .helm file.
+	// SourceDirectory is the workspace root (directory containing the root Helmfile).
 	SourceDirectory string
+	// RootManifestPath is the absolute path to the workspace root Helmfile.
+	RootManifestPath string
+	// GlobalVariables holds file-local globals for single-file (legacy) interpretation.
 	GlobalVariables map[string]HelmGlobalVariable
-	Targets         map[string]HelmTarget
-	Succeeded       bool
+	// FileGlobals maps absolute helm file paths to file-local global variables.
+	FileGlobals map[string]map[string]HelmGlobalVariable
+	Targets     map[string]HelmTarget
+	Workspace   *HelmWorkspace
+	Entities    map[string]HelmEntity
+	Interfaces  map[string]HelmInterfaceDecl
+	Adapters    map[string]HelmAdapterDecl
+	Mode        HelmExecutionMode
+	Succeeded   bool
 }
 
 type HelmTarget struct {
@@ -197,6 +207,7 @@ const (
 	HelmParameterTargetParamRef
 	HelmParameterDependencyList
 	HelmParameterStringList
+	HelmParameterArtifactItems
 )
 
 // HelmParameterValue is a dependency or invocation parameter at IR/runtime.
@@ -210,17 +221,23 @@ type HelmParameterValue struct {
 	TargetParamName string
 	Dependencies    []HelmTargetDependency
 	StringList      HelmStringListExpr
+	ArtifactItems   []HelmArtifactInput
 }
 
 // HelmTargetDependency describes an edge in depends_on.
 // Parameters holds values from params { ... }. Each dependency target runs at most once
 // per graph execution, so all edges supplying params for the same dependency must agree.
 type HelmTargetDependency struct {
-	TargetName string
-	Optional   bool
-	Confirm    bool
-	Parameters map[string]HelmParameterValue
-	SourceNode *syntaxa.SyntaxaLSTNode[artifacts.Node]
+	TargetName  string
+	EntityLabel *HelmLabel
+	Optional    bool
+	Confirm     bool
+	Parameters  map[string]HelmParameterValue
+	SourceNode  *syntaxa.SyntaxaLSTNode[artifacts.Node]
+}
+
+func HelmTargetDependencyIsEntityLabel(dep HelmTargetDependency) bool {
+	return dep.EntityLabel != nil
 }
 
 type HelmGlob struct {

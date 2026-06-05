@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"helm/interpreter"
 	"io"
 	"os"
@@ -54,21 +53,24 @@ func SessionCreate(config SessionConfig) (*Session, error) {
 		Output:    diagnosticOutput,
 	})
 
-	result := interpreter.HelmInterpreterInterpretFile(interpreterInstance, config.HelmFile, session.Renderer.Context())
+	mergedIR, loadErr := interpreter.HelmInterpreterLoadWorkspace(
+		interpreterInstance,
+		config.HelmFile,
+		session.Renderer.Context(),
+	)
 	session.Renderer.Flush()
 
-	if result.Error != nil {
+	if loadErr != nil {
 		interpreter.HelmInterpreterDestroy(interpreterInstance)
-		return nil, result.Error
+		return nil, loadErr
 	}
 
-	if !result.BuiltIR.Succeeded {
-		interpreter.HelmInterpreterDestroy(interpreterInstance)
-		return nil, fmt.Errorf("interpretation aborted due to semantic errors")
-	}
-
-	session.Result = result
-	session.Catalog = TargetCatalogBuild(result.BuiltIR)
+	session.Result = interpreter.HelmInterpreterInterpretationResultFromIR(
+		interpreterInstance,
+		config.HelmFile,
+		mergedIR,
+	)
+	session.Catalog = TargetCatalogBuild(mergedIR)
 	return session, nil
 }
 

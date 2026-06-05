@@ -177,7 +177,7 @@ func HelmRenderTestSyntax(t *testing.T) {
 		// Validation Closure
 		func() error {
 			if ok, reason := helmBadSyntaxDiagnosticsMatch(collected); !ok {
-				return fmt.Errorf(reason)
+				return fmt.Errorf("%s", reason)
 			}
 			return nil
 		},
@@ -206,7 +206,7 @@ func HelmRenderTestSemantics(t *testing.T) {
 		// Validation Closure
 		func() error {
 			if ok, reason := helmBadSemanticsDiagnosticsMatch(collected); !ok {
-				return fmt.Errorf(reason)
+				return fmt.Errorf("%s", reason)
 			}
 			return nil
 		},

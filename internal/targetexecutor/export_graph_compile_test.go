@@ -56,7 +56,7 @@ func TestTargetExecutorExportExecutionGraphCompileArgvAndParameters(t *testing.T
 						TargetName: "_compile_objects",
 						Parameters: map[string]ir.HelmParameterValue{
 							"SOURCE_FILES": {
-								Kind: ir.HelmParameterScalar,
+								Kind:   ir.HelmParameterScalar,
 								Scalar: "testbed/main.c",
 							},
 							"OBJ_DIR": {

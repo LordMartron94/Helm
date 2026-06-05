@@ -10,6 +10,10 @@ func extractArtifactItemsFromPathArrayRoot(
 	root *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	scope resolveScope,
 ) []HelmArtifactInput {
+	if item, ok := resolveArtifactItem(builder, root, scope); ok {
+		return []HelmArtifactInput{item}
+	}
+
 	var items []HelmArtifactInput
 
 	for _, child := range root.ChildrenUnsafe() {

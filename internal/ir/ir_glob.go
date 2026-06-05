@@ -68,8 +68,10 @@ func evaluateGlob(
 			continue
 		}
 
-		nameNode := child.FindFirstKind(artifacts.NodeGlobKwargIdentifier)
-		kwargName := extractContentFromSingleTokenNode(builder, nameNode)
+		kwargName, nameNode := globKwargNameFromNode(builder, child)
+		if nameNode == nil && kwargName == "" {
+			continue
+		}
 
 		if _, mergeable := mergeableGlobKwargs[kwargName]; !mergeable {
 			if _, seen := seenKwargs[kwargName]; seen {
@@ -151,7 +153,7 @@ func extractGlobStringKwargValue(
 	kwargName string,
 	scope resolveScope,
 ) (string, bool) {
-	if kwargNode.FindDirectChildKind(artifacts.NodeBoolean) != nil {
+	if kwargNode.FindFirstKind(artifacts.NodeBoolean) != nil {
 		emitSemanticError(
 			builder,
 			nameNode,
@@ -161,7 +163,7 @@ func extractGlobStringKwargValue(
 		return "", false
 	}
 
-	strNode := kwargNode.FindDirectChildKind(artifacts.NodeStringLiteral)
+	strNode := kwargNode.FindFirstKind(artifacts.NodeStringLiteral)
 	if strNode == nil {
 		emitSemanticError(
 			builder,
@@ -182,11 +184,11 @@ func extractGlobBoolKwargValue(
 	kwargName string,
 	scope resolveScope,
 ) (bool, bool) {
-	if boolNode := kwargNode.FindDirectChildKind(artifacts.NodeBoolean); boolNode != nil {
+	if boolNode := kwargNode.FindFirstKind(artifacts.NodeBoolean); boolNode != nil {
 		return extractBooleanNode(builder, boolNode), true
 	}
 
-	strNode := kwargNode.FindDirectChildKind(artifacts.NodeStringLiteral)
+	strNode := kwargNode.FindFirstKind(artifacts.NodeStringLiteral)
 	if strNode != nil {
 		value := extractStringFromStringNode(builder, strNode, scope)
 		return parseGlobBoolStringKwarg(builder, nameNode, kwargName, value)
@@ -257,4 +259,20 @@ func resolveGlobBaseDirectory(
 		"glob() base directory must be a variable reference or string literal",
 	)
 	return "", false
+}
+
+func globKwargNameFromNode(
+	builder *irBuilder,
+	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+) (string, *syntaxa.SyntaxaLSTNode[artifacts.Node]) {
+	if kwargNode.FindFirstKind(artifacts.NodeGlobIncludeKwarg) != nil {
+		return "include", kwargNode
+	}
+
+	nameNode := kwargNode.FindFirstKind(artifacts.NodeGlobKwargIdentifier)
+	if nameNode == nil {
+		return "", nil
+	}
+
+	return extractContentFromSingleTokenNode(builder, nameNode), kwargNode
 }

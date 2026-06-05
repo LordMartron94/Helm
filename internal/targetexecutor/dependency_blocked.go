@@ -77,7 +77,7 @@ func targetExecutorResolvedParamsForExecutionNode(
 	paramValues := TargetExecutorParametersForTarget(target, inv)
 	return TargetExecutorResolveInvocationParameters(
 		builtIR.SourceDirectory,
-		builtIR.GlobalVariables,
+		ir.IRGlobalsForRootManifest(builtIR),
 		paramValues,
 	)
 }
@@ -113,6 +113,9 @@ func targetExecutorDependencyBlocked(
 
 	visited := make(map[string]struct{})
 	for _, dep := range effectiveDeps {
+		if ir.HelmTargetDependencyIsEntityLabel(dep) {
+			continue
+		}
 		depNode, nodeErr := targetExecutorDependencyNodeFromEdge(builtIR, dep)
 		if nodeErr != nil {
 			return nodeErr
@@ -139,9 +142,15 @@ func targetExecutorDependencyNodeFromEdge(
 	builtIR ir.HelmIR,
 	dep ir.HelmTargetDependency,
 ) (string, error) {
+	if ir.HelmTargetDependencyIsEntityLabel(dep) {
+		return "", fmt.Errorf("entity label dependency %q is not a target execution node", dep.TargetName)
+	}
 	nodes, err := targetExecutorDependencyNodesFromEdges(builtIR, dep.TargetName, []ir.HelmTargetDependency{dep})
 	if err != nil {
 		return "", err
+	}
+	if len(nodes) == 0 {
+		return "", fmt.Errorf("dependency '%s' produced no execution nodes", dep.TargetName)
 	}
 	return nodes[0], nil
 }
@@ -187,6 +196,9 @@ func targetExecutorDependencyBlockedVisit(
 	}
 
 	for _, dep := range childDeps {
+		if ir.HelmTargetDependencyIsEntityLabel(dep) {
+			continue
+		}
 		childNode, nodeErr := targetExecutorDependencyNodeFromEdge(builtIR, dep)
 		if nodeErr != nil {
 			return nodeErr

@@ -61,6 +61,76 @@ func globalVariableIsArtifactArray(scope resolveScope, name string) bool {
 	return ok && variable.Kind == HelmGlobalVarArtifactArray
 }
 
+func helmGlobalVariableCopy(variable HelmGlobalVariable) HelmGlobalVariable {
+	if variable.Kind == HelmGlobalVarArtifactArray {
+		items := make([]HelmArtifactInput, len(variable.ArtifactItems))
+		copy(items, variable.ArtifactItems)
+		return HelmGlobalVariable{
+			Kind:          HelmGlobalVarArtifactArray,
+			ArtifactItems: items,
+		}
+	}
+	return HelmGlobalVariable{
+		Kind:        HelmGlobalVarString,
+		StringValue: variable.StringValue,
+	}
+}
+
+func resolveGlobalValueFromValueNode(
+	builder *irBuilder,
+	valueNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+	variableLabel string,
+) (HelmGlobalVariable, bool) {
+	if valueNode.FindFirstKind(artifacts.NodeVariableArray) != nil {
+		items := extractArtifactItemsFromPathArrayRoot(builder, valueNode, scope)
+		if len(items) == 0 {
+			emitSemanticError(
+				builder,
+				valueNode,
+				ERROR_INVALID_VARIABLE_VALUE,
+				fmt.Sprintf("%s array must contain at least one entry", variableLabel),
+			)
+			return HelmGlobalVariable{}, false
+		}
+		return HelmGlobalVariable{
+			Kind:          HelmGlobalVarArtifactArray,
+			ArtifactItems: items,
+		}, true
+	}
+
+	if varRefNode := valueNode.FindFirstKind(artifacts.NodeVariableReference); varRefNode != nil {
+		refName := extractContentFromSingleTokenNode(builder, varRefNode)
+		variable, ok := scope.globals[refName]
+		if !ok {
+			emitSemanticError(
+				builder,
+				varRefNode,
+				ERROR_UNDECLARED_VARIABLE,
+				fmt.Sprintf("%s references undeclared variable '%s'", variableLabel, refName),
+			)
+			return HelmGlobalVariable{}, false
+		}
+		return helmGlobalVariableCopy(variable), true
+	}
+
+	stringNode := findStringContentNode(valueNode)
+	if stringNode == nil {
+		emitSemanticError(
+			builder,
+			valueNode,
+			ERROR_INVALID_VARIABLE_VALUE,
+			fmt.Sprintf("%s must be a string literal, variable reference, or artifact array", variableLabel),
+		)
+		return HelmGlobalVariable{}, false
+	}
+
+	return HelmGlobalVariable{
+		Kind:        HelmGlobalVarString,
+		StringValue: extractStringFromStringNode(builder, stringNode, scope),
+	}, true
+}
+
 func emitVariableNotScalar(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],

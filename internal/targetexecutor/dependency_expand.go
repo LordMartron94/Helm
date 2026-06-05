@@ -48,7 +48,7 @@ func targetExecutorEffectiveDependsOn(
 		}
 
 		edgeParams, bindErr := targetExecutorBindDependencyParams(
-			builtIR.GlobalVariables,
+			ir.IRGlobalsForRootManifest(builtIR),
 			parentResolved,
 			paramValues,
 			edge.Parameters,
@@ -73,8 +73,11 @@ func targetExecutorDependencyNodesFromEdges(
 	dependentCanonical string,
 	edges []ir.HelmTargetDependency,
 ) ([]string, error) {
-	out := make([]string, len(edges))
-	for i, dep := range edges {
+	var out []string
+	for _, dep := range edges {
+		if ir.HelmTargetDependencyIsEntityLabel(dep) {
+			continue
+		}
 		depCanonical, ok := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
 		if !ok {
 			return nil, fmt.Errorf(
@@ -85,11 +88,11 @@ func targetExecutorDependencyNodesFromEdges(
 		}
 
 		if len(dep.Parameters) == 0 {
-			out[i] = depCanonical
+			out = append(out, depCanonical)
 			continue
 		}
 
-		out[i] = targetExecutorParametricInstanceID(depCanonical, dep.Parameters)
+		out = append(out, targetExecutorParametricInstanceID(depCanonical, dep.Parameters))
 	}
 
 	return out, nil
@@ -119,6 +122,9 @@ func targetExecutorRegisterDependencyNodes(
 ) ([]string, error) {
 	depNodes := make([]string, 0, len(effectiveDeps))
 	for _, dep := range effectiveDeps {
+		if ir.HelmTargetDependencyIsEntityLabel(dep) {
+			continue
+		}
 		depCanonical, ok := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
 		if !ok {
 			return nil, fmt.Errorf(

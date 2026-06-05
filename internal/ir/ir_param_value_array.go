@@ -11,6 +11,7 @@ type paramValueArrayKind int
 const (
 	paramValueArrayStringList paramValueArrayKind = iota
 	paramValueArrayDependencyList
+	paramValueArrayArtifactItems
 )
 
 func classifyParamValueArrayKind(
@@ -22,9 +23,15 @@ func classifyParamValueArrayKind(
 		case artifacts.NodeTargetDependency:
 			kind = paramValueArrayDependencyList
 			return true, false
+		case artifacts.NodeGlob:
+			kind = paramValueArrayArtifactItems
 		case artifacts.NodeStringLiteral, artifacts.NodeStringListCollectCall:
-			if kind != paramValueArrayDependencyList {
+			if kind != paramValueArrayDependencyList && kind != paramValueArrayArtifactItems {
 				kind = paramValueArrayStringList
+			}
+		default:
+			if artifactItemPathNode(cur) != nil || artifactItemVarRefNode(cur) != nil {
+				kind = paramValueArrayArtifactItems
 			}
 		}
 		return false, false
@@ -43,12 +50,29 @@ func extractParamValueArrayParameter(
 			Kind:         HelmParameterDependencyList,
 			Dependencies: extractTargetArrayDependencies(builder, arrayNode, scope),
 		}
+	case paramValueArrayArtifactItems:
+		return HelmParameterValue{
+			Kind:          HelmParameterArtifactItems,
+			ArtifactItems: extractArtifactItemsFromParamValueArray(builder, arrayNode, scope),
+		}
 	default:
 		return HelmParameterValue{
 			Kind:       HelmParameterStringList,
 			StringList: extractStringListFromParamValueArray(builder, arrayNode, scope),
 		}
 	}
+}
+
+func extractArtifactItemsFromParamValueArray(
+	builder *irBuilder,
+	arrayNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+) []HelmArtifactInput {
+	var items []HelmArtifactInput
+	for _, child := range arrayNode.ChildrenUnsafe() {
+		items = append(items, extractArtifactItemsFromPathArrayRoot(builder, child, scope)...)
+	}
+	return items
 }
 
 func extractStringListFromParamValueArray(

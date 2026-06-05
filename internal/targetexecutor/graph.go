@@ -94,7 +94,7 @@ func TargetExecutorRunGraph(
 				paramValues := TargetExecutorParametersForTarget(target, inv)
 				resolved, resolveErr := TargetExecutorResolveInvocationParameters(
 					builtIR.SourceDirectory,
-					builtIR.GlobalVariables,
+					ir.IRGlobalsForRootManifest(builtIR),
 					paramValues,
 				)
 				if resolveErr != nil {
@@ -105,7 +105,7 @@ func TargetExecutorRunGraph(
 				}
 				baseInterpCtx, globalErr := TargetExecutorInterpolationGlobals(
 					builtIR.SourceDirectory,
-					builtIR.GlobalVariables,
+					ir.IRGlobalsForRootManifest(builtIR),
 					resolved,
 				)
 				if globalErr != nil {
@@ -130,7 +130,7 @@ func TargetExecutorRunGraph(
 					builtIR.SourceDirectory,
 					target,
 					paramValues,
-					builtIR.GlobalVariables,
+					ir.IRGlobalsForRootManifest(builtIR),
 					interpCtx,
 				)
 				if instanceErr != nil {
@@ -221,7 +221,7 @@ func TargetExecutorRunGraph(
 							instanceRunErr = TargetExecutorRunTarget(
 								builtIR.SourceDirectory,
 								target,
-								builtIR.GlobalVariables,
+								ir.IRGlobalsForRootManifest(builtIR),
 								effectiveInv,
 								instanceRunOpts,
 							)
