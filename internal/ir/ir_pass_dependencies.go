@@ -28,10 +28,106 @@ func validateTargetDependencies(builder *irBuilder) {
 				continue
 			}
 			seenDeps[canonical] = struct{}{}
+		}
+	}
 
+	irFixpointPropagateDependencyListMarks(builder)
+
+	for _, target := range builder.targets {
+		for _, dep := range target.DependsOn {
+			canonical, exists := IRResolveTargetName(builder.targets, dep.TargetName)
+			if !exists {
+				continue
+			}
 			validateDependencyParameters(builder, target.Name, dep, canonical)
 		}
 	}
+}
+
+/*
+irFixpointPropagateDependencyListMarks runs until stable so DependencyList marking reaches every
+wrapper that forwards DEPS = DEPS toward a callee that splices depends_on [ param DEPS ], regardless
+of the order dependency edges are validated (e.g. build_shared_library → _link_binary before
+_link_binary → _compile_objects has been processed).
+*/
+func irFixpointPropagateDependencyListMarks(builder *irBuilder) {
+	for {
+		changed := false
+		for _, target := range builder.targets {
+			for _, dep := range target.DependsOn {
+				dependencyCanonical, exists := IRResolveTargetName(builder.targets, dep.TargetName)
+				if !exists {
+					continue
+				}
+				if irPropagateDependencyListMarksFromEdge(
+					builder.targets,
+					target.Name,
+					dep,
+					dependencyCanonical,
+				) {
+					changed = true
+				}
+			}
+		}
+		if !changed {
+			return
+		}
+	}
+}
+
+func irPropagateDependencyListMarksFromEdge(
+	targets map[string]HelmTarget,
+	dependentName string,
+	dep HelmTargetDependency,
+	dependencyCanonical string,
+) bool {
+	dependencyTarget := targets[dependencyCanonical]
+	dependentCanonical, _ := IRResolveTargetName(targets, dependentName)
+
+	var changed bool
+	for key, value := range dep.Parameters {
+		if value.Kind == HelmParameterDependencyList {
+			if irMarkTargetParameterDependencyListIfNeeded(targets, dependencyCanonical, key) {
+				changed = true
+			}
+		}
+		if value.Kind == HelmParameterTargetParamRef {
+			calleeParam, ok := irTargetParameterByName(dependencyTarget.Parameters, key)
+			if !ok || !calleeParam.DependencyList {
+				continue
+			}
+			if !dependencyParameterSatisfiesDependencyList(targets, dependentCanonical, key, value) {
+				continue
+			}
+			if irMarkTargetParameterDependencyListIfNeeded(targets, dependentCanonical, value.TargetParamName) {
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+func irMarkTargetParameterDependencyListIfNeeded(
+	targets map[string]HelmTarget,
+	targetName string,
+	parameterName string,
+) bool {
+	target, ok := targets[targetName]
+	if !ok {
+		return false
+	}
+	for i := range target.Parameters {
+		if target.Parameters[i].Name != parameterName {
+			continue
+		}
+		if target.Parameters[i].DependencyList {
+			return false
+		}
+		target.Parameters[i].DependencyList = true
+		targets[targetName] = target
+		return true
+	}
+	return false
 }
 
 func validateDependencyParameters(
@@ -49,17 +145,7 @@ func validateDependencyParameters(
 
 	dependentCanonical, _ := IRResolveTargetName(builder.targets, dependentName)
 
-	for key, value := range dep.Parameters {
-		if value.Kind == HelmParameterDependencyList {
-			irMarkTargetParameterDependencyList(builder.targets, dependencyCanonical, key)
-		}
-		if value.Kind == HelmParameterTargetParamRef {
-			if calleeParam, ok := irTargetParameterByName(dependencyTarget.Parameters, key); ok &&
-				calleeParam.DependencyList &&
-				dependencyParameterSatisfiesDependencyList(builder, dependentCanonical, key, value) {
-				irMarkTargetParameterDependencyList(builder.targets, dependentCanonical, value.TargetParamName)
-			}
-		}
+	for key := range dep.Parameters {
 		if _, ok := declared[key]; !ok {
 			emitSemanticError(
 				builder,
@@ -95,7 +181,7 @@ func validateDependencyParameters(
 		}
 		value := dep.Parameters[param.Name]
 		if param.DependencyList &&
-			!dependencyParameterSatisfiesDependencyList(builder, dependentCanonical, param.Name, value) {
+			!dependencyParameterSatisfiesDependencyList(builder.targets, dependentCanonical, param.Name, value) {
 			emitSemanticError(
 				builder,
 				dep.SourceNode,
@@ -134,7 +220,7 @@ func irTargetParameterByName(parameters []HelmTargetParameter, name string) (Hel
 // dependencyParameterSatisfiesDependencyList accepts literal dependency arrays and
 // caller parameter forwards (DEPENDENCIES = DEPENDENCIES) used by template wrappers.
 func dependencyParameterSatisfiesDependencyList(
-	builder *irBuilder,
+	targets map[string]HelmTarget,
 	dependentCanonical string,
 	dependencyParamName string,
 	value HelmParameterValue,
@@ -146,7 +232,7 @@ func dependencyParameterSatisfiesDependencyList(
 		if value.TargetParamName == dependencyParamName {
 			return true
 		}
-		dependent, ok := builder.targets[dependentCanonical]
+		dependent, ok := targets[dependentCanonical]
 		if !ok {
 			return false
 		}
