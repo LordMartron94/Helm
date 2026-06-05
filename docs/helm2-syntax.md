@@ -97,6 +97,8 @@ adapter c_executable(SOURCE_FILES, OUT_NAME, CPPFLAGS, LDFLAGS, DEPENDENCIES?) {
         run [
             "tools/scripts/link_objects.sh",
             "${BIN_DIR}/${OUT_NAME}",
+            "-L${LIB_DIR}",
+            "-Wl,-rpath,$ORIGIN/../lib",
             param _compile.OUTPUTS,
             param LDFLAGS,
             collect(DEPENDENCIES, "LDFLAGS"),
@@ -104,6 +106,8 @@ adapter c_executable(SOURCE_FILES, OUT_NAME, CPPFLAGS, LDFLAGS, DEPENDENCIES?) {
     }
 }
 ```
+
+Workspace library search paths and executable rpath belong in the **adapter**, not in each binary entity. Entity `LDFLAGS` are only for entity-specific flags (e.g. `-pthread`, `-lm`).
 
 **Entity inputs vs exports:** adapter parameters (`CPPFLAGS`, `LDFLAGS`) are **inputs** passed in `use <adapter> { params { ... } }`. The `interface { }` block on libraries only declares **exports** for downstream dependents. Binary entities (`kind = "bin"`) cannot declare an `interface` block.
 
@@ -126,7 +130,7 @@ entity splash {
 }
 ```
 
-`interface` keys are available as `param` references in adapter templates (property bag for dependents). `collect(DEPENDENCIES, "KEY")` flattens bags from `deps = [ ... ]` entity labels.
+`interface` declares **exports** for downstream dependents only; values are not applied to the declaring entity's own adapter expansion. Dependents receive them via `collect(DEPENDENCIES, "KEY")`, which flattens bags from `deps = [ ... ]` entity labels. Adapter inputs (`CPPFLAGS`, `LDFLAGS`, etc.) must be passed in `use <adapter> { params { ... } }`.
 
 ## Action targets (workspace mode)
 

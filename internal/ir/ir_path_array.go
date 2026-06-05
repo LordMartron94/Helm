@@ -5,13 +5,28 @@ import (
 	"syntaxa"
 )
 
+func artifactArrayContainerKind(kind artifacts.Node) bool {
+	switch kind {
+	case artifacts.NodeVariableArray,
+		artifacts.NodeInputArray,
+		artifacts.NodeOutputArray,
+		artifacts.NodeParamValueArray,
+		artifacts.NodeMatrixArray:
+		return true
+	default:
+		return false
+	}
+}
+
 func extractArtifactItemsFromPathArrayRoot(
 	builder *irBuilder,
 	root *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	scope resolveScope,
 ) []HelmArtifactInput {
-	if item, ok := resolveArtifactItem(builder, root, scope); ok {
-		return []HelmArtifactInput{item}
+	if !artifactArrayContainerKind(root.Kind()) {
+		if item, ok := resolveArtifactItem(builder, root, scope); ok {
+			return []HelmArtifactInput{item}
+		}
 	}
 
 	var items []HelmArtifactInput

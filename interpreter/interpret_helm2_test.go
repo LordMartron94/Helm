@@ -280,6 +280,73 @@ func TestHelm2VertexSiegeSplashLinkEnv(t *testing.T) {
 	if !strings.Contains(strings.Join(linkStep.Argv, " "), "libsplash.so") {
 		t.Fatalf("link argv = %#v", linkStep.Argv)
 	}
+	linkArgv := strings.Join(linkStep.Argv, " ")
+	if strings.Contains(linkArgv, "-lvulkan") || strings.Contains(linkArgv, "-lxcb") {
+		t.Fatalf("producer link must not inherit own interface LDFLAGS: %#v", linkStep.Argv)
+	}
+}
+
+func TestHelm2VertexSiegeEchoInterfaceNotSelfLinked(t *testing.T) {
+	specPath, releaseSpec, err := helm.ResolveHelmLSpecPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseSpec()
+
+	interp, err := HelmInterpreterTryCreate(specPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer HelmInterpreterDestroy(interp)
+
+	manifestPath := filepath.Join("..", "..", "..", "..", "vertex-siege", "Helmfile")
+	if _, err := os.Stat(manifestPath); err != nil {
+		t.Skip("vertex-siege Helmfile not available:", err)
+	}
+
+	dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+		{Label: "ERROR", Weight: 20},
+	})
+	ctx := signal.SignalContextCreate(dispatcher)
+
+	merged, err := HelmInterpreterLoadWorkspace(interp, manifestPath, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rootFlags := ir.IRGlobalsForRootManifest(merged)["LIBRARY_COMPILER_FLAGS"]
+	if len(rootFlags.ArtifactItems) < 3 {
+		t.Fatalf("root LIBRARY_COMPILER_FLAGS items = %d", len(rootFlags.ArtifactItems))
+	}
+
+	echoPlan, err := entityexecutor.EntityExpandAdapter(merged.SourceDirectory, merged, "//libs/echo:echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	echoLink := echoPlan.Steps[len(echoPlan.Steps)-1].Argv
+	echoArgv := strings.Join(echoLink, " ")
+	if strings.Contains(echoArgv, "-lecho") {
+		t.Fatalf("echo producer link must not include own interface -lecho: %#v", echoLink)
+	}
+	if !strings.Contains(echoArgv, "-shared") {
+		t.Fatalf("echo shared-library link must include -shared from LIBRARY_COMPILER_FLAGS: %#v", echoLink)
+	}
+
+	testbedPlan, err := entityexecutor.EntityExpandAdapter(merged.SourceDirectory, merged, "//testbed:testbed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	testbedLink := testbedPlan.Steps[len(testbedPlan.Steps)-1].Argv
+	testbedArgv := strings.Join(testbedLink, " ")
+	if !strings.Contains(testbedArgv, "-lecho") {
+		t.Fatalf("testbed consumer link must collect echo LDFLAGS: %#v", testbedLink)
+	}
+	if !strings.Contains(testbedArgv, "-Lbuild/lib") {
+		t.Fatalf("testbed link must get workspace -L from c_executable adapter: %#v", testbedLink)
+	}
+	if !strings.Contains(testbedArgv, "-Wl,-rpath,$ORIGIN/../lib") {
+		t.Fatalf("testbed link must get workspace rpath from c_executable adapter: %#v", testbedLink)
+	}
 }
 
 func TestHelm2ParseVertexSiegeWorkspace(t *testing.T) {

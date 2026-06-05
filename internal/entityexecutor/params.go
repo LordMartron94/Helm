@@ -107,6 +107,7 @@ func EntityResolveParameters(
 			fragments, err := entityEvaluateStringListExpr(
 				builtIR,
 				entity,
+				nil,
 				value.StringList,
 				interpCtx(),
 				resolved,
@@ -121,12 +122,6 @@ func EntityResolveParameters(
 			continue
 		default:
 			return EntityResolvedParameters{}, fmt.Errorf("parameter '%s': unknown parameter value kind", key)
-		}
-	}
-
-	for key, fragments := range entityInterfaceStringLists(entity) {
-		if _, exists := resolved.StringLists[key]; !exists && len(fragments) > 0 {
-			resolved.StringLists[key] = fragments
 		}
 	}
 
@@ -149,17 +144,6 @@ func entityAdapterParameterValues(
 		values[key] = value
 	}
 	return values
-}
-
-func entityInterfaceStringLists(entity ir.HelmEntity) map[string][]string {
-	out := make(map[string][]string)
-	for key := range entity.InterfaceBag {
-		fragments := entityBagFragments(entity, key)
-		if len(fragments) > 0 {
-			out[key] = fragments
-		}
-	}
-	return out
 }
 
 func entityResolveGlobalRefParameter(
@@ -246,6 +230,7 @@ func entityResolveParameterPaths(
 func entityEvaluateStringListExpr(
 	builtIR ir.HelmIR,
 	entity ir.HelmEntity,
+	adapterParams []ir.HelmTargetParameter,
 	expr ir.HelmStringListExpr,
 	interpCtx expand.InterpolationContext,
 	resolved EntityResolvedParameters,
@@ -262,6 +247,7 @@ func entityEvaluateStringListExpr(
 			fileGlobals := ir.IRGlobalsForFile(builtIR, entity.SourceFile)
 			fragment, err := entityResolveParamFragment(
 				element.ParamName,
+				adapterParams,
 				resolved,
 				nil,
 				interpCtx,

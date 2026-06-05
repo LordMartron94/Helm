@@ -30,7 +30,7 @@ func entityExpandAdapterPhases(
 	phaseOutputs := make(map[string][]string)
 
 	for _, phase := range phases {
-		linkEnv, envErr := entityResolveEnv(builtIR, entity, phase.Env, interpCtx, resolved)
+		linkEnv, envErr := entityResolveEnv(builtIR, entity, adapter.Parameters, phase.Env, interpCtx, resolved)
 		if envErr != nil {
 			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, envErr)
 		}
@@ -70,6 +70,7 @@ func entityExpandAdapterPhases(
 						helmBaseDir,
 						builtIR,
 						entity,
+						adapter.Parameters,
 						runTemplate.Argv,
 						legCtx,
 						resolved,
@@ -93,6 +94,7 @@ func entityExpandAdapterPhases(
 				helmBaseDir,
 				builtIR,
 				entity,
+				adapter.Parameters,
 				runTemplate.Argv,
 				interpCtx,
 				resolved,

@@ -92,8 +92,9 @@ func resolveGlobalValueFromValueNode(
 	scope resolveScope,
 	variableLabel string,
 ) (HelmGlobalVariable, bool) {
-	if valueNode.FindFirstKind(artifacts.NodeVariableArray) != nil {
-		items := extractArtifactItemsFromPathArrayRoot(builder, valueNode, scope)
+	arrayNode := valueNode.FindFirstKind(artifacts.NodeVariableArray)
+	if arrayNode != nil {
+		items := extractArtifactItemsFromPathArrayRoot(builder, arrayNode, scope)
 		if len(items) == 0 {
 			emitSemanticError(
 				builder,

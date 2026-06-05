@@ -107,6 +107,7 @@ func EntityExpandAdapter(
 					helmBaseDir,
 					builtIR,
 					entity,
+					adapter.Parameters,
 					runTemplate.Argv,
 					legCtx,
 					resolved,
@@ -124,7 +125,7 @@ func EntityExpandAdapter(
 		}
 	}
 
-	linkEnv, envErr := entityResolveEnv(builtIR, entity, adapter.Env, interpCtx, resolved)
+	linkEnv, envErr := entityResolveEnv(builtIR, entity, adapter.Parameters, adapter.Env, interpCtx, resolved)
 	if envErr != nil {
 		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, envErr)
 	}
@@ -135,6 +136,7 @@ func EntityExpandAdapter(
 			helmBaseDir,
 			builtIR,
 			entity,
+			adapter.Parameters,
 			runTemplate.Argv,
 			interpCtx,
 			resolved,
@@ -202,6 +204,7 @@ func entityResolveRunArgv(
 	helmBaseDir string,
 	builtIR ir.HelmIR,
 	entity ir.HelmEntity,
+	adapterParams []ir.HelmTargetParameter,
 	template []ir.HelmRunArgvElement,
 	interpCtx expand.InterpolationContext,
 	resolved EntityResolvedParameters,
@@ -230,6 +233,7 @@ func entityResolveRunArgv(
 		case element.ParamName != "":
 			fragment, err := entityResolveParamFragment(
 				element.ParamName,
+				adapterParams,
 				resolved,
 				phaseOutputs,
 				interpCtx,
@@ -255,6 +259,7 @@ func entityResolveRunArgv(
 
 func entityResolveParamFragment(
 	paramName string,
+	adapterParams []ir.HelmTargetParameter,
 	resolved EntityResolvedParameters,
 	phaseOutputs map[string][]string,
 	interpCtx expand.InterpolationContext,
@@ -285,7 +290,19 @@ func entityResolveParamFragment(
 	if scalar, ok := interpCtx.Scalars[paramName]; ok && scalar != "" {
 		return entityAssignmentFragments(scalar), nil
 	}
+	if entityAdapterParameterOptional(adapterParams, paramName) {
+		return nil, nil
+	}
 	return nil, fmt.Errorf("run argv: undeclared parameter '%s'", paramName)
+}
+
+func entityAdapterParameterOptional(adapterParams []ir.HelmTargetParameter, paramName string) bool {
+	for _, parameter := range adapterParams {
+		if parameter.Name == paramName {
+			return parameter.Optional
+		}
+	}
+	return false
 }
 
 func entityLegacyPhaseOutputs(matrixOutputs []string) map[string][]string {
@@ -333,6 +350,7 @@ func entityEvaluateCollect(
 func entityResolveEnv(
 	builtIR ir.HelmIR,
 	entity ir.HelmEntity,
+	adapterParams []ir.HelmTargetParameter,
 	envDecl map[string]ir.HelmStringListExpr,
 	interpCtx expand.InterpolationContext,
 	resolved EntityResolvedParameters,
@@ -343,7 +361,14 @@ func entityResolveEnv(
 
 	out := make(map[string]string, len(envDecl))
 	for key, expr := range envDecl {
-		fragments, err := entityEvaluateStringListExpr(builtIR, entity, expr, interpCtx, resolved)
+		fragments, err := entityEvaluateStringListExpr(
+			builtIR,
+			entity,
+			adapterParams,
+			expr,
+			interpCtx,
+			resolved,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", key, err)
 		}
