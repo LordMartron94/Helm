@@ -59,19 +59,22 @@ func TargetExecutorParametersForTarget(target ir.HelmTarget, inv TargetInvocatio
 	return parameters
 }
 
-// TargetExecutorResolveInvocationParameters expands HelmParameterValue entries into strings
-// for run interpolation, artifact resolution, and cache fingerprints.
+// TargetExecutorResolveInvocationParameters expands HelmParameterValue entries into structured
+// scalars and artifact path lists for run interpolation, matrix expansion, and cache fingerprints.
 func TargetExecutorResolveInvocationParameters(
 	helmBaseDir string,
 	globals map[string]ir.HelmGlobalVariable,
 	values map[string]ir.HelmParameterValue,
-) (map[string]string, error) {
+) (TargetResolvedParameters, error) {
 	if len(values) == 0 {
-		return nil, nil
+		return TargetResolvedParametersEmpty(), nil
 	}
 
 	scalarGlobals := ir.InterpolationGlobalsFromHelmGlobals(globals)
-	resolved := make(map[string]string, len(values))
+	resolved := TargetResolvedParameters{
+		Scalars:   make(map[string]string, len(values)),
+		PathLists: make(map[string][]string),
+	}
 
 	keys := make([]string, 0, len(values))
 	for key := range values {
@@ -79,25 +82,35 @@ func TargetExecutorResolveInvocationParameters(
 	}
 	sort.Strings(keys)
 
+	interpCtx := func() expand.InterpolationContext {
+		return resolved.InterpolationContext(scalarGlobals)
+	}
+
 	for _, key := range keys {
 		value := values[key]
 		switch value.Kind {
 		case ir.HelmParameterScalar:
-			resolved[key] = expand.ExpandInterpolateLiteral(value.Scalar, scalarGlobals, resolved)
+			resolved.Scalars[key] = expand.InterpolationContextExpandLiteral(
+				interpCtx(),
+				value.Scalar,
+			)
 		case ir.HelmParameterGlobalRef:
-			text, err := targetExecutorResolveGlobalRefParameter(
+			paths, scalar, err := targetExecutorResolveGlobalRefParameter(
 				helmBaseDir,
 				globals,
-				scalarGlobals,
-				resolved,
+				interpCtx(),
 				value.GlobalName,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("parameter '%s': %w", key, err)
+				return TargetResolvedParameters{}, fmt.Errorf("parameter '%s': %w", key, err)
 			}
-			resolved[key] = text
+			if len(paths) > 0 {
+				resolved.PathLists[key] = paths
+				continue
+			}
+			resolved.Scalars[key] = scalar
 		case ir.HelmParameterTargetParamRef:
-			return nil, fmt.Errorf(
+			return TargetResolvedParameters{}, fmt.Errorf(
 				"parameter '%s': caller parameter '%s' was not bound (internal error)",
 				key,
 				value.TargetParamName,
@@ -105,8 +118,12 @@ func TargetExecutorResolveInvocationParameters(
 		case ir.HelmParameterDependencyList:
 			continue
 		default:
-			return nil, fmt.Errorf("parameter '%s': unknown parameter value kind", key)
+			return TargetResolvedParameters{}, fmt.Errorf("parameter '%s': unknown parameter value kind", key)
 		}
+	}
+
+	if len(resolved.PathLists) == 0 {
+		resolved.PathLists = nil
 	}
 
 	return resolved, nil
@@ -115,42 +132,36 @@ func TargetExecutorResolveInvocationParameters(
 func targetExecutorResolveGlobalRefParameter(
 	helmBaseDir string,
 	globals map[string]ir.HelmGlobalVariable,
-	scalarGlobals map[string]string,
-	parameters map[string]string,
+	interpCtx expand.InterpolationContext,
 	globalName string,
-) (string, error) {
+) (paths []string, scalar string, err error) {
 	variable, ok := globals[globalName]
 	if !ok {
-		return "", fmt.Errorf("references undeclared global '%s'", globalName)
+		return nil, "", fmt.Errorf("references undeclared global '%s'", globalName)
 	}
 
 	switch variable.Kind {
 	case ir.HelmGlobalVarString:
-		return expand.ExpandInterpolateLiteral(variable.StringValue, scalarGlobals, parameters), nil
+		return nil, expand.InterpolationContextExpandLiteral(interpCtx, variable.StringValue), nil
 	case ir.HelmGlobalVarArtifactArray:
-		mergedGlobals, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, parameters)
-		if err != nil {
-			return "", err
-		}
-		paths, err := artifactresolve.ArtifactResolveItems(
+		paths, err = artifactresolve.ArtifactResolveItemsContext(
 			helmBaseDir,
 			variable.ArtifactItems,
-			mergedGlobals,
-			parameters,
+			interpCtx,
 			false,
 		)
 		if err != nil {
-			return "", err
+			return nil, "", err
 		}
-		return expand.JoinPathsForShell(paths), nil
+		return paths, "", nil
 	default:
-		return "", fmt.Errorf("global '%s' has unsupported kind", globalName)
+		return nil, "", fmt.Errorf("global '%s' has unsupported kind", globalName)
 	}
 }
 
 func targetExecutorBindDependencyParams(
 	globals map[string]ir.HelmGlobalVariable,
-	parentResolved map[string]string,
+	parentResolved TargetResolvedParameters,
 	parentParameters map[string]ir.HelmParameterValue,
 	raw map[string]ir.HelmParameterValue,
 ) (map[string]ir.HelmParameterValue, error) {
@@ -159,6 +170,7 @@ func targetExecutorBindDependencyParams(
 	}
 
 	scalarGlobals := ir.InterpolationGlobalsFromHelmGlobals(globals)
+	parentInterp := parentResolved.InterpolationContext(scalarGlobals)
 	out := make(map[string]ir.HelmParameterValue, len(raw))
 
 	for key, value := range raw {
@@ -166,7 +178,7 @@ func targetExecutorBindDependencyParams(
 		case ir.HelmParameterScalar:
 			out[key] = ir.HelmParameterValue{
 				Kind:   ir.HelmParameterScalar,
-				Scalar: expand.ExpandInterpolateLiteral(value.Scalar, scalarGlobals, parentResolved),
+				Scalar: expand.InterpolationContextExpandLiteral(parentInterp, value.Scalar),
 			}
 		case ir.HelmParameterGlobalRef:
 			if _, ok := globals[value.GlobalName]; !ok {
@@ -188,7 +200,7 @@ func targetExecutorBindDependencyParams(
 			case ir.HelmParameterScalar:
 				out[key] = ir.HelmParameterValue{
 					Kind:   ir.HelmParameterScalar,
-					Scalar: expand.ExpandInterpolateLiteral(parentValue.Scalar, scalarGlobals, parentResolved),
+					Scalar: expand.InterpolationContextExpandLiteral(parentInterp, parentValue.Scalar),
 				}
 			case ir.HelmParameterGlobalRef:
 				out[key] = parentValue

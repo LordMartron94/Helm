@@ -25,17 +25,17 @@ func TargetExecutorRunTarget(
 	}
 
 	paramValues := TargetExecutorParametersForTarget(target, inv)
-	resolvedParams, err := TargetExecutorResolveInvocationParameters(helmBaseDir, globals, paramValues)
+	resolved, err := TargetExecutorResolveInvocationParameters(helmBaseDir, globals, paramValues)
 	if err != nil {
 		return err
 	}
 
-	globalVars, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, resolvedParams)
+	interpCtx, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, resolved)
 	if err != nil {
 		return err
 	}
 
-	env := targetExecutorInterpolateEnv(target.Env, globalVars, resolvedParams)
+	env := targetExecutorInterpolateEnv(target.Env, interpCtx)
 
 	for stepIndex, step := range steps {
 		req := targetExecutorRunRequestCreate(target.Name, stepIndex, step, workDir, env, target.Interactive, opts)

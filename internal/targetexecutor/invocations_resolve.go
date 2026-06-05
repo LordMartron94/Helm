@@ -5,7 +5,7 @@ import (
 	"helm/internal/ir"
 )
 
-// targetExecutorResolvedParamsForTarget returns the effective string parameters for a target
+// targetExecutorResolvedParamsForTarget returns the effective parameters for a target
 // in the current closure: CLI invocation overrides, otherwise merged from dependents' depends_on edges.
 func targetExecutorResolvedParamsForTarget(
 	builtIR ir.HelmIR,
@@ -13,12 +13,12 @@ func targetExecutorResolvedParamsForTarget(
 	targetName string,
 	callerInvocations map[string]TargetInvocation,
 	visiting map[string]struct{},
-) (map[string]string, error) {
+) (TargetResolvedParameters, error) {
 	if visiting == nil {
 		visiting = make(map[string]struct{})
 	}
 	if _, onStack := visiting[targetName]; onStack {
-		return nil, fmt.Errorf("cyclic parameter resolution involving target '%s'", targetName)
+		return TargetResolvedParameters{}, fmt.Errorf("cyclic parameter resolution involving target '%s'", targetName)
 	}
 	visiting[targetName] = struct{}{}
 	defer delete(visiting, targetName)
@@ -27,7 +27,7 @@ func targetExecutorResolvedParamsForTarget(
 		if inv, exists := callerInvocations[targetName]; exists {
 			target, ok := builtIR.Targets[targetName]
 			if !ok {
-				return nil, fmt.Errorf("target '%s' does not exist in IR", targetName)
+				return TargetResolvedParameters{}, fmt.Errorf("target '%s' does not exist in IR", targetName)
 			}
 			paramValues := TargetExecutorParametersForTarget(target, inv)
 			return TargetExecutorResolveInvocationParameters(
@@ -59,7 +59,7 @@ func targetExecutorResolvedParamsForTarget(
 				visiting,
 			)
 			if err != nil {
-				return nil, err
+				return TargetResolvedParameters{}, err
 			}
 
 			dependentInv := TargetInvocation{}
@@ -77,20 +77,20 @@ func targetExecutorResolvedParamsForTarget(
 				dep.Parameters,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("target '%s' dependency '%s': %w", dependentName, dep.TargetName, err)
+				return TargetResolvedParameters{}, fmt.Errorf("target '%s' dependency '%s': %w", dependentName, dep.TargetName, err)
 			}
 			edgeMaps = append(edgeMaps, bound)
 		}
 	}
 
 	if len(edgeMaps) == 0 {
-		return map[string]string{}, nil
+		return TargetResolvedParametersEmpty(), nil
 	}
 
 	merged := edgeMaps[0]
 	for i := 1; i < len(edgeMaps); i++ {
 		if targetExecutorParameterMapFingerprint(edgeMaps[i]) != targetExecutorParameterMapFingerprint(merged) {
-			return nil, fmt.Errorf("conflicting parameters for target '%s' from multiple dependents", targetName)
+			return TargetResolvedParameters{}, fmt.Errorf("conflicting parameters for target '%s' from multiple dependents", targetName)
 		}
 	}
 

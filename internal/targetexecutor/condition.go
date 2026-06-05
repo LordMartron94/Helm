@@ -4,9 +4,10 @@ import "helm/internal/ir"
 
 func TargetExecutorEvaluateCondition(
 	condition ir.HelmCondition,
-	parameters map[string]string,
+	resolved TargetResolvedParameters,
 ) bool {
-	value, defined := parameters[condition.Parameter]
+	defined := targetExecutorResolvedParameterDefined(resolved, condition.Parameter)
+	value := resolved.Scalars[condition.Parameter]
 
 	switch condition.ConditionType {
 	case ir.ConditionDefined:
@@ -20,4 +21,17 @@ func TargetExecutorEvaluateCondition(
 	default:
 		return false
 	}
+}
+
+func targetExecutorResolvedParameterDefined(
+	resolved TargetResolvedParameters,
+	paramName string,
+) bool {
+	if value, ok := resolved.Scalars[paramName]; ok && value != "" {
+		return true
+	}
+	if paths, ok := resolved.PathLists[paramName]; ok && len(paths) > 0 {
+		return true
+	}
+	return false
 }

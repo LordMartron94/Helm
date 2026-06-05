@@ -38,27 +38,24 @@ func (e *TargetExecutorDependencyBlockedError) Unwrap() error {
 }
 
 func TargetExecutorInterpolateLiteral(
+	interpCtx expand.InterpolationContext,
 	literal string,
-	globalVars map[string]string,
-	parameters map[string]string,
 ) string {
-	return expand.ExpandInterpolateLiteral(literal, globalVars, parameters)
+	return expand.InterpolationContextExpandLiteral(interpCtx, literal)
 }
 
 // TargetExecutorResolveRunCommand interpolates a run-command literal and folds multiline
-// formatting into a single command line (see expand.ExpandInterpolateRunCommand).
+// formatting into a single command line (see expand.InterpolationContextExpandRunCommand).
 func TargetExecutorResolveRunCommand(
+	interpCtx expand.InterpolationContext,
 	literal string,
-	globalVars map[string]string,
-	parameters map[string]string,
 ) string {
-	return expand.ExpandInterpolateRunCommand(literal, globalVars, parameters)
+	return expand.InterpolationContextExpandRunCommand(interpCtx, literal)
 }
 
 func targetExecutorInterpolateEnv(
 	env map[string]string,
-	globalVars map[string]string,
-	parameters map[string]string,
+	interpCtx expand.InterpolationContext,
 ) map[string]string {
 	if len(env) == 0 {
 		return nil
@@ -66,7 +63,7 @@ func targetExecutorInterpolateEnv(
 
 	out := make(map[string]string, len(env))
 	for key, value := range env {
-		out[key] = TargetExecutorInterpolateLiteral(value, globalVars, parameters)
+		out[key] = TargetExecutorInterpolateLiteral(interpCtx, value)
 	}
 	return out
 }

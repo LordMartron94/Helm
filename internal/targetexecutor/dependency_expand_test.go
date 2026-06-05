@@ -35,7 +35,7 @@ func TestTargetExecutorEffectiveDependsOnExpandsParameterList(t *testing.T) {
 		},
 	}
 
-	deps, err := targetExecutorEffectiveDependsOn(builtIR, builtIR.Targets["worker"], inv, nil)
+	deps, err := targetExecutorEffectiveDependsOn(builtIR, builtIR.Targets["worker"], inv, TargetResolvedParametersEmpty())
 	if err != nil {
 		t.Fatal(err)
 	}

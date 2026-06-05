@@ -58,8 +58,7 @@ func CacheFingerprintState(
 	helmBaseDir string,
 	target ir.HelmTarget,
 	targets map[string]ir.HelmTarget,
-	globalVars map[string]string,
-	parameters map[string]string,
+	interpCtx expand.InterpolationContext,
 	depExecutionNodeIDs []string,
 	depStateFingerprints map[string]uint64,
 	depOutputFingerprints map[string]uint64,
@@ -68,17 +67,12 @@ func CacheFingerprintState(
 		return 0, fmt.Errorf("target '%s' has no artifacts block", target.Name)
 	}
 
-	inputPaths, err := artifactresolve.ArtifactResolveInputPaths(helmBaseDir, target.Artifacts, globalVars, parameters)
+	inputPaths, err := artifactresolve.ArtifactResolveInputPathsContext(helmBaseDir, target.Artifacts, interpCtx)
 	if err != nil {
 		return 0, err
 	}
 
-	discoveredPaths, err := DynamicManifestDiscoveredPaths(
-		helmBaseDir,
-		target.Artifacts,
-		globalVars,
-		parameters,
-	)
+	discoveredPaths, err := DynamicManifestDiscoveredPathsContext(helmBaseDir, target.Artifacts, interpCtx)
 	if err != nil {
 		return 0, err
 	}
@@ -108,29 +102,44 @@ func CacheFingerprintState(
 		binary.Write(&buffer, binary.LittleEndian, depOutputFingerprints[execNode])
 	}
 
-	paramKeys := make([]string, 0, len(parameters))
-	for key := range parameters {
-		paramKeys = append(paramKeys, key)
-	}
-	sort.Strings(paramKeys)
-	for _, key := range paramKeys {
-		buffer.WriteString(key)
-		buffer.WriteString(parameters[key])
-	}
-
-	cacheWriteTargetExecution(&buffer, target, globalVars, parameters)
+	cacheWriteInterpolationParameters(&buffer, interpCtx)
+	cacheWriteTargetExecution(&buffer, target, interpCtx)
 
 	return hash.XXH3HasherHash64(cacheAggregateHasher, buffer.Bytes()), nil
+}
+
+func cacheWriteInterpolationParameters(buffer *bytes.Buffer, ctx expand.InterpolationContext) {
+	keys := make([]string, 0, len(ctx.Scalars)+len(ctx.PathLists))
+	for key := range ctx.Scalars {
+		keys = append(keys, key)
+	}
+	for key := range ctx.PathLists {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		buffer.WriteString(key)
+		if paths, ok := ctx.PathLists[key]; ok {
+			sortedPaths := append([]string(nil), paths...)
+			sort.Strings(sortedPaths)
+			for _, path := range sortedPaths {
+				buffer.WriteString(path)
+				buffer.WriteByte(0)
+			}
+			continue
+		}
+		buffer.WriteString(ctx.Scalars[key])
+	}
 }
 
 func cacheWriteTargetExecution(
 	buffer *bytes.Buffer,
 	target ir.HelmTarget,
-	globalVars map[string]string,
-	parameters map[string]string,
+	ctx expand.InterpolationContext,
 ) {
 	buffer.WriteString("execution")
-	buffer.WriteString(expand.ExpandInterpolateLiteral(target.WorkDir, globalVars, parameters))
+	buffer.WriteString(expand.InterpolationContextExpandLiteral(ctx, target.WorkDir))
 
 	envKeys := make([]string, 0, len(target.Env))
 	for key := range target.Env {
@@ -139,14 +148,14 @@ func cacheWriteTargetExecution(
 	sort.Strings(envKeys)
 	for _, key := range envKeys {
 		buffer.WriteString(key)
-		buffer.WriteString(expand.ExpandInterpolateLiteral(target.Env[key], globalVars, parameters))
+		buffer.WriteString(expand.InterpolationContextExpandLiteral(ctx, target.Env[key]))
 	}
 
 	for _, step := range target.Steps {
 		switch step.Kind {
 		case ir.TargetStepRun:
 			buffer.WriteString("run")
-			buffer.WriteString(expand.ExpandFingerprintRunCommand(step.Run, globalVars, parameters))
+			buffer.WriteString(expand.ExpandFingerprintRunCommand(step.Run, ctx))
 		case ir.TargetStepWhen:
 			if step.When == nil {
 				continue
@@ -157,7 +166,7 @@ func cacheWriteTargetExecution(
 			buffer.WriteString(condition.Parameter)
 			buffer.WriteString(condition.TargetValue)
 			for _, runCommand := range condition.Runs {
-				buffer.WriteString(expand.ExpandFingerprintRunCommand(runCommand, globalVars, parameters))
+				buffer.WriteString(expand.ExpandFingerprintRunCommand(runCommand, ctx))
 			}
 		}
 	}
@@ -166,18 +175,16 @@ func cacheWriteTargetExecution(
 func CacheFingerprintOutput(
 	helmBaseDir string,
 	target ir.HelmTarget,
-	globalVars map[string]string,
-	parameters map[string]string,
+	interpCtx expand.InterpolationContext,
 ) (uint64, error) {
 	if target.Artifacts == nil {
 		return 0, fmt.Errorf("target '%s' has no artifacts block", target.Name)
 	}
 
-	outputPaths, err := artifactresolve.ArtifactResolveOutputPaths(
+	outputPaths, err := artifactresolve.ArtifactResolveOutputPathsContext(
 		helmBaseDir,
 		target.Artifacts.Outputs,
-		globalVars,
-		parameters,
+		interpCtx,
 	)
 	if err != nil {
 		return 0, err

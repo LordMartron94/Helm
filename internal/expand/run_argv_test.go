@@ -15,7 +15,7 @@ func TestExpandFingerprintRunCommandArgv(t *testing.T) {
 		},
 	}
 
-	got := ExpandFingerprintRunCommand(command, nil, nil)
+	got := ExpandFingerprintRunCommand(command, InterpolationContext{})
 	want := "argv\x00link.sh\x00param:SOURCE_FILES"
 	if got != want {
 		t.Fatalf("fingerprint = %q, want %q", got, want)

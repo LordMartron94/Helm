@@ -12,8 +12,7 @@ artifact hashing covers path membership changes).
 */
 func ExpandFingerprintRunCommand(
 	command ir.HelmRunCommand,
-	globalVars map[string]string,
-	parameters map[string]string,
+	ctx InterpolationContext,
 ) string {
 	if ir.HelmRunCommandIsArgv(command) {
 		var buffer strings.Builder
@@ -25,10 +24,10 @@ func ExpandFingerprintRunCommand(
 				buffer.WriteString(element.ParamName)
 				continue
 			}
-			buffer.WriteString(ExpandInterpolateLiteral(element.Literal, globalVars, parameters))
+			buffer.WriteString(InterpolationContextExpandLiteral(ctx, element.Literal))
 		}
 		return buffer.String()
 	}
 
-	return ExpandInterpolateRunCommand(command.String, globalVars, parameters)
+	return InterpolationContextExpandRunCommand(ctx, command.String)
 }

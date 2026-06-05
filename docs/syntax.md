@@ -307,6 +307,7 @@ target generate() {
 ```
 
 * **`matrix VAR in [...]`**: Required list of literal strings, `path()` values, variable references, or a single `glob()` whose matches become separate bindings (one instance per matched path).
+* **`matrix VAR in PARAM`**: When `PARAM` is a target parameter bound to an artifact path list (a global `glob()` array or forwarded `SOURCE_FILES`), Helm expands one matrix instance per resolved path at runtime. Each binding is a clean helm-relative path (no shell quoting).
 * **Caching**: Each matrix leg has its own cache record keyed by target name and binding (e.g. `MOD=libs/lingua`). Unchanged legs can be skipped independently on later runs.
 * **Parallelism**: All legs of a matrix target in a phase run concurrently, like unrelated targets in the same phase.
 * The matrix variable name must not match a target parameter name.

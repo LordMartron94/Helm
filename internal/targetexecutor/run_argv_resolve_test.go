@@ -1,6 +1,7 @@
 package targetexecutor
 
 import (
+	"helm/internal/expand"
 	"helm/internal/ir"
 	"os"
 	"path/filepath"
@@ -45,8 +46,7 @@ func TestTargetExecutorResolveRunArgvSplicesParameterPaths(t *testing.T) {
 		},
 		globals,
 		paramValues,
-		nil,
-		nil,
+		expand.InterpolationContext{},
 	)
 	if err != nil {
 		t.Fatal(err)

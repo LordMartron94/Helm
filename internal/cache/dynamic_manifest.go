@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"helm/internal/artifactresolve"
+	"helm/internal/expand"
 	"helm/internal/ir"
 	"os"
 	"path/filepath"
@@ -18,15 +19,28 @@ func DynamicManifestBootstrapMiss(
 	globalVars map[string]string,
 	parameters map[string]string,
 ) (bool, error) {
+	scalars := expand.InterpolationContextMergeScalars(nil, globalVars)
+	scalars = expand.InterpolationContextMergeScalars(scalars, parameters)
+	return DynamicManifestBootstrapMissContext(
+		helmBaseDir,
+		artifacts,
+		expand.InterpolationContext{Scalars: scalars},
+	)
+}
+
+func DynamicManifestBootstrapMissContext(
+	helmBaseDir string,
+	artifacts *ir.HelmArtifacts,
+	ctx expand.InterpolationContext,
+) (bool, error) {
 	if artifacts == nil || len(artifacts.Dynamic) == 0 {
 		return false, nil
 	}
 
-	manifestPaths, err := artifactresolve.ArtifactResolveItems(
+	manifestPaths, err := artifactresolve.ArtifactResolveItemsContext(
 		helmBaseDir,
 		artifacts.Dynamic,
-		globalVars,
-		parameters,
+		ctx,
 		false,
 	)
 	if err != nil {
@@ -53,15 +67,28 @@ func DynamicManifestDiscoveredPaths(
 	globalVars map[string]string,
 	parameters map[string]string,
 ) ([]string, error) {
+	scalars := expand.InterpolationContextMergeScalars(nil, globalVars)
+	scalars = expand.InterpolationContextMergeScalars(scalars, parameters)
+	return DynamicManifestDiscoveredPathsContext(
+		helmBaseDir,
+		artifacts,
+		expand.InterpolationContext{Scalars: scalars},
+	)
+}
+
+func DynamicManifestDiscoveredPathsContext(
+	helmBaseDir string,
+	artifacts *ir.HelmArtifacts,
+	ctx expand.InterpolationContext,
+) ([]string, error) {
 	if artifacts == nil || len(artifacts.Dynamic) == 0 {
 		return nil, nil
 	}
 
-	manifestPaths, err := artifactresolve.ArtifactResolveItems(
+	manifestPaths, err := artifactresolve.ArtifactResolveItemsContext(
 		helmBaseDir,
 		artifacts.Dynamic,
-		globalVars,
-		parameters,
+		ctx,
 		false,
 	)
 	if err != nil {

@@ -3,6 +3,7 @@ package targetexecutor
 import (
 	"fmt"
 	"helm/internal/artifactresolve"
+	"helm/internal/expand"
 	"helm/internal/ir"
 	"path/filepath"
 	"sort"
@@ -17,8 +18,9 @@ type TargetMatrixInstance struct {
 func TargetExecutorMatrixInstances(
 	helmBaseDir string,
 	target ir.HelmTarget,
-	globalVars map[string]string,
-	invocationParams map[string]string,
+	paramValues map[string]ir.HelmParameterValue,
+	globals map[string]ir.HelmGlobalVariable,
+	interpCtx expand.InterpolationContext,
 ) ([]TargetMatrixInstance, error) {
 	if target.Matrix == nil {
 		return []TargetMatrixInstance{{
@@ -34,33 +36,73 @@ func TargetExecutorMatrixInstances(
 	for _, value := range matrix.Values {
 		switch value.Kind {
 		case ir.MatrixValueLiteral:
-			instance, err := targetExecutorMatrixInstanceCreate(
-				matrix.VariableName,
+			bindings, err := targetExecutorMatrixLiteralBindings(
+				helmBaseDir,
 				value.Literal,
-				seen,
+				interpCtx,
 			)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("target '%s': %w", target.Name, err)
 			}
-			instances = append(instances, instance)
+			for _, bindingValue := range bindings {
+				instance, createErr := targetExecutorMatrixInstanceCreate(
+					matrix.VariableName,
+					bindingValue,
+					seen,
+				)
+				if createErr != nil {
+					return nil, createErr
+				}
+				instances = append(instances, instance)
+			}
+		case ir.MatrixValueParameterRef:
+			paths, err := targetExecutorResolveParameterPaths(
+				helmBaseDir,
+				value.ParameterName,
+				globals,
+				paramValues,
+				interpCtx,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("target '%s': matrix parameter '%s': %w", target.Name, value.ParameterName, err)
+			}
+			if len(paths) == 0 {
+				return nil, fmt.Errorf(
+					"target '%s': matrix parameter '%s' produced no paths",
+					target.Name,
+					value.ParameterName,
+				)
+			}
+			for _, path := range paths {
+				bindingValue := targetExecutorMatrixBindingPath(helmBaseDir, path)
+				instance, createErr := targetExecutorMatrixInstanceCreate(
+					matrix.VariableName,
+					bindingValue,
+					seen,
+				)
+				if createErr != nil {
+					return nil, createErr
+				}
+				instances = append(instances, instance)
+			}
 		case ir.MatrixValueGlob:
 			if value.Glob == nil {
 				return nil, fmt.Errorf("target '%s': matrix glob value is missing configuration", target.Name)
 			}
-			glob := artifactresolve.ArtifactGlobWithInterpolatedBase(value.Glob, globalVars, invocationParams)
+			glob := artifactresolve.ArtifactGlobWithInterpolatedBaseContext(value.Glob, interpCtx)
 			paths, err := artifactresolve.ArtifactWalkGlob(helmBaseDir, glob)
 			if err != nil {
 				return nil, fmt.Errorf("target '%s': matrix glob: %w", target.Name, err)
 			}
 			for _, path := range paths {
 				bindingValue := targetExecutorMatrixBindingPath(helmBaseDir, path)
-				instance, err := targetExecutorMatrixInstanceCreate(
+				instance, createErr := targetExecutorMatrixInstanceCreate(
 					matrix.VariableName,
 					bindingValue,
 					seen,
 				)
-				if err != nil {
-					return nil, err
+				if createErr != nil {
+					return nil, createErr
 				}
 				instances = append(instances, instance)
 			}
@@ -74,6 +116,25 @@ func TargetExecutorMatrixInstances(
 	}
 
 	return instances, nil
+}
+
+func targetExecutorMatrixLiteralBindings(
+	helmBaseDir string,
+	literal string,
+	interpCtx expand.InterpolationContext,
+) ([]string, error) {
+	text := expand.InterpolationContextExpandLiteral(interpCtx, literal)
+	if text == "" {
+		return nil, fmt.Errorf("matrix literal resolved to empty binding")
+	}
+	if paths, ok := expand.PathsFromShellParameterList(text); ok {
+		bindings := make([]string, 0, len(paths))
+		for _, path := range paths {
+			bindings = append(bindings, targetExecutorMatrixBindingPath(helmBaseDir, path))
+		}
+		return bindings, nil
+	}
+	return []string{targetExecutorMatrixBindingPath(helmBaseDir, text)}, nil
 }
 
 func targetExecutorMatrixInstanceCreate(

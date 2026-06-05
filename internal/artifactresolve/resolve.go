@@ -9,6 +9,15 @@ import (
 	"sort"
 )
 
+func artifactInterpolationContext(
+	globalVars map[string]string,
+	parameters map[string]string,
+) expand.InterpolationContext {
+	scalars := expand.InterpolationContextMergeScalars(nil, globalVars)
+	scalars = expand.InterpolationContextMergeScalars(scalars, parameters)
+	return expand.InterpolationContext{Scalars: scalars}
+}
+
 func ArtifactResolveItems(
 	helmBaseDir string,
 	items []ir.HelmArtifactInput,
@@ -16,7 +25,21 @@ func ArtifactResolveItems(
 	parameters map[string]string,
 	requireExistingFiles bool,
 ) ([]string, error) {
-	return artifactResolvePaths(helmBaseDir, items, globalVars, parameters, requireExistingFiles)
+	return ArtifactResolveItemsContext(
+		helmBaseDir,
+		items,
+		artifactInterpolationContext(globalVars, parameters),
+		requireExistingFiles,
+	)
+}
+
+func ArtifactResolveItemsContext(
+	helmBaseDir string,
+	items []ir.HelmArtifactInput,
+	ctx expand.InterpolationContext,
+	requireExistingFiles bool,
+) ([]string, error) {
+	return artifactResolvePathsContext(helmBaseDir, items, ctx, requireExistingFiles)
 }
 
 func ArtifactResolveInputPaths(
@@ -28,7 +51,24 @@ func ArtifactResolveInputPaths(
 	if artifacts == nil {
 		return nil, nil
 	}
-	return artifactResolvePaths(helmBaseDir, artifacts.Inputs, globalVars, parameters, true)
+	return artifactResolvePaths(
+		helmBaseDir,
+		artifacts.Inputs,
+		globalVars,
+		parameters,
+		true,
+	)
+}
+
+func ArtifactResolveInputPathsContext(
+	helmBaseDir string,
+	artifacts *ir.HelmArtifacts,
+	ctx expand.InterpolationContext,
+) ([]string, error) {
+	if artifacts == nil {
+		return nil, nil
+	}
+	return artifactResolvePathsContext(helmBaseDir, artifacts.Inputs, ctx, true)
 }
 
 func ArtifactResolveOutputPaths(
@@ -40,6 +80,14 @@ func ArtifactResolveOutputPaths(
 	return artifactResolvePaths(helmBaseDir, outputs, globalVars, parameters, false)
 }
 
+func ArtifactResolveOutputPathsContext(
+	helmBaseDir string,
+	outputs []ir.HelmArtifactInput,
+	ctx expand.InterpolationContext,
+) ([]string, error) {
+	return artifactResolvePathsContext(helmBaseDir, outputs, ctx, false)
+}
+
 func artifactResolvePaths(
 	helmBaseDir string,
 	items []ir.HelmArtifactInput,
@@ -47,9 +95,23 @@ func artifactResolvePaths(
 	parameters map[string]string,
 	requireExistingFiles bool,
 ) ([]string, error) {
+	return artifactResolvePathsContext(
+		helmBaseDir,
+		items,
+		artifactInterpolationContext(globalVars, parameters),
+		requireExistingFiles,
+	)
+}
+
+func artifactResolvePathsContext(
+	helmBaseDir string,
+	items []ir.HelmArtifactInput,
+	ctx expand.InterpolationContext,
+	requireExistingFiles bool,
+) ([]string, error) {
 	pathSet := map[string]struct{}{}
 	for _, item := range items {
-		paths, err := artifactResolveItem(helmBaseDir, item, globalVars, parameters, requireExistingFiles)
+		paths, err := artifactResolveItemContext(helmBaseDir, item, ctx, requireExistingFiles)
 		if err != nil {
 			return nil, err
 		}
@@ -60,16 +122,15 @@ func artifactResolvePaths(
 	return artifactSortedPaths(pathSet), nil
 }
 
-func artifactResolveItem(
+func artifactResolveItemContext(
 	helmBaseDir string,
 	item ir.HelmArtifactInput,
-	globalVars map[string]string,
-	parameters map[string]string,
+	ctx expand.InterpolationContext,
 	requireExistingFiles bool,
 ) ([]string, error) {
 	switch item.Kind {
 	case ir.ArtifactInputString:
-		path := expand.ExpandInterpolateLiteral(item.Literal, globalVars, parameters)
+		path := expand.InterpolationContextExpandLiteral(ctx, item.Literal)
 		if path == "" {
 			return nil, nil
 		}
@@ -87,7 +148,7 @@ func artifactResolveItem(
 		if item.Glob == nil {
 			return nil, fmt.Errorf("glob artifact item is missing glob configuration")
 		}
-		glob := ArtifactGlobWithInterpolatedBase(item.Glob, globalVars, parameters)
+		glob := ArtifactGlobWithInterpolatedBaseContext(item.Glob, ctx)
 		return ArtifactWalkGlob(helmBaseDir, glob)
 	default:
 		return nil, fmt.Errorf("unknown artifact item kind")
@@ -99,28 +160,37 @@ func ArtifactGlobWithInterpolatedBase(
 	globalVars map[string]string,
 	parameters map[string]string,
 ) *ir.HelmGlob {
+	return ArtifactGlobWithInterpolatedBaseContext(
+		glob,
+		artifactInterpolationContext(globalVars, parameters),
+	)
+}
+
+func ArtifactGlobWithInterpolatedBaseContext(
+	glob *ir.HelmGlob,
+	ctx expand.InterpolationContext,
+) *ir.HelmGlob {
 	if glob == nil {
 		return nil
 	}
 	copy := *glob
-	copy.BaseDirectory = expand.ExpandInterpolateLiteral(glob.BaseDirectory, globalVars, parameters)
-	copy.Includes = expandInterpolateGlobPatterns(glob.Includes, globalVars, parameters)
-	copy.Excludes = expandInterpolateGlobPatterns(glob.Excludes, globalVars, parameters)
-	copy.Types = expand.ExpandInterpolateLiteral(glob.Types, globalVars, parameters)
+	copy.BaseDirectory = expand.InterpolationContextExpandLiteral(ctx, glob.BaseDirectory)
+	copy.Includes = expandInterpolateGlobPatternsContext(glob.Includes, ctx)
+	copy.Excludes = expandInterpolateGlobPatternsContext(glob.Excludes, ctx)
+	copy.Types = expand.InterpolationContextExpandLiteral(ctx, glob.Types)
 	return &copy
 }
 
-func expandInterpolateGlobPatterns(
+func expandInterpolateGlobPatternsContext(
 	patterns []string,
-	globalVars map[string]string,
-	parameters map[string]string,
+	ctx expand.InterpolationContext,
 ) []string {
 	if len(patterns) == 0 {
 		return nil
 	}
 	out := make([]string, len(patterns))
 	for i, pattern := range patterns {
-		out[i] = expand.ExpandInterpolateLiteral(pattern, globalVars, parameters)
+		out[i] = expand.InterpolationContextExpandLiteral(ctx, pattern)
 	}
 	return out
 }

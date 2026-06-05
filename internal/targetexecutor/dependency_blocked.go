@@ -71,7 +71,7 @@ func targetExecutorResolvedParamsForExecutionNode(
 	builtIR ir.HelmIR,
 	executionNodeID string,
 	inv TargetInvocation,
-) (map[string]string, error) {
+) (TargetResolvedParameters, error) {
 	canonical := TargetExecutorExecutionNodeCanonical(executionNodeID)
 	target := builtIR.Targets[canonical]
 	paramValues := TargetExecutorParametersForTarget(target, inv)
@@ -218,16 +218,15 @@ func targetExecutorCacheHitOutputsExist(
 		return true, nil
 	}
 
-	globalVars, parameters, err := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
+	interpCtx, err := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
 	if err != nil {
 		return false, err
 	}
 
-	outputPaths, err := artifactresolve.ArtifactResolveOutputPaths(
+	outputPaths, err := artifactresolve.ArtifactResolveOutputPathsContext(
 		builtIR.SourceDirectory,
 		target.Artifacts.Outputs,
-		globalVars,
-		parameters,
+		interpCtx,
 	)
 	if err != nil {
 		return false, err

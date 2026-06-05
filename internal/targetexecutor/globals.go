@@ -10,36 +10,34 @@ import (
 func TargetExecutorInterpolationGlobals(
 	helmBaseDir string,
 	globals map[string]ir.HelmGlobalVariable,
-	parameters map[string]string,
-) (map[string]string, error) {
+	resolved TargetResolvedParameters,
+) (expand.InterpolationContext, error) {
 	scalarGlobals := ir.InterpolationGlobalsFromHelmGlobals(globals)
-	if len(globals) == 0 {
-		return scalarGlobals, nil
-	}
-
-	merged := make(map[string]string, len(globals))
-	for name, value := range scalarGlobals {
-		merged[name] = value
-	}
+	interpCtx := resolved.InterpolationContext(scalarGlobals)
 
 	for name, variable := range globals {
 		if variable.Kind != ir.HelmGlobalVarArtifactArray {
 			continue
 		}
+		if _, exists := interpCtx.PathLists[name]; exists {
+			continue
+		}
 
-		paths, err := artifactresolve.ArtifactResolveItems(
+		paths, err := artifactresolve.ArtifactResolveItemsContext(
 			helmBaseDir,
 			variable.ArtifactItems,
-			merged,
-			parameters,
+			interpCtx,
 			false,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("variable '%s': %w", name, err)
+			return expand.InterpolationContext{}, fmt.Errorf("variable '%s': %w", name, err)
 		}
 
-		merged[name] = expand.JoinPathsForShell(paths)
+		if interpCtx.PathLists == nil {
+			interpCtx.PathLists = make(map[string][]string)
+		}
+		interpCtx.PathLists[name] = paths
 	}
 
-	return merged, nil
+	return interpCtx, nil
 }

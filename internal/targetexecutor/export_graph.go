@@ -162,7 +162,7 @@ func targetExecutorExportGraphNode(
 
 	inv := targetExecutorInvocationForNode(plan, nodeName, callerInvocations)
 	paramValues := TargetExecutorParametersForTarget(target, inv)
-	resolvedParams, err := TargetExecutorResolveInvocationParameters(
+	resolved, err := TargetExecutorResolveInvocationParameters(
 		builtIR.SourceDirectory,
 		builtIR.GlobalVariables,
 		paramValues,
@@ -171,10 +171,10 @@ func targetExecutorExportGraphNode(
 		return fmt.Errorf("node '%s': %w", nodeName, err)
 	}
 
-	globalVars, err := TargetExecutorInterpolationGlobals(
+	interpCtx, err := TargetExecutorInterpolationGlobals(
 		builtIR.SourceDirectory,
 		builtIR.GlobalVariables,
-		resolvedParams,
+		resolved,
 	)
 	if err != nil {
 		return fmt.Errorf("node '%s': %w", nodeName, err)
@@ -183,8 +183,9 @@ func targetExecutorExportGraphNode(
 	instances, err := TargetExecutorMatrixInstances(
 		builtIR.SourceDirectory,
 		target,
-		globalVars,
-		resolvedParams,
+		paramValues,
+		builtIR.GlobalVariables,
+		interpCtx,
 	)
 	if err != nil {
 		return fmt.Errorf("node '%s': %w", nodeName, err)
@@ -225,8 +226,8 @@ func targetExecutorExportGraphNode(
 		if instance.CacheKey != "" {
 			entry.MatrixInstance = instance.CacheKey
 		}
-		if len(resolvedParams) > 0 {
-			entry.Parameters = copyStringMap(resolvedParams)
+		if resolved.HasValues() {
+			entry.Parameters = TargetResolvedParametersExportScalars(resolved)
 			for key, value := range instance.Bindings {
 				entry.Parameters[key] = value
 			}

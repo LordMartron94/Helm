@@ -9,7 +9,7 @@ func targetExecutorEffectiveDependsOn(
 	builtIR ir.HelmIR,
 	target ir.HelmTarget,
 	inv TargetInvocation,
-	parentResolved map[string]string,
+	parentResolved TargetResolvedParameters,
 ) ([]ir.HelmTargetDependency, error) {
 	paramValues := TargetExecutorParametersForTarget(target, inv)
 	out := make([]ir.HelmTargetDependency, 0, len(target.DependsOn)+len(target.DependsOnParamNames))

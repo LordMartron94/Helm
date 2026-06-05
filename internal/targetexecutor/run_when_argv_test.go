@@ -1,6 +1,7 @@
 package targetexecutor
 
 import (
+	"helm/internal/expand"
 	"helm/internal/ir"
 	"os"
 	"path/filepath"
@@ -57,13 +58,22 @@ func TestTargetExecutorResolveWhenArgvRun(t *testing.T) {
 		},
 	}
 
+	resolved, err := TargetExecutorResolveInvocationParameters(dir, globals, paramValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interpCtx, err := TargetExecutorInterpolationGlobals(dir, globals, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	steps, err := targetExecutorResolveTargetRunSteps(
 		dir,
 		target,
 		globals,
 		paramValues,
-		nil,
-		map[string]string{"FILES": "bound"},
+		interpCtx,
+		resolved,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -107,8 +117,8 @@ func TestTargetExecutorResolveWhenSkipsArgvWhenConditionFalse(t *testing.T) {
 		target,
 		nil,
 		nil,
-		nil,
-		nil,
+		expand.InterpolationContext{},
+		TargetResolvedParametersEmpty(),
 	)
 	if err != nil {
 		t.Fatal(err)

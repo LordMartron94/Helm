@@ -2,6 +2,7 @@ package targetexecutor
 
 import (
 	"helm/internal/cache"
+	"helm/internal/expand"
 	"helm/internal/ir"
 	"helm/shared"
 	"signal"
@@ -38,16 +39,15 @@ func targetExecutorEvaluateCache(
 		return decision, nil
 	}
 
-	globalVars, parameters, interpErr := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
+	interpCtx, interpErr := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
 	if interpErr != nil {
 		return decision, interpErr
 	}
 
-	bootstrapMiss, bootstrapErr := cache.DynamicManifestBootstrapMiss(
+	bootstrapMiss, bootstrapErr := cache.DynamicManifestBootstrapMissContext(
 		builtIR.SourceDirectory,
 		target.Artifacts,
-		globalVars,
-		parameters,
+		interpCtx,
 	)
 	if bootstrapErr != nil {
 		return decision, bootstrapErr
@@ -60,8 +60,7 @@ func targetExecutorEvaluateCache(
 		builtIR.SourceDirectory,
 		target,
 		builtIR.Targets,
-		globalVars,
-		parameters,
+		interpCtx,
 		depExecutionNodeIDs,
 		depStateFingerprints,
 		depOutputFingerprints,
@@ -120,7 +119,7 @@ func targetExecutorCommitCache(
 		return outputFingerprint, nil
 	}
 
-	globalVars, parameters, interpErr := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
+	interpCtx, interpErr := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
 	if interpErr != nil {
 		return 0, interpErr
 	}
@@ -129,8 +128,7 @@ func targetExecutorCommitCache(
 		builtIR.SourceDirectory,
 		target,
 		builtIR.Targets,
-		globalVars,
-		parameters,
+		interpCtx,
 		depExecutionNodeIDs,
 		depStateFingerprints,
 		depOutputFingerprints,
@@ -166,7 +164,7 @@ func targetExecutorOutputFingerprintAfterRun(
 		return 0, nil
 	}
 
-	globalVars, parameters, err := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
+	interpCtx, err := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
 	if err != nil {
 		return 0, err
 	}
@@ -174,8 +172,7 @@ func targetExecutorOutputFingerprintAfterRun(
 	return cache.CacheFingerprintOutput(
 		builtIR.SourceDirectory,
 		target,
-		globalVars,
-		parameters,
+		interpCtx,
 	)
 }
 
@@ -183,25 +180,21 @@ func targetExecutorCacheInterpolationGlobals(
 	builtIR ir.HelmIR,
 	target ir.HelmTarget,
 	inv TargetInvocation,
-) (map[string]string, map[string]string, error) {
+) (expand.InterpolationContext, error) {
 	paramValues := TargetExecutorParametersForTarget(target, inv)
-	resolvedParams, err := TargetExecutorResolveInvocationParameters(
+	resolved, err := TargetExecutorResolveInvocationParameters(
 		builtIR.SourceDirectory,
 		builtIR.GlobalVariables,
 		paramValues,
 	)
 	if err != nil {
-		return nil, nil, err
+		return expand.InterpolationContext{}, err
 	}
-	globalVars, err := TargetExecutorInterpolationGlobals(
+	return TargetExecutorInterpolationGlobals(
 		builtIR.SourceDirectory,
 		builtIR.GlobalVariables,
-		resolvedParams,
+		resolved,
 	)
-	if err != nil {
-		return nil, nil, err
-	}
-	return globalVars, resolvedParams, nil
 }
 
 func targetExecutorEmitCacheSkipSignals(

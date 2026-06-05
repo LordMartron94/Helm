@@ -135,12 +135,14 @@ type HelmMatrixValueKind int
 const (
 	MatrixValueLiteral HelmMatrixValueKind = iota
 	MatrixValueGlob
+	MatrixValueParameterRef
 )
 
 type HelmMatrixValue struct {
-	Kind    HelmMatrixValueKind
-	Literal string
-	Glob    *HelmGlob
+	Kind          HelmMatrixValueKind
+	Literal       string
+	Glob          *HelmGlob
+	ParameterName string
 }
 
 type HelmTargetParameter struct {

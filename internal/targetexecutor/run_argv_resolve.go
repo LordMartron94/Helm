@@ -2,7 +2,6 @@ package targetexecutor
 
 import (
 	"fmt"
-	"helm/internal/artifactresolve"
 	"helm/internal/expand"
 	"helm/internal/ir"
 )
@@ -12,8 +11,7 @@ func targetExecutorResolveRunArgv(
 	template []ir.HelmRunArgvElement,
 	globals map[string]ir.HelmGlobalVariable,
 	paramValues map[string]ir.HelmParameterValue,
-	interpolationGlobals map[string]string,
-	resolvedScalars map[string]string,
+	interpCtx expand.InterpolationContext,
 ) ([]string, error) {
 	if len(template) == 0 {
 		return nil, fmt.Errorf("run argv: empty command array")
@@ -27,8 +25,7 @@ func targetExecutorResolveRunArgv(
 				element.ParamName,
 				globals,
 				paramValues,
-				interpolationGlobals,
-				resolvedScalars,
+				interpCtx,
 			)
 			if err != nil {
 				return nil, err
@@ -37,7 +34,7 @@ func targetExecutorResolveRunArgv(
 			continue
 		}
 
-		argv = append(argv, expand.ExpandInterpolateLiteral(element.Literal, interpolationGlobals, resolvedScalars))
+		argv = append(argv, expand.InterpolationContextExpandLiteral(interpCtx, element.Literal))
 	}
 
 	if len(argv) == 0 {
@@ -52,76 +49,27 @@ func targetExecutorRunArgvParameterPaths(
 	paramName string,
 	globals map[string]ir.HelmGlobalVariable,
 	paramValues map[string]ir.HelmParameterValue,
-	interpolationGlobals map[string]string,
-	resolvedScalars map[string]string,
+	interpCtx expand.InterpolationContext,
 ) ([]string, error) {
-	value, ok := paramValues[paramName]
-	if !ok {
-		return nil, fmt.Errorf("run argv: parameter '%s' is not bound", paramName)
-	}
-
-	switch value.Kind {
-	case ir.HelmParameterGlobalRef:
-		return targetExecutorRunArgvPathsFromGlobal(
-			helmBaseDir,
-			globals,
-			value.GlobalName,
-			interpolationGlobals,
-			resolvedScalars,
-		)
-	case ir.HelmParameterScalar:
-		text := expand.ExpandInterpolateLiteral(value.Scalar, interpolationGlobals, resolvedScalars)
-		if text == "" {
-			return nil, nil
-		}
-		if paths, ok := expand.PathsFromShellParameterList(text); ok {
-			return paths, nil
-		}
-		return []string{text}, nil
-	case ir.HelmParameterTargetParamRef:
-		return nil, fmt.Errorf(
-			"run argv: parameter '%s' was not bound (internal error)",
-			paramName,
-		)
-	default:
-		return nil, fmt.Errorf(
-			"run argv: parameter '%s' cannot be spliced into a command array",
-			paramName,
-		)
-	}
+	return targetExecutorResolveParameterPaths(
+		helmBaseDir,
+		paramName,
+		globals,
+		paramValues,
+		interpCtx,
+	)
 }
 
 func targetExecutorRunArgvPathsFromGlobal(
 	helmBaseDir string,
 	globals map[string]ir.HelmGlobalVariable,
 	globalName string,
-	interpolationGlobals map[string]string,
-	resolvedScalars map[string]string,
+	interpCtx expand.InterpolationContext,
 ) ([]string, error) {
-	variable, ok := globals[globalName]
-	if !ok {
-		return nil, fmt.Errorf("run argv: references undeclared global '%s'", globalName)
-	}
-
-	switch variable.Kind {
-	case ir.HelmGlobalVarArtifactArray:
-		return artifactresolve.ArtifactResolveItems(
-			helmBaseDir,
-			variable.ArtifactItems,
-			interpolationGlobals,
-			resolvedScalars,
-			false,
-		)
-	case ir.HelmGlobalVarString:
-		text := expand.ExpandInterpolateLiteral(variable.StringValue, interpolationGlobals, resolvedScalars)
-		if text == "" {
-			return nil, nil
-		}
-		if paths, ok := expand.PathsFromShellParameterList(text); ok {
-			return paths, nil
-		}
-		return []string{artifactresolve.ArtifactAnchorPath(helmBaseDir, text)}, nil
-	default:
-		return nil, fmt.Errorf("run argv: global '%s' has unsupported kind", globalName)
-	}
+	return targetExecutorResolveGlobalArtifactPaths(
+		helmBaseDir,
+		globals,
+		globalName,
+		interpCtx,
+	)
 }

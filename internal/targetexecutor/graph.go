@@ -89,7 +89,7 @@ func TargetExecutorRunGraph(
 				}
 
 				paramValues := TargetExecutorParametersForTarget(target, inv)
-				resolvedParams, resolveErr := TargetExecutorResolveInvocationParameters(
+				resolved, resolveErr := TargetExecutorResolveInvocationParameters(
 					builtIR.SourceDirectory,
 					builtIR.GlobalVariables,
 					paramValues,
@@ -100,10 +100,10 @@ func TargetExecutorRunGraph(
 					resultsMu.Unlock()
 					return
 				}
-				globalVars, globalErr := TargetExecutorInterpolationGlobals(
+				interpCtx, globalErr := TargetExecutorInterpolationGlobals(
 					builtIR.SourceDirectory,
 					builtIR.GlobalVariables,
-					resolvedParams,
+					resolved,
 				)
 				if globalErr != nil {
 					resultsMu.Lock()
@@ -115,8 +115,9 @@ func TargetExecutorRunGraph(
 				instances, instanceErr := TargetExecutorMatrixInstances(
 					builtIR.SourceDirectory,
 					target,
-					globalVars,
-					resolvedParams,
+					paramValues,
+					builtIR.GlobalVariables,
+					interpCtx,
 				)
 				if instanceErr != nil {
 					resultsMu.Lock()

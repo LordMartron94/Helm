@@ -8,9 +8,13 @@ import (
 func TestTargetExecutorBindDependencyParamsTargetParamRef(t *testing.T) {
 	t.Parallel()
 
-	parentResolved := map[string]string{
-		"SOURCE_FILES": `"a.c" "b.c"`,
-		"OUT_NAME":     "libsplash.so",
+	parentResolved := TargetResolvedParameters{
+		Scalars: map[string]string{
+			"OUT_NAME": "libsplash.so",
+		},
+		PathLists: map[string][]string{
+			"SOURCE_FILES": {"a.c", "b.c"},
+		},
 	}
 	raw := map[string]ir.HelmParameterValue{
 		"SOURCE_FILES": {
@@ -24,16 +28,16 @@ func TestTargetExecutorBindDependencyParamsTargetParamRef(t *testing.T) {
 	}
 
 	parentParameters := map[string]ir.HelmParameterValue{
-		"SOURCE_FILES": {Kind: ir.HelmParameterScalar, Scalar: parentResolved["SOURCE_FILES"]},
-		"OUT_NAME":     {Kind: ir.HelmParameterScalar, Scalar: parentResolved["OUT_NAME"]},
+		"SOURCE_FILES": {Kind: ir.HelmParameterGlobalRef, GlobalName: "TEST_SOURCE_FILES"},
+		"OUT_NAME":     {Kind: ir.HelmParameterScalar, Scalar: parentResolved.Scalars["OUT_NAME"]},
 	}
 
 	bound, err := targetExecutorBindDependencyParams(nil, parentResolved, parentParameters, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bound["SOURCE_FILES"].Scalar != parentResolved["SOURCE_FILES"] {
-		t.Fatalf("SOURCE_FILES: got %q", bound["SOURCE_FILES"].Scalar)
+	if bound["SOURCE_FILES"].Kind != ir.HelmParameterGlobalRef {
+		t.Fatalf("SOURCE_FILES: got kind %v", bound["SOURCE_FILES"].Kind)
 	}
 	if bound["OUT_NAME"].Scalar != "libsplash.so" {
 		t.Fatalf("OUT_NAME: got %q", bound["OUT_NAME"].Scalar)

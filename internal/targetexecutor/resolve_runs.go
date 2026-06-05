@@ -2,6 +2,7 @@ package targetexecutor
 
 import (
 	"helm/internal/artifactresolve"
+	"helm/internal/expand"
 	"helm/internal/ir"
 )
 
@@ -14,7 +15,7 @@ func TargetExecutorResolveTargetRuns(
 	inv TargetInvocation,
 ) (workDir string, steps []TargetResolvedRun, err error) {
 	paramValues := TargetExecutorParametersForTarget(target, inv)
-	resolvedParams, err := TargetExecutorResolveInvocationParameters(
+	resolved, err := TargetExecutorResolveInvocationParameters(
 		helmBaseDir,
 		globals,
 		paramValues,
@@ -23,7 +24,7 @@ func TargetExecutorResolveTargetRuns(
 		return "", nil, err
 	}
 
-	globalVars, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, resolvedParams)
+	interpCtx, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, resolved)
 	if err != nil {
 		return "", nil, err
 	}
@@ -33,8 +34,8 @@ func TargetExecutorResolveTargetRuns(
 		target,
 		globals,
 		paramValues,
-		globalVars,
-		resolvedParams,
+		interpCtx,
+		resolved,
 	)
 }
 
@@ -43,10 +44,10 @@ func targetExecutorResolveTargetRunsFromResolved(
 	target ir.HelmTarget,
 	globals map[string]ir.HelmGlobalVariable,
 	paramValues map[string]ir.HelmParameterValue,
-	globalVars map[string]string,
-	resolvedParams map[string]string,
+	interpCtx expand.InterpolationContext,
+	resolved TargetResolvedParameters,
 ) (workDir string, steps []TargetResolvedRun, err error) {
-	workDir = TargetExecutorInterpolateLiteral(target.WorkDir, globalVars, resolvedParams)
+	workDir = TargetExecutorInterpolateLiteral(interpCtx, target.WorkDir)
 	workDir = artifactresolve.ArtifactAnchorPath(helmBaseDir, workDir)
 	if workDir == "" {
 		workDir = helmBaseDir
@@ -57,8 +58,8 @@ func targetExecutorResolveTargetRunsFromResolved(
 		target,
 		globals,
 		paramValues,
-		globalVars,
-		resolvedParams,
+		interpCtx,
+		resolved,
 	)
 	if err != nil {
 		return "", nil, err
