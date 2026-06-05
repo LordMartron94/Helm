@@ -49,6 +49,7 @@ func TestEvaluateStringListCollectMergesExportFlags(t *testing.T) {
 		paramValues,
 		nil,
 		nil,
+		nil,
 		InterpolationContext{},
 	)
 	if err != nil {
@@ -102,6 +103,7 @@ func TestJoinStringListExprCombinesParamAndCollect(t *testing.T) {
 		paramValues,
 		nil,
 		nil,
+		nil,
 		InterpolationContext{},
 		" ",
 	)
@@ -110,6 +112,62 @@ func TestJoinStringListExprCombinesParamAndCollect(t *testing.T) {
 	}
 
 	want := "-Lbuild/lib -lsplash"
+	if joined != want {
+		t.Fatalf("joined = %q, want %q", joined, want)
+	}
+}
+
+func TestEvaluateStringListParamRefUsesResolvedPathLists(t *testing.T) {
+	t.Parallel()
+
+	joined, err := JoinStringListExpr(
+		ir.HelmStringListExpr{
+			{Kind: ir.StringListParamRef, ParamName: "LINKER_FLAGS"},
+		},
+		nil,
+		map[string]ir.HelmParameterValue{
+			"LINKER_FLAGS": {Kind: ir.HelmParameterGlobalRef, GlobalName: "TEST_LINKER_FLAGS"},
+		},
+		nil,
+		nil,
+		map[string][]string{
+			"LINKER_FLAGS": {"-Lbuild/lib", "-Wl,-rpath,'$ORIGIN/../lib'"},
+		},
+		InterpolationContext{},
+		" ",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := "-Lbuild/lib -Wl,-rpath,'$ORIGIN/../lib'"
+	if joined != want {
+		t.Fatalf("joined = %q, want %q", joined, want)
+	}
+}
+
+func TestEvaluateStringListParamRefSplitsScalarLinkerFlags(t *testing.T) {
+	t.Parallel()
+
+	joined, err := JoinStringListExpr(
+		ir.HelmStringListExpr{
+			{Kind: ir.StringListParamRef, ParamName: "LINKER_FLAGS"},
+		},
+		nil,
+		nil,
+		map[string]string{
+			"LINKER_FLAGS": "-lvulkan -lxcb -lX11",
+		},
+		nil,
+		nil,
+		InterpolationContext{},
+		" ",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := "-lvulkan -lxcb -lX11"
 	if joined != want {
 		t.Fatalf("joined = %q, want %q", joined, want)
 	}

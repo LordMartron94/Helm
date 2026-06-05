@@ -13,6 +13,7 @@ func EvaluateStringListExpr(
 	paramValues map[string]ir.HelmParameterValue,
 	scalarParams map[string]string,
 	stringListParams map[string][]string,
+	pathListParams map[string][]string,
 	ctx InterpolationContext,
 ) ([]string, error) {
 	if len(expr) == 0 {
@@ -33,6 +34,7 @@ func EvaluateStringListExpr(
 				paramValues,
 				scalarParams,
 				stringListParams,
+				pathListParams,
 			)
 			if err != nil {
 				return nil, err
@@ -48,6 +50,7 @@ func EvaluateStringListExpr(
 				paramValues,
 				scalarParams,
 				stringListParams,
+				pathListParams,
 				ctx,
 			)
 			if err != nil {
@@ -69,6 +72,7 @@ func JoinStringListExpr(
 	paramValues map[string]ir.HelmParameterValue,
 	scalarParams map[string]string,
 	stringListParams map[string][]string,
+	pathListParams map[string][]string,
 	ctx InterpolationContext,
 	sep string,
 ) (string, error) {
@@ -78,6 +82,7 @@ func JoinStringListExpr(
 		paramValues,
 		scalarParams,
 		stringListParams,
+		pathListParams,
 		ctx,
 	)
 	if err != nil {
@@ -91,24 +96,21 @@ func evaluateStringListParamRef(
 	paramValues map[string]ir.HelmParameterValue,
 	scalarParams map[string]string,
 	stringListParams map[string][]string,
+	pathListParams map[string][]string,
 ) ([]string, error) {
 	if fragments, ok := stringListParams[paramName]; ok {
 		return append([]string(nil), fragments...), nil
 	}
+	if paths, ok := pathListParams[paramName]; ok {
+		return append([]string(nil), paths...), nil
+	}
 	if scalar, ok := scalarParams[paramName]; ok {
-		if scalar == "" {
-			return nil, nil
-		}
-		return []string{scalar}, nil
+		return scalarTextStringListFragments(scalar), nil
 	}
 	if value, ok := paramValues[paramName]; ok {
 		switch value.Kind {
 		case ir.HelmParameterScalar:
-			text := value.Scalar
-			if text == "" {
-				return nil, nil
-			}
-			return []string{text}, nil
+			return scalarTextStringListFragments(value.Scalar), nil
 		case ir.HelmParameterStringList:
 			return EvaluateStringListExpr(
 				value.StringList,
@@ -116,6 +118,7 @@ func evaluateStringListParamRef(
 				paramValues,
 				scalarParams,
 				stringListParams,
+				pathListParams,
 				InterpolationContext{},
 			)
 		default:
@@ -128,12 +131,23 @@ func evaluateStringListParamRef(
 	return nil, fmt.Errorf("parameter '%s' is not bound", paramName)
 }
 
+func scalarTextStringListFragments(text string) []string {
+	if text == "" {
+		return nil
+	}
+	if parts, ok := PathsFromShellParameterList(text); ok {
+		return parts
+	}
+	return []string{text}
+}
+
 func evaluateStringListCollect(
 	collect ir.HelmCollectExpr,
 	targets map[string]ir.HelmTarget,
 	paramValues map[string]ir.HelmParameterValue,
 	scalarParams map[string]string,
 	stringListParams map[string][]string,
+	pathListParams map[string][]string,
 	ctx InterpolationContext,
 ) ([]string, error) {
 	value, ok := paramValues[collect.DependenciesParam]
@@ -164,6 +178,7 @@ func evaluateStringListCollect(
 			dep.Parameters,
 			scalarParams,
 			stringListParams,
+			pathListParams,
 			ctx,
 		)
 		if err != nil {

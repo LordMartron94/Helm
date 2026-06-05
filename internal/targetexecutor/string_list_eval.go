@@ -40,6 +40,7 @@ func TargetExecutorEvaluateStringListExpr(
 		paramValues,
 		resolved.Scalars,
 		resolved.StringLists,
+		resolved.PathLists,
 		interpCtx,
 	)
 }
@@ -63,6 +64,7 @@ func targetExecutorInterpolateEnv(
 			paramValues,
 			resolved.Scalars,
 			resolved.StringLists,
+			resolved.PathLists,
 			interpCtx,
 			" ",
 		)

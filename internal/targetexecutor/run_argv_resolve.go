@@ -32,6 +32,7 @@ func targetExecutorResolveRunArgv(
 				paramValues,
 				resolved.Scalars,
 				resolved.StringLists,
+				resolved.PathLists,
 				interpCtx,
 			)
 			if err != nil {
