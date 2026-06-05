@@ -36,6 +36,45 @@ func (resolved TargetResolvedParameters) InterpolationContext(globalScalars map[
 	}
 }
 
+// TargetResolvedParametersExportForGraph returns parameters for export-graph JSON.
+// List-like values are JSON arrays; plain scalars are JSON strings (never shell-quoted blobs).
+func TargetResolvedParametersExportForGraph(resolved TargetResolvedParameters) map[string]interface{} {
+	if !resolved.HasValues() {
+		return nil
+	}
+
+	out := make(map[string]interface{}, len(resolved.Scalars)+len(resolved.PathLists)+len(resolved.StringLists))
+
+	for key, fragments := range resolved.StringLists {
+		if len(fragments) == 0 {
+			continue
+		}
+		out[key] = append([]string(nil), fragments...)
+	}
+	for key, paths := range resolved.PathLists {
+		if len(paths) == 0 {
+			continue
+		}
+		out[key] = append([]string(nil), paths...)
+	}
+	for key, value := range resolved.Scalars {
+		if value == "" {
+			out[key] = ""
+			continue
+		}
+		if parts, ok := expand.PathsFromShellParameterList(value); ok {
+			out[key] = parts
+			continue
+		}
+		out[key] = strings.TrimSpace(value)
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // TargetResolvedParametersExportScalars returns scalar parameters for display/export.
 // Path-list parameters are rendered with JoinPathsForShell at the export boundary only.
 func TargetResolvedParametersExportScalars(resolved TargetResolvedParameters) map[string]string {

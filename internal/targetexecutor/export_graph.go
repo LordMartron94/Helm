@@ -24,13 +24,13 @@ type TargetExecutionGraphExportBundle struct {
 
 // TargetGraphExportEntry describes one execution node after parameter and template expansion.
 type TargetGraphExportEntry struct {
-	CanonicalTarget string            `json:"canonical_target"`
-	Directory       string            `json:"directory"`
-	RunCommands     []string          `json:"run_commands"`
-	RunArgvs        [][]string        `json:"run_argvs,omitempty"`
-	DependsOn       []string          `json:"depends_on,omitempty"`
-	MatrixInstance  string            `json:"matrix_instance,omitempty"`
-	Parameters      map[string]string `json:"parameters,omitempty"`
+	CanonicalTarget string                 `json:"canonical_target"`
+	Directory       string                 `json:"directory"`
+	RunCommands     []string               `json:"run_commands"`
+	RunArgvs        [][]string             `json:"run_argvs,omitempty"`
+	DependsOn       []string               `json:"depends_on,omitempty"`
+	MatrixInstance  string                 `json:"matrix_instance,omitempty"`
+	Parameters      map[string]interface{} `json:"parameters,omitempty"`
 }
 
 // TargetExecutorExportExecutionGraph builds the full resolved graph for entryTarget without executing it.
@@ -201,13 +201,24 @@ func targetExecutorExportGraphNode(
 	}
 
 	for _, instance := range instances {
-		effectiveInv := TargetInvocation{Parameters: targetExecutorEffectiveParameterValues(target, inv, instance.Bindings)}
-		workDir, steps, resolveErr := TargetExecutorResolveTargetRuns(
+		effectiveParamValues := targetExecutorEffectiveParameterValues(target, inv, instance.Bindings)
+		effectiveResolved, resolveErr := TargetExecutorResolveInvocationParameters(
+			builtIR.SourceDirectory,
+			builtIR.GlobalVariables,
+			effectiveParamValues,
+		)
+		if resolveErr != nil {
+			return fmt.Errorf("node '%s': %w", nodeName, resolveErr)
+		}
+
+		workDir, steps, resolveErr := targetExecutorResolveTargetRunsFromResolved(
 			builtIR.SourceDirectory,
 			target,
 			builtIR.Targets,
 			builtIR.GlobalVariables,
-			effectiveInv,
+			effectiveParamValues,
+			interpCtx,
+			effectiveResolved,
 		)
 		if resolveErr != nil {
 			return fmt.Errorf("node '%s': %w", nodeName, resolveErr)
@@ -231,8 +242,11 @@ func targetExecutorExportGraphNode(
 		if instance.CacheKey != "" {
 			entry.MatrixInstance = instance.CacheKey
 		}
-		if resolved.HasValues() {
-			entry.Parameters = TargetResolvedParametersExportScalars(resolved)
+		if effectiveResolved.HasValues() || len(instance.Bindings) > 0 {
+			entry.Parameters = TargetResolvedParametersExportForGraph(effectiveResolved)
+			if entry.Parameters == nil {
+				entry.Parameters = make(map[string]interface{}, len(instance.Bindings))
+			}
 			for key, value := range instance.Bindings {
 				entry.Parameters[key] = value
 			}
@@ -249,15 +263,4 @@ func targetExecutorExportGraphNodeKey(nodeName string, matrixCacheKey string) st
 		return nodeName
 	}
 	return nodeName + "#matrix:" + matrixCacheKey
-}
-
-func copyStringMap(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
-	return out
 }
