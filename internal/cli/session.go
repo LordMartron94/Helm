@@ -50,9 +50,8 @@ func SessionCreate(config SessionConfig) (*Session, error) {
 	}
 
 	session.Renderer = DiagnosticRendererCreate(DiagnosticRendererConfig{
-		ColorMode:       config.ColorMode,
-		Output:          diagnosticOutput,
-		StreamRunOutput: &session.StreamRunOutput,
+		ColorMode: config.ColorMode,
+		Output:    diagnosticOutput,
 	})
 
 	result := interpreter.HelmInterpreterInterpretFile(interpreterInstance, config.HelmFile, session.Renderer.Context())

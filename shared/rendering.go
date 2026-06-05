@@ -260,13 +260,25 @@ func helmRenderExecutionSummaryDuration(
 }
 
 func HelmExecutionOutputDetailHook(intents HelmExecutionRenderIntents) rendering.SignalDetailExtension {
-	return HelmExecutionOutputDetailHookOmitBuffered(intents, false)
+	return HelmExecutionOutputDetailHookFailOnly(intents)
 }
 
-// HelmExecutionOutputDetailHookOmitBuffered skips stdout/stderr blocks when output was streamed live.
+// HelmExecutionOutputDetailHookFailOnly omits stdout/stderr on success; includes them on failure.
+func HelmExecutionOutputDetailHookFailOnly(intents HelmExecutionRenderIntents) rendering.SignalDetailExtension {
+	return helmExecutionOutputDetailHook(intents, true)
+}
+
+// HelmExecutionOutputDetailHookOmitBuffered skips stdout/stderr blocks when omitBufferedStdoutStderr is true.
 func HelmExecutionOutputDetailHookOmitBuffered(
 	intents HelmExecutionRenderIntents,
 	omitBufferedStdoutStderr bool,
+) rendering.SignalDetailExtension {
+	return helmExecutionOutputDetailHook(intents, omitBufferedStdoutStderr)
+}
+
+func helmExecutionOutputDetailHook(
+	intents HelmExecutionRenderIntents,
+	omitStdoutStderrUnlessFailed bool,
 ) rendering.SignalDetailExtension {
 	return func(renderer *splash.SPLASH_Rendering_TerminalRenderer, sig signal.Signal, baseIntent int) {
 		id := sig.ID()
@@ -333,7 +345,8 @@ func HelmExecutionOutputDetailHookOmitBuffered(
 			)
 		}
 
-		if !omitBufferedStdoutStderr {
+		shouldRenderOutput := !omitStdoutStderrUnlessFailed || id == SignalExecFail
+		if shouldRenderOutput {
 			stdout, _ := signal.SignalPayloadGetAs[string](&sig, StdoutPayloadKey)
 			stderr, _ := signal.SignalPayloadGetAs[string](&sig, StderrPayloadKey)
 

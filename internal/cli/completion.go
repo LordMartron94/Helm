@@ -168,13 +168,13 @@ func topLevelCommandsForCompletion() []string {
 
 func completeRun(cur, helmFilePath string, runArgs []string, runArgIndex int) []string {
 	rest := runArgs
-	for len(rest) > 0 && rest[0] == "--bypass-cache" {
+	for len(rest) > 0 && (rest[0] == "--bypass-cache" || rest[0] == "-q" || rest[0] == "--quiet") {
 		rest = rest[1:]
 		runArgIndex--
 	}
 
 	if runArgIndex <= 0 {
-		candidates := []string{"--bypass-cache"}
+		candidates := []string{"--bypass-cache", "-q", "--quiet"}
 		session := sessionCreateForCompletion(helmFilePath)
 		if session != nil {
 			candidates = append(candidates, session.Catalog.AllRunNames()...)
@@ -185,11 +185,11 @@ func completeRun(cur, helmFilePath string, runArgs []string, runArgIndex int) []
 
 	if runArgIndex == 1 {
 		if strings.HasPrefix(cur, "-") {
-			return prefixFilter(cur, []string{"--bypass-cache"})
+			return prefixFilter(cur, []string{"--bypass-cache", "-q", "--quiet"})
 		}
 		session := sessionCreateForCompletion(helmFilePath)
 		if session == nil {
-			return prefixFilter(cur, []string{"--bypass-cache"})
+			return prefixFilter(cur, []string{"--bypass-cache", "-q", "--quiet"})
 		}
 		defer SessionDestroy(session)
 		return prefixFilter(cur, session.Catalog.AllRunNames())

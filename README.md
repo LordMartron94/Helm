@@ -146,6 +146,7 @@ With no arguments, `helm` starts an interactive shell (`helm>` prompt). Every bu
 helm help
 helm run <target> [key=value ...]
 helm run --bypass-cache <target>
+helm run -q <target>
 helm export-graph <target> [key=value ...]
 helm export-graph -o build-graph.json <target>
 helm clean-cache
@@ -173,6 +174,15 @@ helm path/to/Helmfile export-graph -o graph.json build_testbed
 ```
 
 Each key under `targets` is an execution node (canonical target name, or `target#<hash>` for parametric instances). Fields include `directory` (absolute working directory) and `run_commands` (expanded command strings). No subprocesses are started and the artifact cache is not consulted.
+
+### Run output presentation
+
+Helm separates orchestration reporting from the live terminal:
+
+* **Live stream**: raw subprocess stdout/stderr only (no Helm phase/target banners).
+* **Post-run stderr**: diagnostics and execution summary (suppressed for `interactive` entry targets; use `-q` to hide `[INFO]` and summary for build targets).
+* **Transcript**: `.helm/last-run.log` is rewritten on each `helm run` with phase/target boundaries, captured I/O, and the full diagnostic render for post-mortem review.
+* **Exit code**: interactive entry targets propagate the child process exit code; orchestration errors exit `1`.
 
 ### Bash completion
 

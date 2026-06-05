@@ -46,9 +46,13 @@ func TargetExecutorRunGraph(
 		defer cache.TargetCacheStoreClose(ownedCacheStore)
 	}
 
-	for _, phase := range plan.Phases {
+	for phaseIndex, phase := range plan.Phases {
 		if err := targetExecutorValidatePhaseTTY(phase, builtIR.Targets); err != nil {
 			return err
+		}
+
+		if runOpts.RunTranscript != nil {
+			runOpts.RunTranscript.PhaseStart(phaseIndex + 1)
 		}
 
 		var wg sync.WaitGroup
@@ -177,7 +181,13 @@ func TargetExecutorRunGraph(
 							return
 						}
 
+						transcriptNode := targetExecutorTranscriptNodeID(name, inst.CacheKey)
+						if runOpts.RunTranscript != nil {
+							runOpts.RunTranscript.TargetStart(transcriptNode, target.Interactive)
+						}
+
 						var outputFingerprint uint64
+						var instanceRunErr error
 						if decision.Skip {
 							targetExecutorEmitCacheSkipSignals(
 								runOpts.SignalContext,
@@ -187,21 +197,37 @@ func TargetExecutorRunGraph(
 							)
 							outputFingerprint = decision.OutputFingerprint
 						} else {
-							runErr := TargetExecutorRunTarget(
+							instanceRunOpts := runOpts
+							instanceRunOpts.TranscriptNodeID = transcriptNode
+							if canonicalName == canonicalEntry {
+								targetExecutorMarkEntryReached(runOpts.RunState)
+							}
+
+							instanceRunErr = TargetExecutorRunTarget(
 								builtIR.SourceDirectory,
 								target,
 								builtIR.GlobalVariables,
 								effectiveInv,
-								runOpts,
+								instanceRunOpts,
 							)
-							if runErr != nil {
+							if instanceRunErr != nil {
 								instMu.Lock()
 								if targetErr == nil {
-									targetErr = runErr
+									targetErr = instanceRunErr
 								}
 								instMu.Unlock()
-								return
 							}
+						}
+
+						if runOpts.RunTranscript != nil {
+							runOpts.RunTranscript.TargetEnd(transcriptNode, instanceRunErr)
+						}
+
+						if instanceRunErr != nil {
+							return
+						}
+
+						if !decision.Skip {
 
 							var commitErr error
 							fingerprintMu.RLock()
@@ -279,6 +305,10 @@ func TargetExecutorRunGraph(
 		if phaseErr != nil {
 			return phaseErr
 		}
+
+		if runOpts.RunTranscript != nil {
+			runOpts.RunTranscript.PhaseEnd(phaseIndex + 1)
+		}
 	}
 
 	entryNode := canonicalEntry
@@ -286,10 +316,33 @@ func TargetExecutorRunGraph(
 	entryErr := results[entryNode]
 	resultsMu.RUnlock()
 	if entryErr != nil {
-		return entryErr
+		return targetExecutorPreferEntryProcessExit(entryErr, entryNode)
 	}
 
 	return nil
+}
+
+func targetExecutorTranscriptNodeID(nodeID string, matrixCacheKey string) string {
+	if matrixCacheKey == "" {
+		return nodeID
+	}
+	return nodeID + "#matrix:" + matrixCacheKey
+}
+
+func targetExecutorMarkEntryReached(state *TargetExecutorRunState) {
+	if state == nil {
+		return
+	}
+	state.EntryReached = true
+}
+
+func targetExecutorPreferEntryProcessExit(err error, entryNode string) error {
+	exitErr, ok := err.(TargetExecutorProcessExitError)
+	if !ok {
+		return err
+	}
+	exitErr.Target = entryNode
+	return exitErr
 }
 
 func targetExecutorInvocationForNode(

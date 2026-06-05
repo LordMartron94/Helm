@@ -88,7 +88,7 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 		if err := printBuiltinCommand(stdout, ui, "set [name on|off]", "show or change shell settings (e.g. set stream-runs off)"); err != nil {
 			return err
 		}
-		if err := printBuiltinCommand(stdout, ui, "run [--bypass-cache] <target> [key=value ...]", "execute a target"); err != nil {
+		if err := printBuiltinCommand(stdout, ui, "run [--bypass-cache] [-q] <target> [key=value ...]", "execute a target"); err != nil {
 			return err
 		}
 		if err := printBuiltinCommand(stdout, ui, "export-graph [-o path] <target> [key=value ...]", "dump resolved execution graph as JSON (no runs)"); err != nil {
@@ -303,11 +303,15 @@ func commandCleanCache(ui *TerminalUI, stdout io.Writer, session *Session) error
 
 func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []string) error {
 	bypassCache := false
+	quiet := false
 	rest := args
 	for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
 		switch rest[0] {
 		case "--bypass-cache":
 			bypassCache = true
+			rest = rest[1:]
+		case "-q", "--quiet":
+			quiet = true
 			rest = rest[1:]
 		default:
 			return fmt.Errorf("unknown run flag %q", rest[0])
@@ -315,7 +319,7 @@ func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []stri
 	}
 
 	if len(rest) == 0 {
-		return fmt.Errorf("usage: run [--bypass-cache] <target> [key=value ...]")
+		return fmt.Errorf("usage: run [--bypass-cache] [-q] <target> [key=value ...]")
 	}
 
 	targetName := rest[0]
@@ -345,10 +349,37 @@ func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []stri
 		canonical: targetexecutor.TargetInvocationWithScalars(parameters),
 	}
 
+	entryTarget, ok := session.Result.BuiltIR.Targets[canonical]
+	if !ok {
+		return fmt.Errorf("unknown target %q", targetName)
+	}
+
+	presentation := DiagnosticPresentationFull
+	if quiet {
+		presentation = DiagnosticPresentationQuiet
+	}
+	if entryTarget.Interactive {
+		presentation = DiagnosticPresentationSilent
+	}
+	session.Renderer.SetPresentation(presentation)
+
+	runLog, err := RunLogOpen(session.SourceDirectory(), canonical)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = runLog.Close()
+	}()
+
+	runState := &targetexecutor.TargetExecutorRunState{}
+	transcript := targetexecutor.TargetExecutorRunTranscriptCreate(runLog.Writer())
+
 	opts := targetexecutor.TargetExecutorOptions{
 		BypassCache:     bypassCache,
 		StreamRunOutput: session.StreamRunOutput,
 		RunHandler:      targetexecutor.TargetExecutorDefaultRunHandler,
+		RunTranscript:   transcript,
+		RunState:        runState,
 		ConfirmDependency: func(dependent string, dep ir.HelmTargetDependency) (bool, error) {
 			return promptConfirm(stdin, stdout, session.UI, dependent, dep)
 		},
@@ -361,16 +392,60 @@ func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []stri
 		invocations,
 		opts,
 	)
-	session.FlushDiagnostics()
+
+	commandRunFinalizeLog(session, runLog)
 
 	if runErr != nil {
+		commandRunFlushTerminal(session, presentation, runState, true)
 		return runErr
+	}
+
+	commandRunFlushTerminal(session, presentation, runState, false)
+
+	if presentation == DiagnosticPresentationSilent {
+		return nil
 	}
 
 	if err := terminalUIWrite(stdout, session.UI, uiIntentAccent, "finished "); err != nil {
 		return err
 	}
 	return terminalUIWrite(stdout, session.UI, uiIntentName, canonical+"\n")
+}
+
+func commandRunFinalizeLog(session *Session, runLog *RunLog) {
+	if session == nil || session.Renderer == nil || runLog == nil {
+		return
+	}
+	var buffer strings.Builder
+	session.Renderer.FlushTo(&buffer)
+	_ = runLog.AppendDiagnostics(buffer.String())
+}
+
+func commandRunFlushTerminal(
+	session *Session,
+	presentation DiagnosticPresentation,
+	runState *targetexecutor.TargetExecutorRunState,
+	failed bool,
+) {
+	if session == nil || session.Renderer == nil {
+		return
+	}
+	if presentation == DiagnosticPresentationSilent {
+		if failed && (runState == nil || !runState.EntryReached) {
+			session.Renderer.FlushErrorsOnly()
+		}
+		return
+	}
+	session.FlushDiagnostics()
+}
+
+// CommandExitCode returns a subprocess exit code when err is a target process exit error.
+func CommandExitCode(err error) (int, bool) {
+	exitErr, ok := err.(targetexecutor.TargetExecutorProcessExitError)
+	if !ok {
+		return 0, false
+	}
+	return exitErr.ExitCode, true
 }
 
 func parseRunParameters(entry TargetCatalogEntry, args []string) (map[string]string, error) {

@@ -51,6 +51,9 @@ func main() {
 		StreamRunOutput: &streamRunOutput,
 		CommandFields:   inv.CommandFields,
 	}); err != nil {
+		if exitCode, ok := cli.CommandExitCode(err); ok {
+			os.Exit(exitCode)
+		}
 		fmt.Fprintf(os.Stderr, "helm: %v\n", err)
 		os.Exit(1)
 	}

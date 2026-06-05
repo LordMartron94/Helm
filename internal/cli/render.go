@@ -32,20 +32,31 @@ const (
 	ColorModeTrueColor ColorMode = "truecolor"
 )
 
+// DiagnosticPresentation controls post-run terminal diagnostic output.
+type DiagnosticPresentation int
+
+const (
+	DiagnosticPresentationFull DiagnosticPresentation = iota
+	DiagnosticPresentationQuiet
+	DiagnosticPresentationSilent
+)
+
 type DiagnosticRenderer struct {
 	dispatcher      *signal.SignalDispatcher
 	renderer        *rendering.SignalRenderer
+	logRenderer     *rendering.SignalRenderer
+	errorRenderer   *rendering.SignalRenderer
 	summaryRenderer *splash.SPLASH_Rendering_TerminalRenderer
 	execTally       *shared.HelmExecutionTally
 	execIntents     shared.HelmExecutionRenderIntents
 	ctx             *signal.SignalContext
 	output          io.Writer
+	presentation    DiagnosticPresentation
 }
 
 type DiagnosticRendererConfig struct {
-	ColorMode       ColorMode
-	Output          io.Writer
-	StreamRunOutput *bool
+	ColorMode ColorMode
+	Output    io.Writer
 }
 
 func DiagnosticRendererCreate(config DiagnosticRendererConfig) *DiagnosticRenderer {
@@ -68,11 +79,6 @@ func DiagnosticRendererCreate(config DiagnosticRendererConfig) *DiagnosticRender
 	paletteBuilder.Register(intentExecCache, splash.SPLASH_Rendering_TerminalColorAnsi16_Cyan, splash.SPLASH_Rendering_TerminalTrueColor(52, 152, 219))
 	palette := paletteBuilder.Build()
 
-	omitBufferedExecOutput := false
-	if config.StreamRunOutput != nil {
-		omitBufferedExecOutput = *config.StreamRunOutput
-	}
-
 	splashMode := splash.SPLASH_Rendering_TerminalColorModeTrueColor
 	switch colorMode {
 	case ColorModeNone:
@@ -84,6 +90,8 @@ func DiagnosticRendererCreate(config DiagnosticRendererConfig) *DiagnosticRender
 	}
 
 	terminalRenderer := splash.SPLASH_Rendering_TerminalRendererCreate(splashMode, palette)
+	logSplashMode := splash.SPLASH_Rendering_TerminalColorModeNone
+	logTerminalRenderer := splash.SPLASH_Rendering_TerminalRendererCreate(logSplashMode, palette)
 
 	fileGrouping := rendering.GroupingConfiguration{
 		ExtractKey: func(sig signal.Signal) string {
@@ -122,10 +130,24 @@ func DiagnosticRendererCreate(config DiagnosticRendererConfig) *DiagnosticRender
 
 	detailHook := shared.HelmCombineDetailHooks(
 		shared.HelmDiagnosticSquigglyDetailHook(intentMeta),
-		shared.HelmExecutionOutputDetailHookOmitBuffered(execIntents, omitBufferedExecOutput),
+		shared.HelmExecutionOutputDetailHookFailOnly(execIntents),
 	)
 
 	renderer := rendering.SignalRendererCreate(
+		terminalRenderer,
+		fileGrouping,
+		locationFormatter,
+		detailHook,
+		intentMeta,
+	)
+	logRenderer := rendering.SignalRendererCreate(
+		logTerminalRenderer,
+		fileGrouping,
+		locationFormatter,
+		detailHook,
+		intentMeta,
+	)
+	errorRenderer := rendering.SignalRendererCreate(
 		terminalRenderer,
 		fileGrouping,
 		locationFormatter,
@@ -139,36 +161,97 @@ func DiagnosticRendererCreate(config DiagnosticRendererConfig) *DiagnosticRender
 		{Label: "ERROR", Weight: 20},
 	}
 	dispatcher := signal.SignalDispatcherCreate(manifest)
-	signal.SignalDispatcherRegisterSink(dispatcher, "cli", rendering.SignalRendererSinkGet(renderer))
 
-	execTally := &shared.HelmExecutionTally{}
-	signal.SignalDispatcherRegisterSink(dispatcher, "exec_tally", func(sig signal.Signal) {
-		shared.HelmExecutionTallyRecord(execTally, sig)
-	})
-
-	return &DiagnosticRenderer{
+	dr := &DiagnosticRenderer{
 		dispatcher:      dispatcher,
 		renderer:        renderer,
+		logRenderer:     logRenderer,
+		errorRenderer:   errorRenderer,
 		summaryRenderer: terminalRenderer,
-		execTally:       execTally,
+		execTally:       &shared.HelmExecutionTally{},
 		execIntents:     execIntents,
 		ctx:             signal.SignalContextCreate(dispatcher),
 		output:          output,
+		presentation:    DiagnosticPresentationFull,
 	}
+
+	terminalSink := rendering.SignalRendererSinkGet(renderer)
+	logSink := rendering.SignalRendererSinkGet(logRenderer)
+	errorSink := rendering.SignalRendererSinkGet(errorRenderer)
+
+	signal.SignalDispatcherRegisterSink(dispatcher, "cli", func(sig signal.Signal) {
+		logSink(sig)
+		category := sig.DiagnosticCategory()
+		if category == "ERROR" || category == "WARNING" {
+			errorSink(sig)
+		}
+		if dr.presentation == DiagnosticPresentationSilent {
+			return
+		}
+		if dr.presentation == DiagnosticPresentationQuiet && category == "INFO" {
+			return
+		}
+		terminalSink(sig)
+	})
+
+	signal.SignalDispatcherRegisterSink(dispatcher, "exec_tally", func(sig signal.Signal) {
+		shared.HelmExecutionTallyRecord(dr.execTally, sig)
+	})
+
+	return dr
 }
 
 func (dr *DiagnosticRenderer) Context() *signal.SignalContext {
 	return dr.ctx
 }
 
+func (dr *DiagnosticRenderer) SetPresentation(presentation DiagnosticPresentation) {
+	dr.presentation = presentation
+}
+
+func (dr *DiagnosticRenderer) Presentation() DiagnosticPresentation {
+	return dr.presentation
+}
+
 func (dr *DiagnosticRenderer) Flush() {
-	if dr.renderer == nil {
+	dr.flushTo(dr.output, true)
+}
+
+func (dr *DiagnosticRenderer) FlushErrorsOnly() {
+	if dr.errorRenderer == nil || dr.output == nil {
 		return
 	}
-	_, _ = io.WriteString(dr.output, rendering.SignalRendererRender(dr.renderer))
+	_, _ = io.WriteString(dr.output, rendering.SignalRendererRender(dr.errorRenderer))
+}
+
+// FlushTo writes the full diagnostic render (including summary) to w regardless of presentation mode.
+func (dr *DiagnosticRenderer) FlushTo(w io.Writer) {
+	if w == nil || dr.logRenderer == nil {
+		return
+	}
+	_, _ = io.WriteString(w, rendering.SignalRendererRender(dr.logRenderer))
+	if dr.summaryRenderer != nil && dr.execTally != nil && dr.execTally.HasExecutionSignals() {
+		_, _ = io.WriteString(
+			w,
+			shared.HelmRenderExecutionSummary(dr.summaryRenderer, *dr.execTally, dr.execIntents),
+		)
+	}
+}
+
+func (dr *DiagnosticRenderer) flushTo(w io.Writer, includeSummary bool) {
+	if dr.renderer == nil || w == nil {
+		return
+	}
+	if dr.presentation == DiagnosticPresentationSilent {
+		return
+	}
+	_, _ = io.WriteString(w, rendering.SignalRendererRender(dr.renderer))
+	if !includeSummary || dr.presentation != DiagnosticPresentationFull {
+		return
+	}
 	if dr.summaryRenderer != nil && dr.execTally != nil {
 		_, _ = io.WriteString(
-			dr.output,
+			w,
 			shared.HelmRenderExecutionSummary(dr.summaryRenderer, *dr.execTally, dr.execIntents),
 		)
 		*dr.execTally = shared.HelmExecutionTally{}

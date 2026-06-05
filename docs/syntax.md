@@ -82,6 +82,14 @@ target shield() {
 * **Incompatible with `matrix`**: Matrix legs run in parallel; interactive targets cannot share a matrix block (`TARGET_019`).
 * **Parallel phases**: An interactive target must be the only target in its DAG execution phase. Helm fails with `EXEC_002` if another target would run in parallel in the same phase.
 * **Typical usage**: Declare `interactive` on a leaf-style entry target (e.g. `helm run shield`) after build dependencies have finished in earlier phases.
+* **Silent CLI exit**: When the entry target is `interactive = true`, Helm suppresses post-run diagnostics and the `finished` line, then exits with the child process exit code. Orchestration failures before the entry runs still emit errors to stderr.
+* **Run transcript**: Every `helm run` writes `.helm/last-run.log` (truncated per run) with phase/target boundaries, captured subprocess I/O, and the full diagnostic render for later review. Helm does not inject phase/target banners into the live terminal stream.
+
+### Run output and `-q`
+
+* **Live terminal**: subprocess stdout/stderr only during execution (when `stream-runs` is on). Helm does not print phase/target banners to the terminal.
+* **Post-run diagnostics**: successful steps stay quiet in the summary; stdout/stderr appear in diagnostics only when a step fails.
+* **`helm run -q` / `--quiet`**: suppress `[INFO]` signals and the execution summary on stderr (errors and warnings still print).
 
 ### Hidden targets (`hidden`)
 

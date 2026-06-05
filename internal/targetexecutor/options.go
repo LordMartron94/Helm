@@ -29,4 +29,11 @@ type TargetExecutorOptions struct {
 	BypassCache bool
 	// CacheStore is opened from CacheRoot by the graph runner when nil.
 	CacheStore *cache.TargetCacheStore
+
+	// RunTranscript records phase/target boundaries and captured subprocess I/O in a log file only.
+	RunTranscript *TargetExecutorRunTranscript
+	// RunState is optional per-run state (entry target reach tracking).
+	RunState *TargetExecutorRunState
+	// TranscriptNodeID is the active execution node for subprocess capture.
+	TranscriptNodeID string
 }

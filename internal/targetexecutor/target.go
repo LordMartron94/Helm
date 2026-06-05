@@ -2,6 +2,7 @@ package targetexecutor
 
 import (
 	"helm/internal/ir"
+	"io"
 	"os"
 	"time"
 )
@@ -64,18 +65,35 @@ func targetExecutorRunRequestCreate(
 		Interactive: interactive,
 	}
 
-	if interactive || !opts.StreamRunOutput {
-		return req
+	if !interactive && opts.StreamRunOutput {
+		req.LiveStdout = opts.StreamStdout
+		if req.LiveStdout == nil {
+			req.LiveStdout = os.Stdout
+		}
+
+		req.LiveStderr = opts.StreamStderr
+		if req.LiveStderr == nil {
+			req.LiveStderr = os.Stderr
+		}
 	}
 
-	req.LiveStdout = opts.StreamStdout
-	if req.LiveStdout == nil {
-		req.LiveStdout = os.Stdout
-	}
-
-	req.LiveStderr = opts.StreamStderr
-	if req.LiveStderr == nil {
-		req.LiveStderr = os.Stderr
+	if opts.RunTranscript != nil && opts.TranscriptNodeID != "" && !interactive {
+		if req.LiveStdout != nil {
+			req.LiveStdout = io.MultiWriter(
+				req.LiveStdout,
+				opts.RunTranscript.StdoutWriter(opts.TranscriptNodeID),
+			)
+		} else {
+			req.LiveStdout = opts.RunTranscript.StdoutWriter(opts.TranscriptNodeID)
+		}
+		if req.LiveStderr != nil {
+			req.LiveStderr = io.MultiWriter(
+				req.LiveStderr,
+				opts.RunTranscript.StderrWriter(opts.TranscriptNodeID),
+			)
+		} else {
+			req.LiveStderr = opts.RunTranscript.StderrWriter(opts.TranscriptNodeID)
+		}
 	}
 
 	return req
@@ -90,6 +108,16 @@ func targetExecutorInvokeRun(
 	result, err := handler(req)
 	if opts.SignalContext != nil {
 		targetExecutorEmitRunSignals(opts.SignalContext, req, result, err, time.Since(startedAt))
+	}
+	if err == nil {
+		return nil
+	}
+	if result.ExitCode != 0 {
+		return TargetExecutorProcessExitError{
+			Target:   req.TargetName,
+			ExitCode: result.ExitCode,
+			Err:      err,
+		}
 	}
 	return err
 }

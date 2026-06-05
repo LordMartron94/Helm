@@ -47,8 +47,10 @@ func Run(config RunConfig) error {
 	}
 	defer SessionDestroy(session)
 
-	if err := printStartupBanner(os.Stderr, session.UI, session, helmFile, session.CacheDirectory()); err != nil {
-		return err
+	if !shouldSuppressStartupBanner(session, config.CommandFields) {
+		if err := printStartupBanner(os.Stderr, session.UI, session, helmFile, session.CacheDirectory()); err != nil {
+			return err
+		}
 	}
 
 	if len(config.CommandFields) > 0 {

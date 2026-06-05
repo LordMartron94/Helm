@@ -11,6 +11,7 @@ type TargetCatalogEntry struct {
 	HelpText      string
 	Parameters    []ir.HelmTargetParameter
 	Hidden        bool
+	Interactive   bool
 }
 
 type TargetCatalog struct {
@@ -38,6 +39,7 @@ func TargetCatalogBuild(builtIR ir.HelmIR) TargetCatalog {
 			HelpText:      target.HelpText,
 			Parameters:    append([]ir.HelmTargetParameter(nil), target.Parameters...),
 			Hidden:        target.Hidden,
+			Interactive:   target.Interactive,
 		}
 		catalog.entries[canonical] = entry
 		catalog.nameIndex[canonical] = canonical

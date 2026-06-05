@@ -354,9 +354,9 @@ func cacheRenderSeedFixturesIfMissing(fixtureDir string) error {
 }
 
 func HelmRenderTestExecution(t *testing.T) {
-	var execOKStdout []string
+	var execFailStdout []string
 
-	executeVisualDiagnosticHarness(t, "execution.helm", shared.HelmExecutionOutputDetailHook(helmTestExecutionRenderIntents()),
+	executeVisualDiagnosticHarness(t, "execution.helm", shared.HelmExecutionOutputDetailHookFailOnly(helmTestExecutionRenderIntents()),
 		func(res interpreter.HelmInterpreterInterpretationResult, ctx *signal.SignalContext) error {
 			opts := targetexecutor.TargetExecutorOptions{
 				ConfirmDependency: func(dep string, target ir.HelmTargetDependency) (bool, error) {
@@ -367,7 +367,7 @@ func HelmRenderTestExecution(t *testing.T) {
 			return interpreter.HelmInterpreterExecuteTarget(res, ctx, "optional_recovery_node", nil, opts)
 		},
 		func(sig signal.Signal) error {
-			if sig.ID() != shared.SignalExecOK {
+			if sig.ID() != shared.SignalExecFail {
 				return nil
 			}
 			phase, err := signal.SignalPayloadGetAs[string](&sig, shared.PhasePayloadKey)
@@ -378,16 +378,16 @@ func HelmRenderTestExecution(t *testing.T) {
 			if err != nil {
 				return nil
 			}
-			execOKStdout = append(execOKStdout, stdout)
+			execFailStdout = append(execFailStdout, stdout)
 			return nil
 		},
 		func() error {
-			for _, stdout := range execOKStdout {
-				if strings.Contains(stdout, "cmd_recovery") {
+			for _, stdout := range execFailStdout {
+				if strings.Contains(stdout, "cmd_fail") {
 					return nil
 				}
 			}
-			return fmt.Errorf("expected EXEC_OK stdout containing cmd_recovery, got: %v", execOKStdout)
+			return fmt.Errorf("expected EXEC_FAIL stdout containing cmd_fail, got: %v", execFailStdout)
 		},
 	)
 }
