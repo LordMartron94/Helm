@@ -1,0 +1,12 @@
+EMPTY = ""
+DEFINED = "value"
+
+target demo(DEFINES) {
+	help = ""
+
+	artifacts {
+		volatile = true
+	}
+
+	run ""
+}

@@ -87,6 +87,18 @@ func resolveInterpolation(scope resolveScope, ident string) (text string, ok boo
 	return "", false
 }
 
+func findStringContentNode(
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+) *syntaxa.SyntaxaLSTNode[artifacts.Node] {
+	if node == nil {
+		return nil
+	}
+	if stringNode := node.FindFirstKind(artifacts.NodeStringLiteral); stringNode != nil {
+		return stringNode
+	}
+	return node.FindFirstKind(artifacts.NodeMultilineString)
+}
+
 func extractStringsFromStringArrayNode(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],

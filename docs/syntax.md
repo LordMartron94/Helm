@@ -30,6 +30,34 @@ target compile() {
 * **String variables** expand in `${NAME}` interpolation, `path()`, `glob()` base directories, and scalar `VAR_REF` sites.
 * **Artifact array variables** hold paths, `path()` values, `glob()` patterns, and string literals. Use them as `inputs = VAR`, `outputs = VAR`, `matrix X in VAR`, or inline inside `[ ... ]`. In `run` commands, `${VAR}` resolves each entry at execution time (globs are walked) and expands to a shell-safe, space-separated list of paths. `VAR_004` applies only when an artifact array is used where a single scalar is required (e.g. one `path()` segment or `glob()` base directory).
 
+### Multiline strings
+
+Python-style triple-quoted strings (`""" ... """`) are supported where a free-form text value is expected:
+
+* Global string variables (`NAME = """ ... """`)
+* `help = """ ... """`
+* `run """ ... """` (including `run` steps inside `when` blocks)
+
+They support the same `${VAR}` interpolation and escape sequences as single-quoted strings. Empty single-quoted strings (`""`) are also valid wherever a `TEXT_STRING` is accepted. Multiline strings are **not** allowed for paths, `workdir`, `env` values, artifact entries, aliases, or `when` comparison literals.
+
+```helm
+SCRIPT = """
+#!/bin/sh
+echo hello
+"""
+
+target deploy() {
+    help = """
+    Deploy the service.
+    Run: helm run deploy
+    """
+    run """
+    ${SCRIPT}
+    echo done
+    """
+}
+```
+
 ---
 
 ## 2. Target Anatomy

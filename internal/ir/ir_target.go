@@ -240,7 +240,7 @@ func handleTargetHelp(
 	}
 	state.helpDeclared = true
 
-	stringNode := node.FindFirstKind(artifacts.NodeStringLiteral)
+	stringNode := findStringContentNode(node)
 	currentTarget.HelpText = extractStringFromStringNode(builder, stringNode, scope)
 }
 
@@ -658,7 +658,7 @@ func handleTargetRun(
 	scope resolveScope,
 	currentTarget *HelmTarget,
 ) {
-	stringNode := node.FindFirstKind(artifacts.NodeStringLiteral)
+	stringNode := findStringContentNode(node)
 	runText := extractStringFromStringNode(builder, stringNode, scope)
 	currentTarget.Steps = append(currentTarget.Steps, HelmTargetStep{
 		Kind: TargetStepRun,
@@ -720,7 +720,7 @@ func handleTargetConditional(
 
 	runNodes := node.FindAllKind(artifacts.NodeRunStatement)
 	for _, runNode := range runNodes {
-		stringNode := runNode.FindFirstKind(artifacts.NodeStringLiteral)
+		stringNode := findStringContentNode(runNode)
 		runText := extractStringFromStringNode(builder, stringNode, scope)
 		condition.Runs = append(condition.Runs, runText)
 	}

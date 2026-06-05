@@ -89,7 +89,7 @@ func handleVariableDeclaration(
 			return
 		}
 
-		stringNode := valueNode.FindFirstKind(artifacts.NodeStringLiteral)
+		stringNode := findStringContentNode(valueNode)
 		if stringNode == nil {
 			emitSemanticError(
 				builder,

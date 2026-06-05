@@ -165,6 +165,8 @@ func buildSyntaxGuards() []shield.SHIELD_Testing_Guard[syntaxScenarioInput, synt
 		{"guard_syntax_newline", "newline.helm"},
 		{"guard_syntax_comments", "comments.helm"},
 		{"guard_syntax_variables", "variables.helm"},
+		{"guard_syntax_multiline_string", "multiline_string.helm"},
+		{"guard_syntax_empty_string", "empty_string.helm"},
 		{"guard_syntax_targets", "targets.helm"},
 	}
 

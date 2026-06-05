@@ -1,0 +1,21 @@
+PREFIX = """
+line one
+line two
+"""
+
+target demo() {
+	help = """
+	Multi-line
+	help text
+	"""
+
+	artifacts {
+		volatile = true
+	}
+
+	run """
+	echo start
+	echo ${PREFIX}
+	echo end
+	"""
+}
