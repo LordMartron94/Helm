@@ -88,10 +88,7 @@ func targetExecutorRunArgvParameterFragment(
 		return append([]string(nil), paths...), nil
 	}
 	if scalar, ok := resolved.Scalars[paramName]; ok {
-		if scalar == "" {
-			return nil, nil
-		}
-		return []string{scalar}, nil
+		return targetExecutorArgvFragmentsFromScalarText(scalar), nil
 	}
 	return targetExecutorResolveParameterPaths(
 		helmBaseDir,
@@ -100,6 +97,18 @@ func targetExecutorRunArgvParameterFragment(
 		paramValues,
 		interpCtx,
 	)
+}
+
+// targetExecutorArgvFragmentsFromScalarText splits a scalar parameter into argv slots.
+// Multiline or space-separated shell words are shlex-split; a single plain token is kept as-is.
+func targetExecutorArgvFragmentsFromScalarText(text string) []string {
+	if text == "" {
+		return nil
+	}
+	if parts, ok := expand.PathsFromShellParameterList(text); ok {
+		return parts
+	}
+	return []string{workspacepath.WorkspaceNormalize(text)}
 }
 
 func targetExecutorRunArgvPathsFromGlobal(
