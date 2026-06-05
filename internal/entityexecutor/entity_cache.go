@@ -1,6 +1,7 @@
 package entityexecutor
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 	"helm/internal/ir"
 )
 
-// EntityCacheFingerprint hashes entity_id, property bags, and source paths.
+// EntityCacheFingerprint hashes entity inputs, dependency outputs, and adapter state.
 func EntityCacheFingerprint(
 	builtIR ir.HelmIR,
 	entityKey string,
@@ -35,22 +36,86 @@ func EntityCacheFingerprint(
 		}
 	}
 
-	sortedSources := append([]string(nil), sourcePaths...)
-	sort.Strings(sortedSources)
+	var buffer bytes.Buffer
+	buffer.WriteString(entityKey)
+	buffer.WriteByte(0)
+	buffer.WriteString(fmt.Sprintf("%d", EntityBagFingerprint(bag)))
+	buffer.WriteByte(0)
+	buffer.WriteString(entity.AdapterName)
+	buffer.WriteByte(0)
 
-	hash := sha256.New()
-	hash.Write([]byte(entityKey))
-	hash.Write([]byte{0})
-	hash.Write([]byte(fmt.Sprintf("%d", EntityBagFingerprint(bag))))
-	hash.Write([]byte{0})
-	for _, path := range sortedSources {
-		hash.Write([]byte(path))
-		hash.Write([]byte{0})
+	inputPaths := EntityCacheInputPaths(builtIR, entityKey, sourcePaths)
+	if err := cache.EntityCacheWriteInputPaths(builtIR.SourceDirectory, &buffer, inputPaths); err != nil {
+		return 0, err
 	}
-	hash.Write([]byte(outPath))
 
-	sum := hash.Sum(nil)
-	return binary.BigEndian.Uint64(sum[:8]), nil
+	for _, dep := range entity.Deps {
+		depKey := ir.HelmLabelCanonical(dep)
+		depPlan, expandErr := EntityExpandAdapter(builtIR.SourceDirectory, builtIR, depKey)
+		if expandErr != nil {
+			return 0, expandErr
+		}
+		depOutput := entityAdapterPrimaryOutputPath(depPlan)
+		if depOutput == "" {
+			continue
+		}
+		depOutputFP, fpErr := entityCacheOutputFingerprint(
+			filepath.Join(builtIR.SourceDirectory, filepath.FromSlash(depOutput)),
+		)
+		if fpErr != nil {
+			continue
+		}
+		buffer.WriteString(depKey)
+		binary.Write(&buffer, binary.LittleEndian, depOutputFP)
+	}
+
+	buffer.WriteString(outPath)
+	return cache.EntityCacheHashStateBuffer(buffer.Bytes()), nil
+}
+
+// EntityCacheInputPaths returns source paths that invalidate an entity build when changed.
+func EntityCacheInputPaths(
+	builtIR ir.HelmIR,
+	entityKey string,
+	sourcePaths []string,
+) []string {
+	seen := make(map[string]struct{})
+	var paths []string
+	entityAppendUniquePaths(&paths, seen, sourcePaths)
+
+	entity, ok := builtIR.Entities[entityKey]
+	if !ok {
+		return paths
+	}
+
+	for _, dep := range entity.Deps {
+		depKey := ir.HelmLabelCanonical(dep)
+		depEntity, depOK := builtIR.Entities[depKey]
+		if !depOK {
+			continue
+		}
+		resolved, resolveErr := EntityResolveParameters(builtIR.SourceDirectory, builtIR, depEntity)
+		if resolveErr != nil {
+			continue
+		}
+		entityAppendUniquePaths(&paths, seen, entityResolvedSourcePaths(resolved))
+	}
+
+	sort.Strings(paths)
+	return paths
+}
+
+func entityAppendUniquePaths(paths *[]string, seen map[string]struct{}, candidates []string) {
+	for _, path := range candidates {
+		if path == "" {
+			continue
+		}
+		if _, exists := seen[path]; exists {
+			continue
+		}
+		seen[path] = struct{}{}
+		*paths = append(*paths, path)
+	}
 }
 
 func entityCacheOutputFingerprint(outputPath string) (uint64, error) {
@@ -114,6 +179,13 @@ func entityCacheRecord(
 		StateFingerprint:  stateFingerprint,
 		OutputFingerprint: outputFingerprint,
 	})
+}
+
+func entityCacheAbsOutputPath(workspaceRoot, relPath string) string {
+	if relPath == "" {
+		return ""
+	}
+	return filepath.Join(workspaceRoot, filepath.FromSlash(relPath))
 }
 
 func entityCacheRoot(builtIR ir.HelmIR, cacheRoot string) string {

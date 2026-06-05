@@ -63,6 +63,7 @@ type HelmInterfaceDecl struct {
 type HelmAdapterPhase struct {
 	Name             string
 	DependsOn        []string
+	TargetDependsOn  []string
 	Matrix           *HelmMatrix
 	MatrixLegOutputs []HelmArtifactInput
 	MatrixRuns       []HelmRunCommand

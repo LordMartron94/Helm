@@ -60,6 +60,7 @@ func IRFromSyntax(
 	}
 
 	validateTargetDependencies(builder)
+	FinalizeAdapterPhaseDepends(builder)
 
 	var workspace *HelmWorkspace
 	if builder.workspaceDeclared {

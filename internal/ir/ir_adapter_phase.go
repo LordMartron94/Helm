@@ -45,7 +45,6 @@ func parseAdapterPhases(
 		decl.Phases = append(decl.Phases, phase)
 	}
 
-	adapterValidatePhases(builder, decl)
 	return true
 }
 
@@ -180,13 +179,8 @@ func extractAdapterPhaseDepends(
 		return nil
 	}
 	var names []string
-	for _, child := range arrayNode.ChildrenUnsafe() {
-		if child.Kind() == artifacts.NodeAdapterPhaseDependsName {
-			idNode := child.FindDirectChildKind(artifacts.NodeAdapterPhaseDependsIdentifier)
-			if idNode != nil {
-				names = append(names, extractContentFromSingleTokenNode(builder, idNode))
-			}
-		}
+	for _, idNode := range arrayNode.FindAllKind(artifacts.NodeAdapterPhaseDependsIdentifier) {
+		names = append(names, extractContentFromSingleTokenNode(builder, idNode))
 	}
 	return names
 }
@@ -203,26 +197,55 @@ func parseAdapterPhaseEnv(
 }
 
 func adapterValidatePhases(builder *irBuilder, decl *HelmAdapterDecl) {
-	byName := make(map[string]int, len(decl.Phases))
-	for index, phase := range decl.Phases {
-		byName[phase.Name] = index
+	if _, err := AdapterPhaseTopoOrder(decl.Phases); err != nil {
+		emitSemanticError(builder, nil, ERROR_INVALID_VARIABLE_VALUE, err.Error())
+	}
+}
+
+// FinalizeAdapterPhaseDepends splits phase depends_on entries into intra-adapter phases
+// and workspace target hooks after all targets are declared, then validates phase DAGs.
+func FinalizeAdapterPhaseDepends(builder *irBuilder) {
+	byAdapter := make(map[string]map[string]struct{}, len(builder.adapters))
+	for name, decl := range builder.adapters {
+		phaseNames := make(map[string]struct{}, len(decl.Phases))
+		for _, phase := range decl.Phases {
+			phaseNames[phase.Name] = struct{}{}
+		}
+		byAdapter[name] = phaseNames
 	}
 
-	for _, phase := range decl.Phases {
-		for _, dep := range phase.DependsOn {
-			if _, ok := byName[dep]; !ok {
+	for adapterName, decl := range builder.adapters {
+		phaseNames := byAdapter[adapterName]
+		for index := range decl.Phases {
+			phase := &decl.Phases[index]
+			var phaseDeps []string
+			var targetDeps []string
+			for _, dep := range phase.DependsOn {
+				if _, ok := phaseNames[dep]; ok {
+					phaseDeps = append(phaseDeps, dep)
+					continue
+				}
+				if _, ok := builder.targets[dep]; ok {
+					targetDeps = append(targetDeps, dep)
+					continue
+				}
 				emitSemanticError(
 					builder,
 					nil,
 					ERROR_UNDECLARED_TARGET,
-					fmt.Sprintf("adapter '%s' phase '%s' depends on unknown phase '%s'", decl.Name, phase.Name, dep),
+					fmt.Sprintf(
+						"adapter '%s' phase '%s' depends on unknown phase or target '%s'",
+						adapterName,
+						phase.Name,
+						dep,
+					),
 				)
 			}
+			phase.DependsOn = phaseDeps
+			phase.TargetDependsOn = targetDeps
 		}
-	}
-
-	if _, err := AdapterPhaseTopoOrder(decl.Phases); err != nil {
-		emitSemanticError(builder, nil, ERROR_INVALID_VARIABLE_VALUE, err.Error())
+		adapterValidatePhases(builder, &decl)
+		builder.adapters[adapterName] = decl
 	}
 }
 

@@ -249,7 +249,7 @@ func TestHelm2VertexSiegeSplashLinkEnv(t *testing.T) {
 	}
 	defer HelmInterpreterDestroy(interp)
 
-	manifestPath := filepath.Join("..", "..", "..", "..", "vertex-siege", "Helmfile")
+	manifestPath := filepath.Join("..", "..", "..", "vertex-siege", "Helmfile")
 	if _, err := os.Stat(manifestPath); err != nil {
 		t.Skip("vertex-siege Helmfile not available:", err)
 	}
@@ -299,7 +299,7 @@ func TestHelm2VertexSiegeEchoInterfaceNotSelfLinked(t *testing.T) {
 	}
 	defer HelmInterpreterDestroy(interp)
 
-	manifestPath := filepath.Join("..", "..", "..", "..", "vertex-siege", "Helmfile")
+	manifestPath := filepath.Join("..", "..", "..", "vertex-siege", "Helmfile")
 	if _, err := os.Stat(manifestPath); err != nil {
 		t.Skip("vertex-siege Helmfile not available:", err)
 	}
@@ -315,13 +315,30 @@ func TestHelm2VertexSiegeEchoInterfaceNotSelfLinked(t *testing.T) {
 	}
 
 	rootFlags := ir.IRGlobalsForRootManifest(merged)["LIBRARY_COMPILER_FLAGS"]
-	if len(rootFlags.ArtifactItems) < 3 {
+	if len(rootFlags.ArtifactItems) < 18 {
 		t.Fatalf("root LIBRARY_COMPILER_FLAGS items = %d", len(rootFlags.ArtifactItems))
+	}
+
+	execAdapter := merged.Adapters["c_executable"]
+	if len(execAdapter.Phases[0].TargetDependsOn) != 1 ||
+		execAdapter.Phases[0].TargetDependsOn[0] != "generate_compilation_database" {
+		t.Fatalf("compile phase target hooks = %#v", execAdapter.Phases[0].TargetDependsOn)
+	}
+
+	hooks, err := entityexecutor.EntityAdapterTargetHooks(merged, "//libs/echo:echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hooks) != 1 || hooks[0] != "generate_compilation_database" {
+		t.Fatalf("echo compile hooks = %#v", hooks)
 	}
 
 	echoPlan, err := entityexecutor.EntityExpandAdapter(merged.SourceDirectory, merged, "//libs/echo:echo")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(echoPlan.SourcePaths) == 0 {
+		t.Fatalf("echo SOURCE_FILES must resolve to cache input paths: %#v", echoPlan.SourcePaths)
 	}
 	echoLink := echoPlan.Steps[len(echoPlan.Steps)-1].Argv
 	echoArgv := strings.Join(echoLink, " ")
@@ -362,7 +379,7 @@ func TestHelm2ParseVertexSiegeWorkspace(t *testing.T) {
 	}
 	defer HelmInterpreterDestroy(interp)
 
-	manifestPath := filepath.Join("..", "..", "..", "..", "vertex-siege", "Helmfile")
+	manifestPath := filepath.Join("..", "..", "..", "vertex-siege", "Helmfile")
 	if _, err := os.Stat(manifestPath); err != nil {
 		t.Skip("vertex-siege Helmfile not available:", err)
 	}

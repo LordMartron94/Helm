@@ -23,12 +23,16 @@ type EntityRunRequest struct {
 // EntityRunHandler executes one entity spawn request.
 type EntityRunHandler func(req EntityRunRequest) error
 
+// EntityTargetHookRunner runs a workspace target before entity adapter steps.
+type EntityTargetHookRunner func(targetName string) error
+
 // EntityExecutorOptions configures native entity execution.
 type EntityExecutorOptions struct {
-	RunHandler      EntityRunHandler
-	CacheRoot       string
-	DisableCache    bool
-	ownedCacheStore *cache.EntityCacheStore
+	RunHandler       EntityRunHandler
+	TargetHookRunner EntityTargetHookRunner
+	CacheRoot        string
+	DisableCache     bool
+	ownedCacheStore  *cache.EntityCacheStore
 }
 
 // EntityExecutorDefaultRunHandler spawns argv without a shell.
@@ -109,10 +113,24 @@ func entityExecutorRunOne(
 	}
 
 	primaryOutput := entityAdapterPrimaryOutputPath(plan)
-	if !opts.DisableCache && primaryOutput != "" {
+	primaryOutputAbs := entityCacheAbsOutputPath(builtIR.SourceDirectory, primaryOutput)
+
+	if opts.TargetHookRunner != nil {
+		hooks, hookErr := EntityAdapterTargetHooks(builtIR, entityKey)
+		if hookErr != nil {
+			return hookErr
+		}
+		for _, targetName := range hooks {
+			if err := opts.TargetHookRunner(targetName); err != nil {
+				return fmt.Errorf("entity '%s' target hook '%s': %w", entityKey, targetName, err)
+			}
+		}
+	}
+
+	if !opts.DisableCache && primaryOutputAbs != "" {
 		stateFingerprint, fpErr := EntityCacheFingerprint(builtIR, entityKey, primaryOutput, plan.SourcePaths)
 		if fpErr == nil {
-			if hit, gateErr := entityCacheGate(opts.ownedCacheStore, entityKey, stateFingerprint, primaryOutput); gateErr == nil && hit {
+			if hit, gateErr := entityCacheGate(opts.ownedCacheStore, entityKey, stateFingerprint, primaryOutputAbs); gateErr == nil && hit {
 				return nil
 			}
 		}
@@ -134,10 +152,10 @@ func entityExecutorRunOne(
 		}
 	}
 
-	if !opts.DisableCache && primaryOutput != "" {
+	if !opts.DisableCache && primaryOutputAbs != "" {
 		stateFingerprint, fpErr := EntityCacheFingerprint(builtIR, entityKey, primaryOutput, plan.SourcePaths)
 		if fpErr == nil {
-			return entityCacheRecord(opts.ownedCacheStore, entityKey, stateFingerprint, primaryOutput)
+			return entityCacheRecord(opts.ownedCacheStore, entityKey, stateFingerprint, primaryOutputAbs)
 		}
 	}
 	return nil

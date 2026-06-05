@@ -5,7 +5,7 @@
 // Override version at link time via the build targets (VERSION below) or:
 //   run build GOOS=linux GOARCH=amd64 OUT=bin/helm-custom VERSION=1.2.3
 
-VERSION = "2.1.1"
+VERSION = "2.1.2"
 REPO_ROOT = "../.."
 BIN_DIR = "bin"
 GO_TOOL_CACHE = "tools/helm/.helm/cache/go"

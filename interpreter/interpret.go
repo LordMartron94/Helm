@@ -248,10 +248,21 @@ func HelmInterpreterExecuteTarget(
 		execOpts.CacheRoot = filepath.Join(filepath.Dir(result.filePath), ".helm", "cache")
 	}
 
+	entityOpts := entityexecutor.EntityExecutorOptions{
+		CacheRoot: execOpts.CacheRoot,
+		TargetHookRunner: func(targetName string) error {
+			return targetexecutor.TargetExecutorRunGraph(
+				result.BuiltIR,
+				targetName,
+				nil,
+				execOpts,
+			)
+		},
+	}
 	if entityErr := entityexecutor.EntityExecutorEnsureForTarget(
 		result.BuiltIR,
 		entryTarget,
-		entityexecutor.EntityExecutorOptions{},
+		entityOpts,
 	); entityErr != nil {
 		return entityErr
 	}

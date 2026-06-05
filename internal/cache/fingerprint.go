@@ -223,6 +223,16 @@ func CacheAggregateInstanceFingerprints(fingerprints []uint64) uint64 {
 	return hash.XXH3HasherHash64(cacheAggregateHasher, buffer.Bytes())
 }
 
+// EntityCacheWriteInputPaths hashes workspace-relative input paths into buffer.
+func EntityCacheWriteInputPaths(helmBaseDir string, buffer *bytes.Buffer, paths []string) error {
+	return cacheWritePaths(helmBaseDir, buffer, paths)
+}
+
+// EntityCacheHashStateBuffer returns a stable aggregate hash for entity cache state.
+func EntityCacheHashStateBuffer(data []byte) uint64 {
+	return hash.XXH3HasherHash64(cacheAggregateHasher, data)
+}
+
 func cacheWritePaths(helmBaseDir string, buffer *bytes.Buffer, paths []string) error {
 	for _, path := range paths {
 		fileHash, err := cacheFileContentHash(helmBaseDir, path)
