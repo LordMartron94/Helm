@@ -16,6 +16,12 @@ type TargetExecutionGraphExport struct {
 	Targets         map[string]TargetGraphExportEntry `json:"targets"`
 }
 
+// TargetExecutionGraphExportBundle holds one resolved graph per entry target.
+type TargetExecutionGraphExportBundle struct {
+	SourceDirectory string                                 `json:"source_directory"`
+	Graphs          map[string]*TargetExecutionGraphExport `json:"graphs"`
+}
+
 // TargetGraphExportEntry describes one execution node after parameter and template expansion.
 type TargetGraphExportEntry struct {
 	CanonicalTarget string            `json:"canonical_target"`
@@ -76,6 +82,45 @@ func TargetExecutorExportExecutionGraphJSON(
 		return nil, err
 	}
 	return json.MarshalIndent(export, "", "  ")
+}
+
+// TargetExecutorExportExecutionGraphBundle resolves one graph per entry target without executing.
+func TargetExecutorExportExecutionGraphBundle(
+	builtIR ir.HelmIR,
+	entryTargets []string,
+	callerInvocations map[string]TargetInvocation,
+) (*TargetExecutionGraphExportBundle, error) {
+	if len(entryTargets) == 0 {
+		return nil, fmt.Errorf("at least one entry target is required")
+	}
+
+	bundle := &TargetExecutionGraphExportBundle{
+		SourceDirectory: builtIR.SourceDirectory,
+		Graphs:          make(map[string]*TargetExecutionGraphExport, len(entryTargets)),
+	}
+
+	for _, entryTarget := range entryTargets {
+		export, err := TargetExecutorExportExecutionGraph(builtIR, entryTarget, callerInvocations)
+		if err != nil {
+			return nil, fmt.Errorf("entry target %q: %w", entryTarget, err)
+		}
+		bundle.Graphs[export.EntryTarget] = export
+	}
+
+	return bundle, nil
+}
+
+// TargetExecutorExportExecutionGraphBundleJSON marshals multiple resolved graphs.
+func TargetExecutorExportExecutionGraphBundleJSON(
+	builtIR ir.HelmIR,
+	entryTargets []string,
+	callerInvocations map[string]TargetInvocation,
+) ([]byte, error) {
+	bundle, err := TargetExecutorExportExecutionGraphBundle(builtIR, entryTargets, callerInvocations)
+	if err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(bundle, "", "  ")
 }
 
 func targetExecutorOrderedPlanNodes(plan *TargetExecutionPlan) []string {

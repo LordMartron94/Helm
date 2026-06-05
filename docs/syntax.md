@@ -396,6 +396,21 @@ The CLI command `export-graph` resolves the same execution graph as `run` (param
 ```bash
 helm Helmfile export-graph run_tests
 helm Helmfile export-graph -o graph.json build_testbed
+helm Helmfile export-graph -o graphs.json build_testbed,run_tests,generate_compilation_database
 ```
+
+Pass one target for a single graph (same JSON shape as before). Pass comma-separated targets for multiple independent graphs in one file:
+
+```json
+{
+  "source_directory": "/path/to/project",
+  "graphs": {
+    "build_testbed": { "entry_target": "build_testbed", "phases": [...], "targets": {...} },
+    "run_tests": { "entry_target": "run_tests", "phases": [...], "targets": {...} }
+  }
+}
+```
+
+`key=value` CLI parameters are only supported when exporting a single entry target.
 
 Each object under `targets` uses the execution node id as its key (`canonical_target`, or `name#<hash>` for parametric edges). Fields include `directory` (absolute working directory) and `run_commands` (expanded command strings).

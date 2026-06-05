@@ -270,21 +270,25 @@ func completeExportGraph(cur, helmFilePath string, exportArgs []string, exportAr
 			return prefixFilter(cur, []string{"--output", "-o"})
 		}
 		defer SessionDestroy(session)
-		return prefixFilter(cur, session.Catalog.AllRunNames())
+		return completeExportGraphTargets(cur, session)
 	}
 
 	if len(rest) == 0 {
 		return nil
 	}
 
-	targetName := rest[0]
+	targetSpec := rest[0]
+	if strings.Contains(targetSpec, ",") {
+		return nil
+	}
+
 	session := sessionCreateForCompletion(helmFilePath)
 	if session == nil {
 		return nil
 	}
 	defer SessionDestroy(session)
 
-	canonical, ok := session.Catalog.ResolveTargetName(targetName)
+	canonical, ok := session.Catalog.ResolveTargetName(targetSpec)
 	if !ok {
 		return nil
 	}
@@ -311,6 +315,20 @@ func completeExportGraph(cur, helmFilePath string, exportArgs []string, exportAr
 		names = append(names, param.Name+"=")
 	}
 	return prefixFilter(cur, names)
+}
+
+func completeExportGraphTargets(cur string, session *Session) []string {
+	prefix, filter := exportGraphTargetCompletionPrefix(cur)
+	names := session.Catalog.AllRunNames()
+	matches := prefixFilter(filter, names)
+	if prefix == "" {
+		return matches
+	}
+	out := make([]string, 0, len(matches))
+	for _, match := range matches {
+		out = append(out, prefix+match)
+	}
+	return out
 }
 
 func completeHelp(helmFilePath string, args []string, argIndex int, cur string) []string {

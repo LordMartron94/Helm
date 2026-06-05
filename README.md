@@ -147,8 +147,9 @@ helm help
 helm run <target> [key=value ...]
 helm run --bypass-cache <target>
 helm run -q <target>
-helm export-graph <target> [key=value ...]
+helm export-graph <target>[,<target>...] [key=value ...]
 helm export-graph -o build-graph.json <target>
+helm export-graph -o graphs.json target_a,target_b
 helm clean-cache
 helm set stream-runs off
 helm version
@@ -171,7 +172,10 @@ Before executing anything, Helm can resolve the full dependency graph, expand pa
 ```bash
 helm path/to/Helmfile export-graph run_tests
 helm path/to/Helmfile export-graph -o graph.json build_testbed
+helm path/to/Helmfile export-graph -o graphs.json build_testbed,run_tests
 ```
+
+A single target writes one graph object (`entry_target`, `phases`, `targets`). Comma-separated targets write a bundle with a `graphs` map (one full graph per entry target). CLI `key=value` parameters apply only when a single target is exported.
 
 Each key under `targets` is an execution node (canonical target name, or `target#<hash>` for parametric instances). Fields include `directory` (absolute working directory) and `run_commands` (expanded command strings). No subprocesses are started and the artifact cache is not consulted.
 

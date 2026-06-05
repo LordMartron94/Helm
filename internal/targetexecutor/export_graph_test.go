@@ -125,3 +125,67 @@ func TestTargetExecutorExportExecutionGraphParametric(t *testing.T) {
 		t.Fatalf("expected parametric base node key, targets: %v", export.Targets)
 	}
 }
+
+func TestTargetExecutorExportExecutionGraphBundle(t *testing.T) {
+	builtIR := ir.HelmIR{
+		SourceDirectory: "/tmp/helm-project",
+		GlobalVariables: map[string]ir.HelmGlobalVariable{},
+		Targets: map[string]ir.HelmTarget{
+			"alpha": {
+				Name: "alpha",
+				Steps: []ir.HelmTargetStep{
+					{Kind: ir.TargetStepRun, Run: "echo alpha"},
+				},
+			},
+			"beta": {
+				Name: "beta",
+				DependsOn: []ir.HelmTargetDependency{
+					{TargetName: "alpha"},
+				},
+				Steps: []ir.HelmTargetStep{
+					{Kind: ir.TargetStepRun, Run: "echo beta"},
+				},
+			},
+		},
+		Succeeded: true,
+	}
+
+	bundle, err := TargetExecutorExportExecutionGraphBundle(builtIR, []string{"alpha", "beta"}, nil)
+	if err != nil {
+		t.Fatalf("export bundle: %v", err)
+	}
+
+	if bundle.SourceDirectory != "/tmp/helm-project" {
+		t.Fatalf("source_directory: got %q", bundle.SourceDirectory)
+	}
+	if len(bundle.Graphs) != 2 {
+		t.Fatalf("graphs: got %d", len(bundle.Graphs))
+	}
+
+	alpha, ok := bundle.Graphs["alpha"]
+	if !ok {
+		t.Fatalf("missing alpha graph: %v", bundle.Graphs)
+	}
+	if alpha.EntryTarget != "alpha" {
+		t.Fatalf("alpha entry_target: got %q", alpha.EntryTarget)
+	}
+	if alpha.Targets["alpha"].RunCommands[0] != "echo alpha" {
+		t.Fatalf("alpha run_commands: %#v", alpha.Targets["alpha"].RunCommands)
+	}
+
+	beta, ok := bundle.Graphs["beta"]
+	if !ok {
+		t.Fatalf("missing beta graph: %v", bundle.Graphs)
+	}
+	if beta.Targets["beta"].DependsOn[0] != "alpha" {
+		t.Fatalf("beta depends_on: %#v", beta.Targets["beta"].DependsOn)
+	}
+
+	raw, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"graphs"`) {
+		t.Fatalf("json missing graphs: %s", raw)
+	}
+}

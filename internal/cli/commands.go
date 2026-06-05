@@ -91,7 +91,7 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 		if err := printBuiltinCommand(stdout, ui, "run [--bypass-cache] [-q] <target> [key=value ...]", "execute a target"); err != nil {
 			return err
 		}
-		if err := printBuiltinCommand(stdout, ui, "export-graph [-o path] <target> [key=value ...]", "dump resolved execution graph as JSON (no runs)"); err != nil {
+		if err := printBuiltinCommand(stdout, ui, "export-graph [-o path] <target>[,<target>...] [key=value ...]", "dump resolved execution graph(s) as JSON (no runs)"); err != nil {
 			return err
 		}
 		if err := printBuiltinCommand(stdout, ui, "completion bash", "print bash tab-completion script (install: source <(helm completion bash))"); err != nil {
