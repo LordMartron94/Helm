@@ -65,6 +65,7 @@ type targetParseState struct {
 	artifactsDeclared   bool
 	workDirDeclared     bool
 	envDeclared         bool
+	exportDeclared      bool
 	dependsDeclared     bool
 	interactiveDeclared bool
 	hiddenDeclared      bool
@@ -78,7 +79,7 @@ func handleTargetBody(
 	currentTarget *HelmTarget,
 ) {
 	state := &targetParseState{}
-	currentTarget.Env = make(map[string]string)
+	currentTarget.Env = make(map[string]HelmStringListExpr)
 
 	contentNodes := node.ChildrenUnsafe()
 
@@ -107,6 +108,8 @@ func handleTargetBody(
 			continue
 		case artifacts.NodeLetBinding:
 			continue
+		case artifacts.NodeExportDeclaration:
+			handleTargetExport(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeHelpStatement:
 			handleTargetHelp(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeAliases:
@@ -452,14 +455,21 @@ func extractDependencyParameters(
 			}
 			pendingKey = ""
 			pendingKeyNode = nil
-		case artifacts.NodeTargetArray:
+		case artifacts.NodeStringListArray:
 			if pendingKey == "" {
 				return false, false
 			}
 			dep.Parameters[pendingKey] = HelmParameterValue{
-				Kind:         HelmParameterDependencyList,
-				Dependencies: extractTargetArrayDependencies(builder, cur, scope),
+				Kind:       HelmParameterStringList,
+				StringList: extractStringListFromArrayNode(builder, cur, scope, true),
 			}
+			pendingKey = ""
+			pendingKeyNode = nil
+		case artifacts.NodeParamValueArray:
+			if pendingKey == "" {
+				return false, false
+			}
+			dep.Parameters[pendingKey] = extractParamValueArrayParameter(builder, cur, scope)
 			pendingKey = ""
 			pendingKeyNode = nil
 		case artifacts.NodeVariableReference:
@@ -640,18 +650,57 @@ func handleTargetEnv(
 	}
 	state.envDeclared = true
 
-	keyNodes := node.FindAllKind(artifacts.NodeEnvKey)
-	valueNodes := node.FindAllKind(artifacts.NodeStringLiteral)
+	var pendingKey string
+	var pendingKeyNode *syntaxa.SyntaxaLSTNode[artifacts.Node]
 
-	for i, keyNode := range keyNodes {
-		keyStr := extractContentFromSingleTokenNode(builder, keyNode)
-
-		if _, exists := currentTarget.Env[keyStr]; exists {
-			emitSemanticError(builder, keyNode, ERROR_DUPLICATE_ENV_KEY, fmt.Sprintf("environment variable '%s' declared multiple times", keyStr))
-		} else {
-			valStr := extractStringFromStringNode(builder, valueNodes[i], scope)
-			currentTarget.Env[keyStr] = valStr
+	_ = node.WalkPre(func(cur *syntaxa.SyntaxaLSTNode[artifacts.Node]) (bool, bool) {
+		switch cur.Kind() {
+		case artifacts.NodeEnvKey:
+			keyStr := extractContentFromSingleTokenNode(builder, cur)
+			if pendingKey != "" {
+				emitSemanticError(
+					builder,
+					pendingKeyNode,
+					ERROR_INVALID_EXPORT_VALUE,
+					fmt.Sprintf("environment variable '%s' is missing a value", pendingKey),
+				)
+			}
+			if _, exists := currentTarget.Env[keyStr]; exists {
+				emitSemanticError(
+					builder,
+					cur,
+					ERROR_DUPLICATE_ENV_KEY,
+					fmt.Sprintf("environment variable '%s' declared multiple times", keyStr),
+				)
+				pendingKey = ""
+				pendingKeyNode = nil
+				return false, false
+			}
+			pendingKey = keyStr
+			pendingKeyNode = cur
+		case artifacts.NodeStringLiteral, artifacts.NodeStringListArray:
+			if pendingKey == "" {
+				return false, false
+			}
+			currentTarget.Env[pendingKey] = extractStringListFromNode(
+				builder,
+				cur,
+				scope,
+				true,
+			)
+			pendingKey = ""
+			pendingKeyNode = nil
 		}
+		return false, false
+	})
+
+	if pendingKey != "" {
+		emitSemanticError(
+			builder,
+			pendingKeyNode,
+			ERROR_INVALID_EXPORT_VALUE,
+			fmt.Sprintf("environment variable '%s' is missing a value", pendingKey),
+		)
 	}
 }
 

@@ -207,7 +207,7 @@ func TestTargetExecutorResolveMatrixRunUsesCleanSrcInterpolation(t *testing.T) {
 	effectiveInv := TargetInvocation{
 		Parameters: targetExecutorEffectiveParameterValues(target, inv, instances[0].Bindings),
 	}
-	_, steps, err := TargetExecutorResolveTargetRuns(dir, target, globals, effectiveInv)
+	_, steps, err := TargetExecutorResolveTargetRuns(dir, target, nil, globals, effectiveInv)
 	if err != nil {
 		t.Fatal(err)
 	}

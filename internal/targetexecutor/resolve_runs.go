@@ -11,6 +11,7 @@ import (
 func TargetExecutorResolveTargetRuns(
 	helmBaseDir string,
 	target ir.HelmTarget,
+	targets map[string]ir.HelmTarget,
 	globals map[string]ir.HelmGlobalVariable,
 	inv TargetInvocation,
 ) (workDir string, steps []TargetResolvedRun, err error) {
@@ -36,6 +37,7 @@ func TargetExecutorResolveTargetRuns(
 	return targetExecutorResolveTargetRunsFromResolved(
 		helmBaseDir,
 		target,
+		targets,
 		globals,
 		paramValues,
 		interpCtx,
@@ -46,6 +48,7 @@ func TargetExecutorResolveTargetRuns(
 func targetExecutorResolveTargetRunsFromResolved(
 	helmBaseDir string,
 	target ir.HelmTarget,
+	targets map[string]ir.HelmTarget,
 	globals map[string]ir.HelmGlobalVariable,
 	paramValues map[string]ir.HelmParameterValue,
 	interpCtx expand.InterpolationContext,
@@ -60,6 +63,7 @@ func targetExecutorResolveTargetRunsFromResolved(
 	steps, err = targetExecutorResolveTargetRunSteps(
 		helmBaseDir,
 		target,
+		targets,
 		globals,
 		paramValues,
 		interpCtx,

@@ -60,6 +60,7 @@ func CacheFingerprintState(
 	target ir.HelmTarget,
 	targets map[string]ir.HelmTarget,
 	interpCtx expand.InterpolationContext,
+	resolvedEnv map[string]string,
 	depExecutionNodeIDs []string,
 	depStateFingerprints map[string]uint64,
 	depOutputFingerprints map[string]uint64,
@@ -106,7 +107,7 @@ func CacheFingerprintState(
 	}
 
 	cacheWriteInterpolationParameters(&buffer, interpCtx)
-	cacheWriteTargetExecution(&buffer, target, interpCtx)
+	cacheWriteTargetExecution(&buffer, target, interpCtx, resolvedEnv)
 
 	return hash.XXH3HasherHash64(cacheAggregateHasher, buffer.Bytes()), nil
 }
@@ -140,18 +141,19 @@ func cacheWriteTargetExecution(
 	buffer *bytes.Buffer,
 	target ir.HelmTarget,
 	ctx expand.InterpolationContext,
+	resolvedEnv map[string]string,
 ) {
 	buffer.WriteString("execution")
 	buffer.WriteString(expand.InterpolationContextExpandLiteral(ctx, target.WorkDir))
 
-	envKeys := make([]string, 0, len(target.Env))
-	for key := range target.Env {
+	envKeys := make([]string, 0, len(resolvedEnv))
+	for key := range resolvedEnv {
 		envKeys = append(envKeys, key)
 	}
 	sort.Strings(envKeys)
 	for _, key := range envKeys {
 		buffer.WriteString(key)
-		buffer.WriteString(expand.InterpolationContextExpandLiteral(ctx, target.Env[key]))
+		buffer.WriteString(resolvedEnv[key])
 	}
 
 	for _, step := range target.Steps {

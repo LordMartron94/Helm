@@ -72,8 +72,9 @@ func TargetExecutorResolveInvocationParameters(
 
 	scalarGlobals := ir.InterpolationGlobalsFromHelmGlobals(globals)
 	resolved := TargetResolvedParameters{
-		Scalars:   make(map[string]string, len(values)),
-		PathLists: make(map[string][]string),
+		Scalars:     make(map[string]string, len(values)),
+		PathLists:   make(map[string][]string),
+		StringLists: make(map[string][]string),
 	}
 
 	keys := make([]string, 0, len(values))
@@ -117,6 +118,20 @@ func TargetExecutorResolveInvocationParameters(
 			)
 		case ir.HelmParameterDependencyList:
 			continue
+		case ir.HelmParameterStringList:
+			fragments, err := TargetExecutorEvaluateStringListExpr(
+				value.StringList,
+				nil,
+				values,
+				resolved,
+				interpCtx(),
+			)
+			if err != nil {
+				return TargetResolvedParameters{}, fmt.Errorf("parameter '%s': %w", key, err)
+			}
+			if len(fragments) > 0 {
+				resolved.StringLists[key] = fragments
+			}
 		default:
 			return TargetResolvedParameters{}, fmt.Errorf("parameter '%s': unknown parameter value kind", key)
 		}
@@ -124,6 +139,9 @@ func TargetExecutorResolveInvocationParameters(
 
 	if len(resolved.PathLists) == 0 {
 		resolved.PathLists = nil
+	}
+	if len(resolved.StringLists) == 0 {
+		resolved.StringLists = nil
 	}
 
 	return resolved, nil
@@ -204,6 +222,8 @@ func targetExecutorBindDependencyParams(
 				}
 			case ir.HelmParameterGlobalRef:
 				out[key] = parentValue
+			case ir.HelmParameterStringList:
+				out[key] = parentValue
 			default:
 				return nil, fmt.Errorf(
 					"parameter '%s' cannot forward caller parameter '%s' of that kind",
@@ -213,6 +233,11 @@ func targetExecutorBindDependencyParams(
 			}
 		case ir.HelmParameterDependencyList:
 			out[key] = value
+		case ir.HelmParameterStringList:
+			out[key] = ir.HelmParameterValue{
+				Kind:       ir.HelmParameterStringList,
+				StringList: targetExecutorBindStringListLiterals(parentInterp, value.StringList),
+			}
 		default:
 			return nil, fmt.Errorf("parameter '%s': unknown parameter value kind", key)
 		}
@@ -253,6 +278,16 @@ func targetExecutorParameterMapFingerprint(parameters map[string]ir.HelmParamete
 				buffer.WriteByte(0)
 				buffer.WriteString(targetExecutorParameterMapFingerprint(dep.Parameters))
 				buffer.WriteByte(0)
+			}
+		case ir.HelmParameterStringList:
+			for _, element := range value.StringList {
+				buffer.WriteByte(byte(element.Kind))
+				buffer.WriteString(element.Literal)
+				buffer.WriteString(element.ParamName)
+				if element.Collect != nil {
+					buffer.WriteString(element.Collect.DependenciesParam)
+					buffer.WriteString(element.Collect.ExportKey)
+				}
 			}
 		}
 		buffer.WriteByte(0)

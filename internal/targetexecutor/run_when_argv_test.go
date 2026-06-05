@@ -70,6 +70,7 @@ func TestTargetExecutorResolveWhenArgvRun(t *testing.T) {
 	steps, err := targetExecutorResolveTargetRunSteps(
 		dir,
 		target,
+		nil,
 		globals,
 		paramValues,
 		interpCtx,
@@ -115,6 +116,7 @@ func TestTargetExecutorResolveWhenSkipsArgvWhenConditionFalse(t *testing.T) {
 	steps, err := targetExecutorResolveTargetRunSteps(
 		t.TempDir(),
 		target,
+		nil,
 		nil,
 		nil,
 		expand.InterpolationContext{},

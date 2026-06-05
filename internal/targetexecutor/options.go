@@ -8,6 +8,9 @@ import (
 )
 
 type TargetExecutorOptions struct {
+	// Targets is the full Helm IR target map (required for export collect() at run time).
+	Targets map[string]ir.HelmTarget
+
 	RunHandler TargetRunHandler
 
 	// StreamRunOutput writes subprocess stdout/stderr as they are produced (see LiveStdout/LiveStderr).

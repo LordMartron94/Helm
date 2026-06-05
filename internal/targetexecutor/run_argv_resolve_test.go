@@ -44,9 +44,11 @@ func TestTargetExecutorResolveRunArgvSplicesParameterPaths(t *testing.T) {
 			{Literal: "build/out"},
 			{ParamName: "FILES"},
 		},
+		nil,
 		globals,
 		paramValues,
 		expand.InterpolationContext{},
+		TargetResolvedParametersEmpty(),
 	)
 	if err != nil {
 		t.Fatal(err)

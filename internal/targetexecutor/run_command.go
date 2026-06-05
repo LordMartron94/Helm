@@ -48,17 +48,21 @@ func TargetExecutorExportRunSteps(steps []TargetResolvedRun) (commands []string,
 func TargetExecutorResolveRunStep(
 	helmBaseDir string,
 	command ir.HelmRunCommand,
+	targets map[string]ir.HelmTarget,
 	globals map[string]ir.HelmGlobalVariable,
 	paramValues map[string]ir.HelmParameterValue,
 	interpCtx expand.InterpolationContext,
+	resolved TargetResolvedParameters,
 ) (TargetResolvedRun, error) {
 	if ir.HelmRunCommandIsArgv(command) {
 		argv, err := targetExecutorResolveRunArgv(
 			helmBaseDir,
 			command.Argv,
+			targets,
 			globals,
 			paramValues,
 			interpCtx,
+			resolved,
 		)
 		if err != nil {
 			return TargetResolvedRun{}, err
@@ -74,6 +78,7 @@ func TargetExecutorResolveRunStep(
 func targetExecutorResolveTargetRunSteps(
 	helmBaseDir string,
 	target ir.HelmTarget,
+	targets map[string]ir.HelmTarget,
 	globals map[string]ir.HelmGlobalVariable,
 	paramValues map[string]ir.HelmParameterValue,
 	interpCtx expand.InterpolationContext,
@@ -87,9 +92,11 @@ func targetExecutorResolveTargetRunSteps(
 			resolvedStep, err := TargetExecutorResolveRunStep(
 				helmBaseDir,
 				step.Run,
+				targets,
 				globals,
 				paramValues,
 				interpCtx,
+				resolved,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("target '%s': %w", target.Name, err)
@@ -103,17 +110,19 @@ func targetExecutorResolveTargetRunSteps(
 				continue
 			}
 			for _, runCommand := range step.When.Runs {
-				resolved, err := TargetExecutorResolveRunStep(
+				whenStep, err := TargetExecutorResolveRunStep(
 					helmBaseDir,
 					runCommand,
+					targets,
 					globals,
 					paramValues,
 					interpCtx,
+					resolved,
 				)
 				if err != nil {
 					return nil, fmt.Errorf("target '%s': %w", target.Name, err)
 				}
-				steps = append(steps, resolved)
+				steps = append(steps, whenStep)
 			}
 		default:
 			return nil, fmt.Errorf("target '%s': unknown step kind", target.Name)

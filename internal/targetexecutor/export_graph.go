@@ -205,6 +205,7 @@ func targetExecutorExportGraphNode(
 		workDir, steps, resolveErr := TargetExecutorResolveTargetRuns(
 			builtIR.SourceDirectory,
 			target,
+			builtIR.Targets,
 			builtIR.GlobalVariables,
 			effectiveInv,
 		)

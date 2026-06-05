@@ -50,6 +50,12 @@ const (
 	ERROR_DUPLICATE_LET       string = "LET_001"
 	ERROR_LET_SHADOWS_BINDING string = "LET_002"
 	ERROR_INVALID_PATH_EXPR   string = "LET_003"
+
+	ERROR_DUPLICATE_EXPORT         string = "EXPORT_001"
+	ERROR_DUPLICATE_EXPORT_KEY     string = "EXPORT_002"
+	ERROR_INVALID_COLLECT_CALL     string = "EXPORT_003"
+	ERROR_UNDECLARED_COLLECT_PARAM string = "EXPORT_004"
+	ERROR_INVALID_EXPORT_VALUE     string = "EXPORT_005"
 )
 
 type HelmConditionType int
@@ -75,12 +81,38 @@ const (
 	TargetStepWhen
 )
 
+type HelmStringListElementKind int
+
+const (
+	StringListLiteral HelmStringListElementKind = iota
+	StringListParamRef
+	StringListCollect
+)
+
+// HelmStringListElement is one fragment in a string-list expression (env, export, parameters).
+type HelmStringListElement struct {
+	Kind      HelmStringListElementKind
+	Literal   string
+	ParamName string
+	Collect   *HelmCollectExpr
+}
+
+// HelmCollectExpr aggregates export keys from dependency-list parameters.
+type HelmCollectExpr struct {
+	DependenciesParam string
+	ExportKey         string
+}
+
+// HelmStringListExpr evaluates to a flat list of strings (e.g. linker flags).
+type HelmStringListExpr []HelmStringListElement
+
 // HelmRunArgvElement is one argv slot in a native run [ ... ] command.
-// Exactly one of Literal, ParamName, or AbsPath is set.
+// Exactly one of Literal, ParamName, AbsPath, or Collect is set.
 type HelmRunArgvElement struct {
 	Literal   string
 	ParamName string
 	AbsPath   string
+	Collect   *HelmCollectExpr
 }
 
 // HelmRunCommand is either a legacy string run (shlex-split at execution) or a native argv template.
@@ -118,7 +150,8 @@ type HelmTarget struct {
 	Parameters []HelmTargetParameter
 
 	WorkDir string
-	Env     map[string]string
+	Env     map[string]HelmStringListExpr
+	Export  map[string]HelmStringListExpr
 
 	DependsOn           []HelmTargetDependency
 	DependsOnParamNames []string
@@ -163,6 +196,7 @@ const (
 	HelmParameterGlobalRef
 	HelmParameterTargetParamRef
 	HelmParameterDependencyList
+	HelmParameterStringList
 )
 
 // HelmParameterValue is a dependency or invocation parameter at IR/runtime.
@@ -175,6 +209,7 @@ type HelmParameterValue struct {
 	GlobalName      string
 	TargetParamName string
 	Dependencies    []HelmTargetDependency
+	StringList      HelmStringListExpr
 }
 
 // HelmTargetDependency describes an edge in depends_on.

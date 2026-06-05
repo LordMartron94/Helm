@@ -35,6 +35,9 @@ func TargetExecutorRunGraph(
 	var fingerprintMu sync.RWMutex
 
 	runOpts := opts
+	if runOpts.Targets == nil {
+		runOpts.Targets = builtIR.Targets
+	}
 	var ownedCacheStore *cache.TargetCacheStore
 	if !runOpts.DisableArtifactCache && runOpts.CacheStore == nil && runOpts.CacheRoot != "" {
 		opened, openErr := cache.TargetCacheStoreOpen(runOpts.CacheRoot)

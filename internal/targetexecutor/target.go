@@ -19,7 +19,13 @@ func TargetExecutorRunTarget(
 		handler = TargetExecutorDefaultRunHandler
 	}
 
-	workDir, steps, err := TargetExecutorResolveTargetRuns(helmBaseDir, target, globals, inv)
+	workDir, steps, err := TargetExecutorResolveTargetRuns(
+		helmBaseDir,
+		target,
+		opts.Targets,
+		globals,
+		inv,
+	)
 	if err != nil {
 		return err
 	}
@@ -39,7 +45,16 @@ func TargetExecutorRunTarget(
 		return err
 	}
 
-	env := targetExecutorInterpolateEnv(target.Env, interpCtx)
+	env, err := targetExecutorInterpolateEnv(
+		target.Env,
+		opts.Targets,
+		paramValues,
+		resolved,
+		interpCtx,
+	)
+	if err != nil {
+		return err
+	}
 
 	for stepIndex, step := range steps {
 		req := targetExecutorRunRequestCreate(target.Name, stepIndex, step, workDir, env, target.Interactive, opts)

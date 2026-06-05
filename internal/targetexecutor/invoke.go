@@ -53,21 +53,6 @@ func TargetExecutorResolveRunCommand(
 	return expand.InterpolationContextExpandRunCommand(interpCtx, literal)
 }
 
-func targetExecutorInterpolateEnv(
-	env map[string]string,
-	interpCtx expand.InterpolationContext,
-) map[string]string {
-	if len(env) == 0 {
-		return nil
-	}
-
-	out := make(map[string]string, len(env))
-	for key, value := range env {
-		out[key] = TargetExecutorInterpolateLiteral(interpCtx, value)
-	}
-	return out
-}
-
 func TargetExecutorFormatDependencyBlockedError(
 	targetName string,
 	dependencyName string,

@@ -1,12 +1,16 @@
 package targetexecutor
 
-import "helm/internal/expand"
+import (
+	"helm/internal/expand"
+	"strings"
+)
 
 // TargetResolvedParameters holds invocation parameters after resolution.
 // Artifact path lists stay structured in PathLists; Scalars holds plain string parameters only.
 type TargetResolvedParameters struct {
-	Scalars   map[string]string
-	PathLists map[string][]string
+	Scalars     map[string]string
+	PathLists   map[string][]string
+	StringLists map[string][]string
 }
 
 func TargetResolvedParametersEmpty() TargetResolvedParameters {
@@ -14,7 +18,7 @@ func TargetResolvedParametersEmpty() TargetResolvedParameters {
 }
 
 func (resolved TargetResolvedParameters) HasValues() bool {
-	return len(resolved.Scalars) > 0 || len(resolved.PathLists) > 0
+	return len(resolved.Scalars) > 0 || len(resolved.PathLists) > 0 || len(resolved.StringLists) > 0
 }
 
 func (resolved TargetResolvedParameters) InterpolationContext(globalScalars map[string]string) expand.InterpolationContext {
@@ -39,12 +43,15 @@ func TargetResolvedParametersExportScalars(resolved TargetResolvedParameters) ma
 		return nil
 	}
 
-	out := make(map[string]string, len(resolved.Scalars)+len(resolved.PathLists))
+	out := make(map[string]string, len(resolved.Scalars)+len(resolved.PathLists)+len(resolved.StringLists))
 	for key, value := range resolved.Scalars {
 		out[key] = value
 	}
 	for key, paths := range resolved.PathLists {
 		out[key] = expand.JoinPathsForShell(paths)
+	}
+	for key, fragments := range resolved.StringLists {
+		out[key] = strings.Join(fragments, " ")
 	}
 	return out
 }

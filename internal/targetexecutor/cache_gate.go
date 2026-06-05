@@ -39,7 +39,7 @@ func targetExecutorEvaluateCache(
 		return decision, nil
 	}
 
-	interpCtx, interpErr := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
+	interpCtx, resolvedEnv, interpErr := targetExecutorCacheExecutionContext(builtIR, target, inv)
 	if interpErr != nil {
 		return decision, interpErr
 	}
@@ -61,6 +61,7 @@ func targetExecutorEvaluateCache(
 		target,
 		builtIR.Targets,
 		interpCtx,
+		resolvedEnv,
 		depExecutionNodeIDs,
 		depStateFingerprints,
 		depOutputFingerprints,
@@ -119,7 +120,7 @@ func targetExecutorCommitCache(
 		return outputFingerprint, nil
 	}
 
-	interpCtx, interpErr := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
+	interpCtx, resolvedEnv, interpErr := targetExecutorCacheExecutionContext(builtIR, target, inv)
 	if interpErr != nil {
 		return 0, interpErr
 	}
@@ -129,6 +130,7 @@ func targetExecutorCommitCache(
 		target,
 		builtIR.Targets,
 		interpCtx,
+		resolvedEnv,
 		depExecutionNodeIDs,
 		depStateFingerprints,
 		depOutputFingerprints,
@@ -181,6 +183,15 @@ func targetExecutorCacheInterpolationGlobals(
 	target ir.HelmTarget,
 	inv TargetInvocation,
 ) (expand.InterpolationContext, error) {
+	interpCtx, _, err := targetExecutorCacheExecutionContext(builtIR, target, inv)
+	return interpCtx, err
+}
+
+func targetExecutorCacheExecutionContext(
+	builtIR ir.HelmIR,
+	target ir.HelmTarget,
+	inv TargetInvocation,
+) (expand.InterpolationContext, map[string]string, error) {
 	paramValues := TargetExecutorParametersForTarget(target, inv)
 	resolved, err := TargetExecutorResolveInvocationParameters(
 		builtIR.SourceDirectory,
@@ -188,7 +199,7 @@ func targetExecutorCacheInterpolationGlobals(
 		paramValues,
 	)
 	if err != nil {
-		return expand.InterpolationContext{}, err
+		return expand.InterpolationContext{}, nil, err
 	}
 	interpCtx, err := TargetExecutorInterpolationGlobals(
 		builtIR.SourceDirectory,
@@ -196,9 +207,23 @@ func targetExecutorCacheInterpolationGlobals(
 		resolved,
 	)
 	if err != nil {
-		return expand.InterpolationContext{}, err
+		return expand.InterpolationContext{}, nil, err
 	}
-	return TargetExecutorEvaluateLetBindings(builtIR.SourceDirectory, target, interpCtx)
+	interpCtx, err = TargetExecutorEvaluateLetBindings(builtIR.SourceDirectory, target, interpCtx)
+	if err != nil {
+		return expand.InterpolationContext{}, nil, err
+	}
+	resolvedEnv, err := targetExecutorResolvedEnvForFingerprint(
+		target,
+		builtIR.Targets,
+		paramValues,
+		resolved,
+		interpCtx,
+	)
+	if err != nil {
+		return expand.InterpolationContext{}, nil, err
+	}
+	return interpCtx, resolvedEnv, nil
 }
 
 func targetExecutorEmitCacheSkipSignals(

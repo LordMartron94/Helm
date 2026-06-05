@@ -19,6 +19,13 @@ func ExpandFingerprintRunCommand(
 		buffer.WriteString("argv")
 		for _, element := range command.Argv {
 			buffer.WriteByte(0)
+			if element.Collect != nil {
+				buffer.WriteString("collect:")
+				buffer.WriteString(element.Collect.DependenciesParam)
+				buffer.WriteByte(0)
+				buffer.WriteString(element.Collect.ExportKey)
+				continue
+			}
 			if element.ParamName != "" {
 				buffer.WriteString("param:")
 				buffer.WriteString(element.ParamName)
