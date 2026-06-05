@@ -21,7 +21,9 @@ func TestTargetExecutorExportExecutionGraphCompileArgvAndParameters(t *testing.T
 			"_compile_objects": {
 				Name: "_compile_objects",
 				Parameters: []ir.HelmTargetParameter{
-					{Name: "SRC"},
+					{Name: "SOURCE_FILES"},
+					{Name: "OBJ_DIR"},
+					{Name: "OUT_NAME"},
 					{Name: "COMPILER_FLAGS"},
 					{Name: "INCLUDE_FLAGS"},
 				},
@@ -37,9 +39,9 @@ func TestTargetExecutorExportExecutionGraphCompileArgvAndParameters(t *testing.T
 						Run: ir.HelmRunCommand{
 							Argv: []ir.HelmRunArgvElement{
 								{Literal: "tools/scripts/compile_object.sh"},
-								{ParamName: "SRC"},
-								{Literal: "build/obj/testbed/main.c.o"},
-								{Literal: "build/obj/testbed/main.c.d"},
+								{Literal: "${SRC}"},
+								{Literal: "${OBJ_DIR}/${OUT_NAME}_obj/${SRC}.o"},
+								{Literal: "${OBJ_DIR}/${OUT_NAME}_obj/${SRC}.d"},
 								{ParamName: "COMPILER_FLAGS"},
 								{ParamName: "INCLUDE_FLAGS"},
 							},
@@ -53,6 +55,18 @@ func TestTargetExecutorExportExecutionGraphCompileArgvAndParameters(t *testing.T
 					{
 						TargetName: "_compile_objects",
 						Parameters: map[string]ir.HelmParameterValue{
+							"SOURCE_FILES": {
+								Kind: ir.HelmParameterScalar,
+								Scalar: "testbed/main.c",
+							},
+							"OBJ_DIR": {
+								Kind:   ir.HelmParameterScalar,
+								Scalar: "build/obj",
+							},
+							"OUT_NAME": {
+								Kind:   ir.HelmParameterScalar,
+								Scalar: "testbed",
+							},
 							"COMPILER_FLAGS": {
 								Kind:       ir.HelmParameterGlobalRef,
 								GlobalName: "APPLICATION_COMPILER_FLAGS",
@@ -102,6 +116,12 @@ func TestTargetExecutorExportExecutionGraphCompileArgvAndParameters(t *testing.T
 	}
 	if argv[1] != "testbed/main.c" {
 		t.Fatalf("argv[1] = %q", argv[1])
+	}
+	if argv[2] != "build/obj/testbed_obj/testbed/main.c.o" {
+		t.Fatalf("argv[2] = %q", argv[2])
+	}
+	if argv[3] != "build/obj/testbed_obj/testbed/main.c.d" {
+		t.Fatalf("argv[3] = %q", argv[3])
 	}
 	if argv[4] != "-g" || argv[5] != "-std=c89" {
 		t.Fatalf("expected split compiler flags, got %#v", argv[4:])

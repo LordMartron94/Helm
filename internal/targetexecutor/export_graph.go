@@ -211,13 +211,30 @@ func targetExecutorExportGraphNode(
 			return fmt.Errorf("node '%s': %w", nodeName, resolveErr)
 		}
 
+		instanceInterpCtx, interpErr := TargetExecutorInterpolationGlobals(
+			builtIR.SourceDirectory,
+			builtIR.GlobalVariables,
+			effectiveResolved,
+		)
+		if interpErr != nil {
+			return fmt.Errorf("node '%s': %w", nodeName, interpErr)
+		}
+		instanceInterpCtx, interpErr = TargetExecutorEvaluateLetBindings(
+			builtIR.SourceDirectory,
+			target,
+			instanceInterpCtx,
+		)
+		if interpErr != nil {
+			return fmt.Errorf("node '%s': %w", nodeName, interpErr)
+		}
+
 		workDir, steps, resolveErr := targetExecutorResolveTargetRunsFromResolved(
 			builtIR.SourceDirectory,
 			target,
 			builtIR.Targets,
 			builtIR.GlobalVariables,
 			effectiveParamValues,
-			interpCtx,
+			instanceInterpCtx,
 			effectiveResolved,
 		)
 		if resolveErr != nil {
