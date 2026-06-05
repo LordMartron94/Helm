@@ -42,16 +42,17 @@ const (
 )
 
 type DiagnosticRenderer struct {
-	dispatcher      *signal.SignalDispatcher
-	renderer        *rendering.SignalRenderer
-	logRenderer     *rendering.SignalRenderer
-	errorRenderer   *rendering.SignalRenderer
-	summaryRenderer *splash.SPLASH_Rendering_TerminalRenderer
-	execTally       *shared.HelmExecutionTally
-	execIntents     shared.HelmExecutionRenderIntents
-	ctx             *signal.SignalContext
-	output          io.Writer
-	presentation    DiagnosticPresentation
+	dispatcher         *signal.SignalDispatcher
+	renderer           *rendering.SignalRenderer
+	logRenderer        *rendering.SignalRenderer
+	errorRenderer      *rendering.SignalRenderer
+	summaryRenderer    *splash.SPLASH_Rendering_TerminalRenderer
+	logSummaryRenderer *splash.SPLASH_Rendering_TerminalRenderer
+	execTally          *shared.HelmExecutionTally
+	execIntents        shared.HelmExecutionRenderIntents
+	ctx                *signal.SignalContext
+	output             io.Writer
+	presentation       DiagnosticPresentation
 }
 
 type DiagnosticRendererConfig struct {
@@ -163,16 +164,17 @@ func DiagnosticRendererCreate(config DiagnosticRendererConfig) *DiagnosticRender
 	dispatcher := signal.SignalDispatcherCreate(manifest)
 
 	dr := &DiagnosticRenderer{
-		dispatcher:      dispatcher,
-		renderer:        renderer,
-		logRenderer:     logRenderer,
-		errorRenderer:   errorRenderer,
-		summaryRenderer: terminalRenderer,
-		execTally:       &shared.HelmExecutionTally{},
-		execIntents:     execIntents,
-		ctx:             signal.SignalContextCreate(dispatcher),
-		output:          output,
-		presentation:    DiagnosticPresentationFull,
+		dispatcher:         dispatcher,
+		renderer:           renderer,
+		logRenderer:        logRenderer,
+		errorRenderer:      errorRenderer,
+		summaryRenderer:    terminalRenderer,
+		logSummaryRenderer: logTerminalRenderer,
+		execTally:          &shared.HelmExecutionTally{},
+		execIntents:        execIntents,
+		ctx:                signal.SignalContextCreate(dispatcher),
+		output:             output,
+		presentation:       DiagnosticPresentationFull,
 	}
 
 	terminalSink := rendering.SignalRendererSinkGet(renderer)
@@ -229,11 +231,13 @@ func (dr *DiagnosticRenderer) FlushTo(w io.Writer) {
 	if w == nil || dr.logRenderer == nil {
 		return
 	}
-	_, _ = io.WriteString(w, rendering.SignalRendererRender(dr.logRenderer))
-	if dr.summaryRenderer != nil && dr.execTally != nil && dr.execTally.HasExecutionSignals() {
+	_, _ = io.WriteString(w, StripTerminalEscapeSequences(rendering.SignalRendererRender(dr.logRenderer)))
+	if dr.logSummaryRenderer != nil && dr.execTally != nil && dr.execTally.HasExecutionSignals() {
 		_, _ = io.WriteString(
 			w,
-			shared.HelmRenderExecutionSummary(dr.summaryRenderer, *dr.execTally, dr.execIntents),
+			StripTerminalEscapeSequences(
+				shared.HelmRenderExecutionSummary(dr.logSummaryRenderer, *dr.execTally, dr.execIntents),
+			),
 		)
 	}
 }

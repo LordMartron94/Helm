@@ -4,7 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
+)
+
+const (
+	runTranscriptTargetIndent  = 1
+	runTranscriptContentIndent = 2
 )
 
 // TargetExecutorRunTranscript records phase/target boundaries and per-target subprocess I/O in a log only.
@@ -35,14 +41,14 @@ func (t *TargetExecutorRunTranscript) PhaseStart(phaseIndex int) {
 	if t == nil {
 		return
 	}
-	t.writeLine(fmt.Sprintf("=== START PHASE %d ===", phaseIndex))
+	t.writeLine(fmt.Sprintf("=== PHASE %d ===", phaseIndex))
 }
 
-func (t *TargetExecutorRunTranscript) PhaseEnd(phaseIndex int) {
+func (t *TargetExecutorRunTranscript) PhaseEnd(int) {
 	if t == nil {
 		return
 	}
-	t.writeLine(fmt.Sprintf("=== END PHASE %d ===", phaseIndex))
+	t.writeLine("")
 }
 
 func (t *TargetExecutorRunTranscript) TargetStart(nodeID string, interactive bool) {
@@ -56,9 +62,9 @@ func (t *TargetExecutorRunTranscript) TargetStart(nodeID string, interactive boo
 	}
 	t.mu.Unlock()
 
-	t.writeLine(fmt.Sprintf(">>> START TARGET %s", nodeID))
+	t.writeIndented(runTranscriptTargetIndent, nodeID)
 	if interactive {
-		t.writeLine("[interactive TTY — subprocess I/O not captured]")
+		t.writeIndented(runTranscriptContentIndent, "[interactive TTY — subprocess I/O not captured]")
 	}
 }
 
@@ -77,20 +83,18 @@ func (t *TargetExecutorRunTranscript) TargetEnd(nodeID string, runErr error) {
 
 	if buffer != nil {
 		if buffer.stdout.Len() > 0 {
-			t.writeLine("[stdout]")
-			t.writeBytes(buffer.stdout.Bytes())
+			t.writeIndented(runTranscriptContentIndent, "[stdout]")
+			t.writeIndentedBytes(runTranscriptContentIndent, buffer.stdout.Bytes())
 		}
 		if buffer.stderr.Len() > 0 {
-			t.writeLine("[stderr]")
-			t.writeBytes(buffer.stderr.Bytes())
+			t.writeIndented(runTranscriptContentIndent, "[stderr]")
+			t.writeIndentedBytes(runTranscriptContentIndent, buffer.stderr.Bytes())
 		}
 	}
 
 	if runErr != nil {
-		t.writeLine(fmt.Sprintf(">>> END TARGET %s (error: %v)", nodeID, runErr))
-		return
+		t.writeIndented(runTranscriptContentIndent, fmt.Sprintf("error: %v", runErr))
 	}
-	t.writeLine(fmt.Sprintf(">>> END TARGET %s", nodeID))
 }
 
 func (t *TargetExecutorRunTranscript) StdoutWriter(nodeID string) io.Writer {
@@ -113,13 +117,30 @@ func (t *TargetExecutorRunTranscript) writeLine(line string) {
 	_, _ = io.WriteString(t.log, line+"\n")
 }
 
-func (t *TargetExecutorRunTranscript) writeBytes(data []byte) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	_, _ = t.log.Write(data)
-	if len(data) == 0 || data[len(data)-1] != '\n' {
-		_, _ = io.WriteString(t.log, "\n")
+func (t *TargetExecutorRunTranscript) writeIndented(level int, line string) {
+	t.writeLine(runTranscriptIndent(level) + line)
+}
+
+func (t *TargetExecutorRunTranscript) writeIndentedBytes(level int, data []byte) {
+	text := string(data)
+	if text == "" {
+		return
 	}
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return
+	}
+	prefix := runTranscriptIndent(level)
+	for _, line := range strings.Split(text, "\n") {
+		t.writeLine(prefix + line)
+	}
+}
+
+func runTranscriptIndent(level int) string {
+	if level <= 0 {
+		return ""
+	}
+	return strings.Repeat("  ", level)
 }
 
 func (t *TargetExecutorRunTranscript) bufferFor(nodeID string) *targetExecutorTranscriptBuffer {

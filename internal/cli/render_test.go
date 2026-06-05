@@ -48,7 +48,11 @@ func TestDiagnosticRendererFlushToIncludesFullDiagnostics(t *testing.T) {
 	var logBuffer bytes.Buffer
 	dr.FlushTo(&logBuffer)
 
-	if !strings.Contains(logBuffer.String(), "EXEC_OK") {
-		t.Fatalf("FlushTo should include INFO for transcript: %s", logBuffer.String())
+	out := StripTerminalEscapeSequences(logBuffer.String())
+	if !strings.Contains(out, "EXEC_OK") {
+		t.Fatalf("FlushTo should include INFO for transcript: %s", out)
+	}
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("FlushTo transcript must not contain ANSI escapes: %s", out)
 	}
 }

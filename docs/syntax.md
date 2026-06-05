@@ -83,7 +83,7 @@ target shield() {
 * **Parallel phases**: An interactive target must be the only target in its DAG execution phase. Helm fails with `EXEC_002` if another target would run in parallel in the same phase.
 * **Typical usage**: Declare `interactive` on a leaf-style entry target (e.g. `helm run shield`) after build dependencies have finished in earlier phases.
 * **Silent CLI exit**: When the entry target is `interactive = true`, Helm suppresses post-run diagnostics and the `finished` line, then exits with the child process exit code. Orchestration failures before the entry runs still emit errors to stderr.
-* **Run transcript**: Every `helm run` writes `.helm/last-run.log` (truncated per run) with phase/target boundaries, captured subprocess I/O, and the full diagnostic render for later review. Helm does not inject phase/target banners into the live terminal stream.
+* **Run transcript**: Every `helm run` writes `.helm/last-run.log` (truncated per run) with nested phase/target sections, captured subprocess I/O, and a plain-text diagnostic render (no ANSI color) for later review. Helm does not inject phase/target banners into the live terminal stream.
 
 ### Run output and `-q`
 
