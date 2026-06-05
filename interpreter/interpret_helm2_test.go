@@ -3,6 +3,7 @@ package interpreter
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"helm/internal/entityexecutor"
@@ -264,8 +265,8 @@ func TestHelm2VertexSiegeSplashLinkEnv(t *testing.T) {
 	}
 
 	adapter := merged.Adapters["c_shared_library"]
-	if len(adapter.Env) == 0 || len(adapter.Env["LDFLAGS"]) == 0 {
-		t.Fatalf("adapter env = %#v", adapter.Env)
+	if len(adapter.Phases) != 2 {
+		t.Fatalf("adapter phases = %#v", adapter.Phases)
 	}
 
 	plan, err := entityexecutor.EntityExpandAdapter(merged.SourceDirectory, merged, "//libs/splash:splash")
@@ -275,8 +276,9 @@ func TestHelm2VertexSiegeSplashLinkEnv(t *testing.T) {
 	if len(plan.Steps) < 2 {
 		t.Fatalf("steps = %d", len(plan.Steps))
 	}
-	if plan.Steps[1].Env["LDFLAGS"] == "" {
-		t.Fatalf("link env = %#v", plan.Steps[1].Env)
+	linkStep := plan.Steps[len(plan.Steps)-1]
+	if !strings.Contains(strings.Join(linkStep.Argv, " "), "libsplash.so") {
+		t.Fatalf("link argv = %#v", linkStep.Argv)
 	}
 }
 

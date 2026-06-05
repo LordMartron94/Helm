@@ -69,39 +69,43 @@ interface c_link {
 
 Interfaces declare **key names**, not types. The engine flattens bags on `collect()`; Clang/linker validate flags.
 
-## Adapter (dumb argv templates)
+## Adapter (explicit sub-graph macro)
 
-Adapters declare **parameters** (same syntax as targets), **`run [ ... ]` argv templates**, and optional `matrix`, `env`, `outputs`. The engine only binds parameters and spawns — it does not know C, compilers, or `.so` vs binaries.
+An adapter is a **macro** that expands into an ordered sub-graph of `target` phases. Each phase is a normal matrix/run/outputs node; link phases reference compile outputs with `param _compile.OUTPUTS`. Object paths use workspace mirroring: `${OBJ_DIR}/${SRC}.o` (no per-entity `_obj` bucket).
+
+Compiler flags are strict argv arrays (`param APPLICATION_COMPILER_FLAGS`), not string-packed scalars.
 
 ```helm
-adapter c_shared_library(SOURCE_FILES, OUT_NAME, DEPENDENCIES?) {
-    matrix SRC in SOURCE_FILES
-
-    outputs = [ "${OBJ_DIR}/${OUT_NAME}_obj/${SRC}.o" ]
-
-    run [
-        "tools/scripts/compile_object.sh",
-        "${SRC}",
-        "${OBJ_DIR}/${OUT_NAME}_obj/${SRC}.o",
-        "${OBJ_DIR}/${OUT_NAME}_obj/${SRC}.d",
-        param LIBRARY_COMPILER_FLAGS,
-        param CPPFLAGS,
-        collect(DEPENDENCIES, "CPPFLAGS"),
-    ]
-
-    env {
-        LDFLAGS = [ param LDFLAGS, collect(DEPENDENCIES, "LDFLAGS") ]
+adapter c_executable(SOURCE_FILES, OUT_NAME, CPPFLAGS, LDFLAGS, DEPENDENCIES?) {
+    target _compile {
+        matrix SRC in SOURCE_FILES
+        outputs = [ "${OBJ_DIR}/${SRC}.o" ]
+        run [
+            "tools/scripts/compile_object.sh",
+            "${SRC}",
+            "${OBJ_DIR}/${SRC}.o",
+            "${OBJ_DIR}/${SRC}.d",
+            param APPLICATION_COMPILER_FLAGS,
+            param CPPFLAGS,
+            collect(DEPENDENCIES, "CPPFLAGS"),
+        ]
     }
 
-    outputs = [ "${LIB_DIR}/lib${OUT_NAME}.so" ]
-
-    run [
-        "tools/scripts/link_objects.sh",
-        "${LIB_DIR}/lib${OUT_NAME}.so",
-        param MATRIX_OUTPUTS,
-    ]
+    target _link {
+        depends_on [ _compile ]
+        outputs = [ "${BIN_DIR}/${OUT_NAME}" ]
+        run [
+            "tools/scripts/link_objects.sh",
+            "${BIN_DIR}/${OUT_NAME}",
+            param _compile.OUTPUTS,
+            param LDFLAGS,
+            collect(DEPENDENCIES, "LDFLAGS"),
+        ]
+    }
 }
 ```
+
+**Entity inputs vs exports:** adapter parameters (`CPPFLAGS`, `LDFLAGS`) are **inputs** passed in `use <adapter> { params { ... } }`. The `interface { }` block on libraries only declares **exports** for downstream dependents. Binary entities (`kind = "bin"`) cannot declare an `interface` block.
 
 ## Entity (binds adapter parameters)
 

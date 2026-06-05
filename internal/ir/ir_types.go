@@ -107,12 +107,13 @@ type HelmCollectExpr struct {
 type HelmStringListExpr []HelmStringListElement
 
 // HelmRunArgvElement is one argv slot in a native run [ ... ] command.
-// Exactly one of Literal, ParamName, AbsPath, or Collect is set.
+// Exactly one of Literal, ParamName, PhaseOutputs, AbsPath, or Collect is set.
 type HelmRunArgvElement struct {
-	Literal   string
-	ParamName string
-	AbsPath   string
-	Collect   *HelmCollectExpr
+	Literal       string
+	ParamName     string
+	PhaseOutputs  string
+	AbsPath       string
+	Collect       *HelmCollectExpr
 }
 
 // HelmRunCommand is either a legacy string run (shlex-split at execution) or a native argv template.

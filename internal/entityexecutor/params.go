@@ -259,7 +259,14 @@ func entityEvaluateStringListExpr(
 				out = append(out, text)
 			}
 		case ir.StringListParamRef:
-			fragment, err := entityResolveParamFragment(element.ParamName, resolved, nil, interpCtx)
+			fileGlobals := ir.IRGlobalsForFile(builtIR, entity.SourceFile)
+			fragment, err := entityResolveParamFragment(
+				element.ParamName,
+				resolved,
+				nil,
+				interpCtx,
+				fileGlobals,
+			)
 			if err != nil {
 				return nil, err
 			}

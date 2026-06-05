@@ -19,6 +19,7 @@ const (
 	ERROR_INVALID_LABEL              string = "LABEL_001"
 	ERROR_UNKNOWN_ENTITY_LABEL       string = "LABEL_002"
 	ERROR_ENTITY_CYCLE               string = "ENTITY_004"
+	ERROR_ENTITY_BIN_HAS_INTERFACE   string = "ENTITY_005"
 )
 
 // HelmWorkspace is the root workspace manifest (Helm 2.0).
@@ -58,14 +59,32 @@ type HelmInterfaceDecl struct {
 	Keys []string
 }
 
-// HelmAdapterDecl is a dumb argv template: parameters, run commands, optional matrix.
-type HelmAdapterDecl struct {
+// HelmAdapterPhase is one explicit step in an adapter sub-graph.
+type HelmAdapterPhase struct {
 	Name             string
-	Parameters       []HelmTargetParameter
+	DependsOn        []string
+	Matrix           *HelmMatrix
+	MatrixLegOutputs []HelmArtifactInput
+	MatrixRuns       []HelmRunCommand
+	Outputs          []HelmArtifactInput
+	Runs             []HelmRunCommand
+	Env              map[string]HelmStringListExpr
+}
+
+// HelmAdapterDecl is a macro that expands into an ordered adapter sub-graph.
+type HelmAdapterDecl struct {
+	Name       string
+	Parameters []HelmTargetParameter
+	Phases     []HelmAdapterPhase
+	// Legacy flat adapter fields (deprecated; used when Phases is empty).
 	Outputs          []HelmArtifactInput
 	Matrix           *HelmMatrix
 	MatrixLegOutputs []HelmArtifactInput
 	MatrixRuns       []HelmRunCommand
 	Env              map[string]HelmStringListExpr
 	Runs             []HelmRunCommand
+}
+
+func HelmAdapterDeclUsesPhases(decl HelmAdapterDecl) bool {
+	return len(decl.Phases) > 0
 }

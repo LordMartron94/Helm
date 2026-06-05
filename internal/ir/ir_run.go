@@ -62,6 +62,21 @@ func extractRunArgvFromArrayNode(
 		case artifacts.NodeRunParameterRef:
 			nameNode := child.FindDirectChildKind(artifacts.NodeRunParameterName)
 			paramName := extractContentFromSingleTokenNode(builder, nameNode)
+			if suffix := child.FindDirectChildKind(artifacts.NodeRunPhaseOutputsSuffix); suffix != nil {
+				memberNode := suffix.FindDirectChildKind(artifacts.NodeRunPhaseOutputsMember)
+				memberName := extractContentFromSingleTokenNode(builder, memberNode)
+				if memberName != "OUTPUTS" {
+					emitSemanticError(
+						builder,
+						memberNode,
+						ERROR_INVALID_VARIABLE_VALUE,
+						fmt.Sprintf("run argv phase reference must end with OUTPUTS, got %q", memberName),
+					)
+					continue
+				}
+				elements = append(elements, HelmRunArgvElement{PhaseOutputs: paramName})
+				continue
+			}
 			if !resolveScopeAllowsParamRef(scope, paramName) {
 				emitSemanticError(
 					builder,

@@ -142,6 +142,15 @@ func handleEntityDeclaration(
 	body := node.FindDirectChildKind(artifacts.NodeEntityBody)
 	handleEntityBody(builder, body, &entity)
 
+	if entity.Kind == "bin" && len(entity.InterfaceBag) > 0 {
+		emitSemanticError(
+			builder,
+			nameNode,
+			ERROR_ENTITY_BIN_HAS_INTERFACE,
+			fmt.Sprintf("entity '%s' is a binary leaf and cannot declare an interface block", entityName),
+		)
+	}
+
 	key := HelmLabelCanonical(entity.Label)
 	if _, exists := builder.entities[key]; exists {
 		emitSemanticError(builder, nameNode, ERROR_DUPLICATE_ENTITY, fmt.Sprintf("entity '%s' already declared", key))
@@ -298,6 +307,11 @@ func handleAdapterDeclaration(
 	baseScope := resolveScopeForGlobals(builder.effectiveGlobals())
 	body := node.FindDirectChildKind(artifacts.NodeAdapterBody)
 	if body == nil {
+		builder.adapters[name] = decl
+		return
+	}
+
+	if parseAdapterPhases(builder, body, &decl, baseScope) {
 		builder.adapters[name] = decl
 		return
 	}

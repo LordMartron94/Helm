@@ -52,6 +52,20 @@ func EntityExpandAdapter(
 	interpCtx := resolved.InterpolationContext(scalarGlobals)
 	paramValues := entityAdapterParameterValues(builtIR, entity)
 
+	if ir.HelmAdapterDeclUsesPhases(adapter) {
+		return entityExpandAdapterPhases(
+			helmBaseDir,
+			builtIR,
+			entityKey,
+			entity,
+			adapter,
+			resolved,
+			interpCtx,
+			fileGlobals,
+			paramValues,
+		)
+	}
+
 	plan := EntityAdapterPlan{
 		EntityKey:   entityKey,
 		SourcePaths: entityResolvedSourcePaths(resolved),
@@ -97,6 +111,7 @@ func EntityExpandAdapter(
 					legCtx,
 					resolved,
 					nil,
+					fileGlobals,
 				)
 				if argvErr != nil {
 					return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, argvErr)
@@ -114,6 +129,7 @@ func EntityExpandAdapter(
 		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, envErr)
 	}
 
+	legacyPhaseOutputs := entityLegacyPhaseOutputs(matrixOutputs)
 	for _, runTemplate := range adapter.Runs {
 		argv, argvErr := entityResolveRunArgv(
 			helmBaseDir,
@@ -122,7 +138,8 @@ func EntityExpandAdapter(
 			runTemplate.Argv,
 			interpCtx,
 			resolved,
-			matrixOutputs,
+			legacyPhaseOutputs,
+			fileGlobals,
 		)
 		if argvErr != nil {
 			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, argvErr)
@@ -188,7 +205,8 @@ func entityResolveRunArgv(
 	template []ir.HelmRunArgvElement,
 	interpCtx expand.InterpolationContext,
 	resolved EntityResolvedParameters,
-	matrixOutputs []string,
+	phaseOutputs map[string][]string,
+	fileGlobals map[string]ir.HelmGlobalVariable,
 ) ([]string, error) {
 	if len(template) == 0 {
 		return nil, fmt.Errorf("run argv: empty command array")
@@ -203,12 +221,19 @@ func entityResolveRunArgv(
 				return nil, err
 			}
 			argv = append(argv, fragment...)
+		case element.PhaseOutputs != "":
+			outputs, ok := phaseOutputs[element.PhaseOutputs]
+			if !ok || len(outputs) == 0 {
+				return nil, fmt.Errorf("run argv: phase '%s' produced no outputs", element.PhaseOutputs)
+			}
+			argv = append(argv, outputs...)
 		case element.ParamName != "":
 			fragment, err := entityResolveParamFragment(
 				element.ParamName,
 				resolved,
-				matrixOutputs,
+				phaseOutputs,
 				interpCtx,
+				fileGlobals,
 			)
 			if err != nil {
 				return nil, err
@@ -231,11 +256,22 @@ func entityResolveRunArgv(
 func entityResolveParamFragment(
 	paramName string,
 	resolved EntityResolvedParameters,
-	matrixOutputs []string,
+	phaseOutputs map[string][]string,
 	interpCtx expand.InterpolationContext,
+	fileGlobals map[string]ir.HelmGlobalVariable,
 ) ([]string, error) {
 	if paramName == "MATRIX_OUTPUTS" {
-		return append([]string(nil), matrixOutputs...), nil
+		var flattened []string
+		for _, outputs := range phaseOutputs {
+			flattened = append(flattened, outputs...)
+		}
+		if len(flattened) == 0 {
+			return nil, fmt.Errorf("run argv: MATRIX_OUTPUTS is empty")
+		}
+		return flattened, nil
+	}
+	if fragments, ok := entityGlobalStringListFragments(fileGlobals, paramName); ok {
+		return fragments, nil
 	}
 	if fragments, ok := resolved.StringLists[paramName]; ok {
 		return append([]string(nil), fragments...), nil
@@ -250,6 +286,40 @@ func entityResolveParamFragment(
 		return entityAssignmentFragments(scalar), nil
 	}
 	return nil, fmt.Errorf("run argv: undeclared parameter '%s'", paramName)
+}
+
+func entityLegacyPhaseOutputs(matrixOutputs []string) map[string][]string {
+	if len(matrixOutputs) == 0 {
+		return nil
+	}
+	return map[string][]string{"_matrix": matrixOutputs}
+}
+
+func entityGlobalStringListFragments(
+	globals map[string]ir.HelmGlobalVariable,
+	name string,
+) ([]string, bool) {
+	variable, ok := globals[name]
+	if !ok {
+		return nil, false
+	}
+	if variable.Kind == ir.HelmGlobalVarStringList {
+		return append([]string(nil), variable.StringList...), true
+	}
+	if variable.Kind != ir.HelmGlobalVarArtifactArray {
+		return nil, false
+	}
+	fragments := make([]string, 0, len(variable.ArtifactItems))
+	for _, item := range variable.ArtifactItems {
+		if item.Kind != ir.ArtifactInputString || item.Literal == "" {
+			return nil, false
+		}
+		fragments = append(fragments, item.Literal)
+	}
+	if len(fragments) == 0 {
+		return nil, false
+	}
+	return fragments, true
 }
 
 func entityEvaluateCollect(

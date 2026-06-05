@@ -9,6 +9,7 @@ import (
 const (
 	HelmGlobalVarString HelmGlobalVariableKind = iota
 	HelmGlobalVarArtifactArray
+	HelmGlobalVarStringList
 )
 
 type HelmGlobalVariableKind int
@@ -17,6 +18,7 @@ type HelmGlobalVariable struct {
 	Kind          HelmGlobalVariableKind
 	StringValue   string
 	ArtifactItems []HelmArtifactInput
+	StringList    []string
 }
 
 func InterpolationGlobalsFromHelmGlobals(globals map[string]HelmGlobalVariable) map[string]string {
@@ -62,17 +64,25 @@ func globalVariableIsArtifactArray(scope resolveScope, name string) bool {
 }
 
 func helmGlobalVariableCopy(variable HelmGlobalVariable) HelmGlobalVariable {
-	if variable.Kind == HelmGlobalVarArtifactArray {
+	switch variable.Kind {
+	case HelmGlobalVarArtifactArray:
 		items := make([]HelmArtifactInput, len(variable.ArtifactItems))
 		copy(items, variable.ArtifactItems)
 		return HelmGlobalVariable{
 			Kind:          HelmGlobalVarArtifactArray,
 			ArtifactItems: items,
 		}
-	}
-	return HelmGlobalVariable{
-		Kind:        HelmGlobalVarString,
-		StringValue: variable.StringValue,
+	case HelmGlobalVarStringList:
+		list := append([]string(nil), variable.StringList...)
+		return HelmGlobalVariable{
+			Kind:       HelmGlobalVarStringList,
+			StringList: list,
+		}
+	default:
+		return HelmGlobalVariable{
+			Kind:        HelmGlobalVarString,
+			StringValue: variable.StringValue,
+		}
 	}
 }
 
