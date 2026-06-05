@@ -190,11 +190,15 @@ func targetExecutorCacheInterpolationGlobals(
 	if err != nil {
 		return expand.InterpolationContext{}, err
 	}
-	return TargetExecutorInterpolationGlobals(
+	interpCtx, err := TargetExecutorInterpolationGlobals(
 		builtIR.SourceDirectory,
 		builtIR.GlobalVariables,
 		resolved,
 	)
+	if err != nil {
+		return expand.InterpolationContext{}, err
+	}
+	return TargetExecutorEvaluateLetBindings(builtIR.SourceDirectory, target, interpCtx)
 }
 
 func targetExecutorEmitCacheSkipSignals(

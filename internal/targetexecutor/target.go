@@ -30,7 +30,11 @@ func TargetExecutorRunTarget(
 		return err
 	}
 
-	interpCtx, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, resolved)
+	baseInterpCtx, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, resolved)
+	if err != nil {
+		return err
+	}
+	interpCtx, err := TargetExecutorEvaluateLetBindings(helmBaseDir, target, baseInterpCtx)
 	if err != nil {
 		return err
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"foundation/system"
 	"helm/internal/ir"
+	"helm/internal/workspacepath"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,7 +44,7 @@ func ArtifactWalkGlob(helmBaseDir string, glob *ir.HelmGlob) ([]string, error) {
 		if !glob.Recursive {
 			if isDir {
 				if glob.Types == "directories" && artifactPathMatchesAnyInclude(rel, name, includes) {
-					pathSet[path] = struct{}{}
+					artifactGlobStoreWorkspacePath(pathSet, helmBaseDir, path)
 				}
 				return true, nil
 			}
@@ -68,7 +69,7 @@ func ArtifactWalkGlob(helmBaseDir string, glob *ir.HelmGlob) ([]string, error) {
 		}
 
 		if artifactPathMatchesAnyInclude(rel, name, includes) {
-			pathSet[path] = struct{}{}
+			artifactGlobStoreWorkspacePath(pathSet, helmBaseDir, path)
 		}
 
 		return false, nil
@@ -81,6 +82,14 @@ func ArtifactWalkGlob(helmBaseDir string, glob *ir.HelmGlob) ([]string, error) {
 	}
 
 	return artifactSortedPaths(pathSet), nil
+}
+
+func artifactGlobStoreWorkspacePath(pathSet map[string]struct{}, helmBaseDir, absolutePath string) {
+	rel, ok := workspacepath.WorkspaceRelative(helmBaseDir, absolutePath)
+	if !ok {
+		return
+	}
+	pathSet[rel] = struct{}{}
 }
 
 func artifactPathMatchesAnyInclude(relPath string, baseName string, includes []string) bool {

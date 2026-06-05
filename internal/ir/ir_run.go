@@ -34,15 +34,42 @@ func extractRunArgvFromArrayNode(
 			elements = append(elements, HelmRunArgvElement{
 				Literal: extractStringFromStringNode(builder, child, scope),
 			})
+		case artifacts.NodeRunAbsPathCall:
+			nameNode := child.FindDirectChildKind(artifacts.NodeRunAbsPathCallName)
+			callName := extractContentFromSingleTokenNode(builder, nameNode)
+			if callName != "abs_path" {
+				emitSemanticError(
+					builder,
+					nameNode,
+					ERROR_INVALID_PATH_EXPR,
+					fmt.Sprintf("unknown run argv function '%s' (only abs_path is supported)", callName),
+				)
+				continue
+			}
+			strNode := child.FindFirstKind(artifacts.NodeStringLiteral)
+			if strNode == nil {
+				emitSemanticError(
+					builder,
+					child,
+					ERROR_INVALID_PATH_EXPR,
+					"abs_path requires a string literal argument",
+				)
+				continue
+			}
+			elements = append(elements, HelmRunArgvElement{
+				AbsPath: extractStringFromStringNode(builder, strNode, scope),
+			})
 		case artifacts.NodeRunParameterRef:
 			nameNode := child.FindDirectChildKind(artifacts.NodeRunParameterName)
 			paramName := extractContentFromSingleTokenNode(builder, nameNode)
-			if !resolveScopeHasParameter(scope, paramName) {
+			if !resolveScopeHasParameter(scope, paramName) &&
+				!resolveScopeHasLetBinding(scope, paramName) &&
+				!globalVariableIsArtifactArray(scope, paramName) {
 				emitSemanticError(
 					builder,
 					nameNode,
 					ERROR_UNDECLARED_PARAMETER,
-					fmt.Sprintf("run argv references undeclared parameter '%s'", paramName),
+					fmt.Sprintf("run argv references undeclared binding '%s'", paramName),
 				)
 				continue
 			}

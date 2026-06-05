@@ -13,6 +13,7 @@ type resolveScope struct {
 	globals        map[string]HelmGlobalVariable
 	parameters     []HelmTargetParameter
 	matrixVariable string
+	letBindings    []string
 }
 
 func resolveScopeForGlobals(globals map[string]HelmGlobalVariable) resolveScope {
@@ -37,6 +38,15 @@ func resolveScopeForTargetWithMatrix(
 
 func resolveScopeMatrixVariable(scope resolveScope) string {
 	return scope.matrixVariable
+}
+
+func resolveScopeHasLetBinding(scope resolveScope, name string) bool {
+	for _, binding := range scope.letBindings {
+		if binding == name {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveScopeHasParameter(scope resolveScope, name string) bool {

@@ -92,17 +92,20 @@ func handleTargetBody(
 	if currentTarget.Matrix != nil {
 		matrixVariable = currentTarget.Matrix.VariableName
 	}
-	scope := resolveScopeForTargetWithMatrix(
+	baseScope := resolveScopeForTargetWithMatrix(
 		builder.globalVariables,
 		currentTarget.Parameters,
 		matrixVariable,
 	)
+	scope := handleTargetLetBindings(builder, contentNodes, baseScope, currentTarget)
 
 	for _, contentNode := range contentNodes {
 		kind := contentNode.Kind()
 
 		switch kind {
 		case artifacts.NodeMatrixBlock:
+			continue
+		case artifacts.NodeLetBinding:
 			continue
 		case artifacts.NodeHelpStatement:
 			handleTargetHelp(builder, contentNode, scope, currentTarget, state)

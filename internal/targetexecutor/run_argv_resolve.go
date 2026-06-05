@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"helm/internal/expand"
 	"helm/internal/ir"
+	"helm/internal/workspacepath"
 )
 
 func targetExecutorResolveRunArgv(
@@ -33,6 +34,11 @@ func targetExecutorResolveRunArgv(
 			argv = append(argv, paths...)
 			continue
 		}
+		if element.AbsPath != "" {
+			rel := expand.InterpolationContextExpandLiteral(interpCtx, element.AbsPath)
+			argv = append(argv, workspacepath.WorkspaceAnchor(helmBaseDir, rel))
+			continue
+		}
 
 		argv = append(argv, expand.InterpolationContextExpandLiteral(interpCtx, element.Literal))
 	}
@@ -51,6 +57,9 @@ func targetExecutorRunArgvParameterPaths(
 	paramValues map[string]ir.HelmParameterValue,
 	interpCtx expand.InterpolationContext,
 ) ([]string, error) {
+	if paths, ok := interpCtx.PathLists[paramName]; ok {
+		return append([]string(nil), paths...), nil
+	}
 	return targetExecutorResolveParameterPaths(
 		helmBaseDir,
 		paramName,

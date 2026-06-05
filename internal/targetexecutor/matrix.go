@@ -5,9 +5,8 @@ import (
 	"helm/internal/artifactresolve"
 	"helm/internal/expand"
 	"helm/internal/ir"
-	"path/filepath"
+	"helm/internal/workspacepath"
 	"sort"
-	"strings"
 )
 
 type TargetMatrixInstance struct {
@@ -74,7 +73,7 @@ func TargetExecutorMatrixInstances(
 				)
 			}
 			for _, path := range paths {
-				bindingValue := targetExecutorMatrixBindingPath(helmBaseDir, path)
+				bindingValue := workspacepath.WorkspaceNormalize(path)
 				instance, createErr := targetExecutorMatrixInstanceCreate(
 					matrix.VariableName,
 					bindingValue,
@@ -95,7 +94,7 @@ func TargetExecutorMatrixInstances(
 				return nil, fmt.Errorf("target '%s': matrix glob: %w", target.Name, err)
 			}
 			for _, path := range paths {
-				bindingValue := targetExecutorMatrixBindingPath(helmBaseDir, path)
+				bindingValue := workspacepath.WorkspaceNormalize(path)
 				instance, createErr := targetExecutorMatrixInstanceCreate(
 					matrix.VariableName,
 					bindingValue,
@@ -130,11 +129,11 @@ func targetExecutorMatrixLiteralBindings(
 	if paths, ok := expand.PathsFromShellParameterList(text); ok {
 		bindings := make([]string, 0, len(paths))
 		for _, path := range paths {
-			bindings = append(bindings, targetExecutorMatrixBindingPath(helmBaseDir, path))
+			bindings = append(bindings, workspacepath.WorkspaceNormalize(path))
 		}
 		return bindings, nil
 	}
-	return []string{targetExecutorMatrixBindingPath(helmBaseDir, text)}, nil
+	return []string{workspacepath.WorkspaceNormalize(text)}, nil
 }
 
 func targetExecutorMatrixInstanceCreate(
@@ -159,17 +158,6 @@ func targetExecutorMatrixInstanceCreate(
 
 func TargetExecutorMatrixCacheKey(variableName, bindingValue string) string {
 	return variableName + "=" + bindingValue
-}
-
-func targetExecutorMatrixBindingPath(helmBaseDir, absolutePath string) string {
-	if helmBaseDir == "" {
-		return absolutePath
-	}
-	rel, err := filepath.Rel(helmBaseDir, absolutePath)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return absolutePath
-	}
-	return rel
 }
 
 func targetExecutorEffectiveParameterValues(

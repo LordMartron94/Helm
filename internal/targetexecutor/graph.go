@@ -100,10 +100,21 @@ func TargetExecutorRunGraph(
 					resultsMu.Unlock()
 					return
 				}
-				interpCtx, globalErr := TargetExecutorInterpolationGlobals(
+				baseInterpCtx, globalErr := TargetExecutorInterpolationGlobals(
 					builtIR.SourceDirectory,
 					builtIR.GlobalVariables,
 					resolved,
+				)
+				if globalErr != nil {
+					resultsMu.Lock()
+					results[name] = globalErr
+					resultsMu.Unlock()
+					return
+				}
+				interpCtx, globalErr := TargetExecutorEvaluateLetBindings(
+					builtIR.SourceDirectory,
+					target,
+					baseInterpCtx,
 				)
 				if globalErr != nil {
 					resultsMu.Lock()

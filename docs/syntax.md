@@ -243,7 +243,49 @@ depends_on [
 
 ---
 
-## 4. State & Caching (`artifacts`)
+## 4. Path model (workspace-relative)
+
+Helm’s workspace root is the directory containing the Helmfile. Every path produced by `glob()`, `path()`, parameter resolution, matrix bindings, `let` bindings, and path transforms is stored as a **workspace-relative** path with forward slashes (for example `testbed/main.c`). Graph state, cache keys, and export JSON use these relative paths only.
+
+Absolute paths exist **only** at the execution/filesystem boundary. In native argv runs, use `abs_path("relative/path")` when a tool requires an absolute path. Internal cache hashing anchors relative paths against the workspace root automatically.
+
+`.deps` / `dynamic` manifest files use the same contract: **one workspace-relative path per line**. Paths outside the workspace (system headers, toolchain installs) are **silently dropped** on read and should be omitted on write. This keeps remote cache portable across machines and OS images.
+
+---
+
+## 5. Target-local `let` bindings
+
+Targets may declare path-array bindings before `artifacts` / `run`:
+
+```helm
+target link(SOURCE_FILES, OBJ_DIR, OUT_NAME, OUT_DIR) {
+    let OBJECT_FILES = map_ext(
+        join_prefix(SOURCE_FILES, "${OBJ_DIR}/${OUT_NAME}_obj"),
+        ".c",
+        ".o"
+    )
+
+    artifacts {
+        inputs = OBJECT_FILES
+        outputs = [ "${OUT_DIR}/${OUT_NAME}" ]
+    }
+
+    run [
+        "tools/scripts/link_objects.sh",
+        "${OUT_DIR}/${OUT_NAME}",
+        param OBJECT_FILES
+    ]
+}
+```
+
+* **`let NAME = <path-expr>`** — evaluated after invocation parameters resolve, in declaration order. Each binding may reference earlier `let` names, target parameters, and global artifact arrays.
+* **Shadowing** — `let` cannot reuse a target parameter name or global name (`LET_002`).
+* **Artifacts** — use bare identifiers (`inputs = OBJECT_FILES`). The `param` keyword is reserved for `run` argv and `depends_on` splices only.
+* **Path functions** — `map_ext(paths, oldExt, newExt)` appends `newExt` when a path ends with `oldExt`; `join_prefix(paths, prefix)` prepends a prefix to each path; `rebase_dir(paths, oldBase, newBase)` replaces a leading directory prefix.
+
+---
+
+## 6. State & Caching (`artifacts`)
 
 The `artifacts` block defines the I/O state boundary of the target. Helm uses this block to cryptographically hash the state and automatically skip redundant executions. A cache hit also requires unchanged execution content: `workdir`, `env`, every `run` / `when` command string (after interpolation), invocation parameters, and dependency fingerprints—not only input artifact file hashes.
 
@@ -270,17 +312,17 @@ target compile(OS) {
 ```
 
 * **`inputs`**: A single string/glob/path, or a multiline array mixing explicit file strings and `glob()` / `path()` calls. Defines the files Helm must hash to determine if the target needs to run.
-* **`dynamic`**: Path(s) to a **manifest file** (not the tool-native `.d` / `.tsbuildinfo` format). At **cache evaluation time** (current run), Helm reads each manifest line-by-line (one absolute or helm-relative path per line; `#` comments and blank lines ignored) and hashes the **contents of those paths** alongside `inputs`. Helm does not hash the manifest file’s own bytes as a stand-in for its entries. If `dynamic` is set but the manifest file does not exist yet, Helm forces a cache miss (bootstrap) so the target runs once to generate it. Manifest entries that point at paths not present yet are fingerprinted as absent (no error); when those files appear or change, the cache state updates accordingly. Adapters in `run` steps convert compiler output into the manifest contract; the engine stays language-agnostic.
+* **`dynamic`**: Path(s) to a **manifest file** (not the tool-native `.d` / `.tsbuildinfo` format). At cache evaluation time Helm reads each manifest line-by-line (workspace-relative paths only; `#` comments and blank lines ignored) and hashes the **contents** of in-workspace paths alongside `inputs`. Lines outside the workspace are dropped silently. If `dynamic` is set but the manifest file does not exist yet, Helm forces a cache miss (bootstrap). Adapters in `run` steps normalize compiler `.d` output into the manifest contract.
 * **`outputs`**: A single string/glob/path, or a multiline array mixing explicit file strings, `glob()` / `path()` calls. Defines the deterministic files Helm expects the target to produce.
 * **`volatile = true`**: Explicitly tells the engine to *never* cache this target (e.g., for deployments or database migrations). If `outputs` is omitted, the engine uses inputs-only caching unless `volatile` is set.
 
 Target and matrix variables may appear in `glob()` / `path()` / string literals as `${NAME}` placeholders; they are resolved at execution time using the effective parameter map for that run.
 
-Bare variable references in `inputs`, `outputs`, and `dynamic` (for example `SOURCE_FILES` in an array) may name a **target parameter** as well as a global. Globals that hold artifact arrays still expand at IR build time; parameters become `${NAME}` placeholders and resolve at execution (including artifact-array values passed via `params` on dependencies).
+Bare variable references in `inputs`, `outputs`, and `dynamic` may name a **target parameter**, a **`let` binding**, or a global. Globals that hold artifact arrays still expand at IR build time; parameters and `let` names resolve at execution via structured path lists.
 
 ---
 
-## 5. Matrix execution (`matrix`)
+## 7. Matrix execution (`matrix`)
 
 A `matrix` block turns one target into multiple parallel execution units. Each unit binds the matrix variable for that run. Matrix legs share the same target name in the DAG (dependents still list the target once).
 
@@ -314,7 +356,7 @@ target generate() {
 
 ---
 
-## 6. Procedural Control Flow (`when`)
+## 8. Procedural Control Flow (`when`)
 
 While Helm targets are nodes in a DAG, their internal execution is procedural. `when` blocks allow you to conditionally gate specific `run` commands based on target parameters.
 
@@ -342,12 +384,12 @@ Each `run` inside a `when` block supports the same string and argv forms as a to
 
 ---
 
-## 7. Execution (`run`)
+## 9. Execution (`run`)
 
 The `run` keyword declares one process invocation. Helm supports two forms:
 
 * **String run** — a single quoted or triple-quoted string. After `${...}` interpolation, Helm shlex-splits the result and passes the argv slice to the native OS spawner. Shell interpreters are not used; piping (`|`, `&&`) is not evaluated.
-* **Argv run** — a bracket array of literal strings and `param NAME` splices. Helm materializes the array into a `[]string` and passes it directly to the OS spawner with no shlex pass and no shell quoting round-trip. Use this for link/compile scripts that must accept large file lists without hitting OS command-line length limits.
+* **Argv run** — a bracket array of literal strings, `abs_path("relative")` calls, and `param NAME` splices. Helm materializes the array into a `[]string` and passes it directly to the OS spawner with no shlex pass. Path-list splices emit workspace-relative paths by default; `abs_path` anchors a single path at spawn time.
 
 ```helm
 target migrate() {
@@ -373,7 +415,7 @@ target build() {
 
 ### Native argv runs
 
-Argv runs splice target parameters that hold artifact path lists (globals declared as `glob()` arrays, or parameters forwarded from callers). Each `param NAME` expands to one argv element per resolved path, in order, without shell quoting.
+Argv runs splice target parameters and `let` bindings that hold artifact path lists. Each `param NAME` expands to one argv element per resolved workspace-relative path, in order, without shell quoting.
 
 ```helm
 target link_objects(SOURCE_FILES, OUT_PATH) {
@@ -390,7 +432,7 @@ The execution-graph exporter reports native argv steps in `run_argvs` (parallel 
 
 ---
 
-## 8. Built-in Functions
+## 10. Built-in Functions
 
 Helm provides native functions for resolving paths and file trees safely across platforms.
 
@@ -402,6 +444,8 @@ Helm provides native functions for resolving paths and file trees safely across 
     * `"files"` — regular files only. When `recursive = true`, directories are descended and matching files inside are included.
     * `"directories"` — directories only (the directory paths themselves, not their contents).
 * **`path(element1, element2, ...)`**: Constructs OS-safe paths safely.
+* **`map_ext(paths, oldExt, newExt)`**, **`join_prefix(paths, prefix)`**, **`rebase_dir(paths, oldBase, newBase)`**: Path-array transforms for `let` bindings (see §5).
+* **`abs_path("relative/path")`**: Argv-only spawn boundary helper; anchors a workspace-relative path to an absolute path for the child process.
 
 ```helm
 target clean() {
@@ -414,7 +458,7 @@ target clean() {
 
 ---
 
-## 9. Strings & Interpolation
+## 11. Strings & Interpolation
 
 Helm uses double quotes `"..."` for strings. Variables and parameters can be injected using `${VAR}`.
 
@@ -426,7 +470,7 @@ target greet(NAME) {
 
 ---
 
-## 10. Graph introspection (`export-graph`)
+## 12. Graph introspection (`export-graph`)
 
 The CLI command `export-graph` resolves the same execution graph as `run` (parameters, parametric instances, matrix expansion, interpolated `run` strings) but does not execute commands or read the artifact cache. Output is JSON for external tools:
 

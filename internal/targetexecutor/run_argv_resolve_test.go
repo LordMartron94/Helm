@@ -52,7 +52,7 @@ func TestTargetExecutorResolveRunArgvSplicesParameterPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []string{"tools/link.sh", "build/out", first, second}
+	want := []string{"tools/link.sh", "build/out", "a.c", "b.c"}
 	if len(argv) != len(want) {
 		t.Fatalf("argv = %#v, want %#v", argv, want)
 	}

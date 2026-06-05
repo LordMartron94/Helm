@@ -82,7 +82,7 @@ func TestTargetExecutorResolveWhenArgvRun(t *testing.T) {
 		t.Fatalf("steps = %#v", steps)
 	}
 
-	want := []string{"tools/link.sh", first, second}
+	want := []string{"tools/link.sh", "a.c", "b.c"}
 	if len(steps[0].Argv) != len(want) {
 		t.Fatalf("argv = %#v, want %#v", steps[0].Argv, want)
 	}

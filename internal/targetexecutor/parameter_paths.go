@@ -5,6 +5,7 @@ import (
 	"helm/internal/artifactresolve"
 	"helm/internal/expand"
 	"helm/internal/ir"
+	"helm/internal/workspacepath"
 )
 
 func targetExecutorResolveParameterPaths(
@@ -35,7 +36,7 @@ func targetExecutorResolveParameterPaths(
 		if paths, ok := expand.PathsFromShellParameterList(text); ok {
 			return paths, nil
 		}
-		return []string{artifactresolve.ArtifactAnchorPath(helmBaseDir, text)}, nil
+		return []string{workspacepath.WorkspaceNormalize(text)}, nil
 	case ir.HelmParameterTargetParamRef:
 		return nil, fmt.Errorf(
 			"parameter '%s' was not bound (internal error)",
@@ -76,7 +77,7 @@ func targetExecutorResolveGlobalArtifactPaths(
 		if paths, ok := expand.PathsFromShellParameterList(text); ok {
 			return paths, nil
 		}
-		return []string{artifactresolve.ArtifactAnchorPath(helmBaseDir, text)}, nil
+		return []string{workspacepath.WorkspaceNormalize(text)}, nil
 	default:
 		return nil, fmt.Errorf("global '%s' has unsupported kind", globalName)
 	}

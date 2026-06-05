@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"helm/internal/expand"
 	"helm/internal/ir"
+	"helm/internal/workspacepath"
 	"os"
 	"path/filepath"
 	"sort"
@@ -129,6 +130,15 @@ func artifactResolveItemContext(
 	requireExistingFiles bool,
 ) ([]string, error) {
 	switch item.Kind {
+	case ir.ArtifactInputLetRef:
+		if item.LetName == "" {
+			return nil, fmt.Errorf("let artifact reference is missing a name")
+		}
+		paths, ok := ctx.PathLists[item.LetName]
+		if !ok {
+			return nil, fmt.Errorf("let binding '%s' is not resolved", item.LetName)
+		}
+		return append([]string(nil), paths...), nil
 	case ir.ArtifactInputString:
 		path := expand.InterpolationContextExpandLiteral(ctx, item.Literal)
 		if path == "" {
@@ -137,13 +147,17 @@ func artifactResolveItemContext(
 		if paths, ok := expand.PathsFromShellParameterList(path); ok {
 			return artifactResolveAnchoredPaths(helmBaseDir, paths, requireExistingFiles)
 		}
-		path = artifactAnchorPath(helmBaseDir, path)
+		absPath := artifactAnchorPath(helmBaseDir, path)
 		if requireExistingFiles {
-			if err := artifactEnsureFile(path); err != nil {
+			if err := artifactEnsureFile(absPath); err != nil {
 				return nil, err
 			}
 		}
-		return []string{path}, nil
+		rel, ok := workspacepath.WorkspaceRelative(helmBaseDir, absPath)
+		if !ok {
+			return nil, fmt.Errorf("artifact path '%s' is outside workspace", path)
+		}
+		return []string{rel}, nil
 	case ir.ArtifactInputGlob:
 		if item.Glob == nil {
 			return nil, fmt.Errorf("glob artifact item is missing glob configuration")
@@ -195,9 +209,9 @@ func expandInterpolateGlobPatternsContext(
 	return out
 }
 
-// ArtifactAnchorPath resolves a helm-relative path against the helm file directory.
+// ArtifactAnchorPath resolves a workspace-relative path against the helm file directory.
 func ArtifactAnchorPath(helmBaseDir, path string) string {
-	return artifactAnchorPath(helmBaseDir, path)
+	return workspacepath.WorkspaceAnchor(helmBaseDir, path)
 }
 
 func artifactAnchorPath(helmBaseDir, path string) string {
@@ -214,13 +228,17 @@ func artifactResolveAnchoredPaths(
 ) ([]string, error) {
 	out := make([]string, 0, len(paths))
 	for _, path := range paths {
-		path = artifactAnchorPath(helmBaseDir, path)
+		absPath := artifactAnchorPath(helmBaseDir, path)
 		if requireExistingFiles {
-			if err := artifactEnsureFile(path); err != nil {
+			if err := artifactEnsureFile(absPath); err != nil {
 				return nil, err
 			}
 		}
-		out = append(out, path)
+		rel, ok := workspacepath.WorkspaceRelative(helmBaseDir, absPath)
+		if !ok {
+			return nil, fmt.Errorf("artifact path '%s' is outside workspace", path)
+		}
+		out = append(out, rel)
 	}
 	return out, nil
 }

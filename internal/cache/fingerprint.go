@@ -10,6 +10,7 @@ import (
 	"helm/internal/artifactresolve"
 	"helm/internal/expand"
 	"helm/internal/ir"
+	"helm/internal/workspacepath"
 	"os"
 	"sort"
 )
@@ -79,10 +80,12 @@ func CacheFingerprintState(
 
 	var buffer bytes.Buffer
 	buffer.WriteString("state")
-	cacheWritePaths(&buffer, inputPaths)
+	if err := cacheWritePaths(helmBaseDir, &buffer, inputPaths); err != nil {
+		return 0, err
+	}
 	if len(discoveredPaths) > 0 {
 		buffer.WriteString("dynamic-discovered")
-		if err := cacheWritePaths(&buffer, discoveredPaths); err != nil {
+		if err := cacheWritePaths(helmBaseDir, &buffer, discoveredPaths); err != nil {
 			return 0, err
 		}
 	}
@@ -196,7 +199,7 @@ func CacheFingerprintOutput(
 
 	var buffer bytes.Buffer
 	buffer.WriteString("output")
-	if err := cacheWritePaths(&buffer, outputPaths); err != nil {
+	if err := cacheWritePaths(helmBaseDir, &buffer, outputPaths); err != nil {
 		return 0, err
 	}
 
@@ -218,9 +221,9 @@ func CacheAggregateInstanceFingerprints(fingerprints []uint64) uint64 {
 	return hash.XXH3HasherHash64(cacheAggregateHasher, buffer.Bytes())
 }
 
-func cacheWritePaths(buffer *bytes.Buffer, paths []string) error {
+func cacheWritePaths(helmBaseDir string, buffer *bytes.Buffer, paths []string) error {
 	for _, path := range paths {
-		fileHash, err := cacheFileContentHash(path)
+		fileHash, err := cacheFileContentHash(helmBaseDir, path)
 		if err != nil {
 			return err
 		}
@@ -230,17 +233,18 @@ func cacheWritePaths(buffer *bytes.Buffer, paths []string) error {
 	return nil
 }
 
-func cacheFileContentHash(path string) (uint64, error) {
-	if _, statErr := os.Stat(path); statErr != nil {
+func cacheFileContentHash(helmBaseDir, relPath string) (uint64, error) {
+	absPath := workspacepath.WorkspaceAnchor(helmBaseDir, relPath)
+	if _, statErr := os.Stat(absPath); statErr != nil {
 		if os.IsNotExist(statErr) {
 			return cacheMissingFileFingerprint, nil
 		}
-		return 0, &CacheFingerprintFileError{Path: path, Cause: statErr}
+		return 0, &CacheFingerprintFileError{Path: relPath, Cause: statErr}
 	}
 
-	content, err := system.FileReadAllBytes(path)
+	content, err := system.FileReadAllBytes(absPath)
 	if err != nil {
-		return 0, &CacheFingerprintFileError{Path: path, Cause: err}
+		return 0, &CacheFingerprintFileError{Path: relPath, Cause: err}
 	}
 	return hash.XXH3HasherHash64(cacheFileHasher, content), nil
 }

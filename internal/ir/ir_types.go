@@ -46,6 +46,10 @@ const (
 	ERROR_DUPLICATE_MATRIX    string = "MATRIX_001"
 	ERROR_MATRIX_PARAM_SHADOW string = "MATRIX_002"
 	ERROR_EMPTY_MATRIX        string = "MATRIX_003"
+
+	ERROR_DUPLICATE_LET       string = "LET_001"
+	ERROR_LET_SHADOWS_BINDING string = "LET_002"
+	ERROR_INVALID_PATH_EXPR   string = "LET_003"
 )
 
 type HelmConditionType int
@@ -72,11 +76,11 @@ const (
 )
 
 // HelmRunArgvElement is one argv slot in a native run [ ... ] command.
-// Exactly one of Literal or ParamName is set: literals interpolate as scalars; ParamName splices
-// a bound parameter's path list (artifact arrays expand to one argv element per path).
+// Exactly one of Literal, ParamName, or AbsPath is set.
 type HelmRunArgvElement struct {
 	Literal   string
 	ParamName string
+	AbsPath   string
 }
 
 // HelmRunCommand is either a legacy string run (shlex-split at execution) or a native argv template.
@@ -119,6 +123,7 @@ type HelmTarget struct {
 	DependsOn           []HelmTargetDependency
 	DependsOnParamNames []string
 	Matrix              *HelmMatrix
+	LetBindings         []HelmPathBinding
 	Artifacts           *HelmArtifacts
 	Interactive         bool
 	Hidden              bool
@@ -197,12 +202,37 @@ type HelmArtifactInputKind int
 const (
 	ArtifactInputString HelmArtifactInputKind = iota
 	ArtifactInputGlob
+	ArtifactInputLetRef
 )
 
 type HelmArtifactInput struct {
 	Kind    HelmArtifactInputKind
 	Literal string
 	Glob    *HelmGlob
+	LetName string
+}
+
+type HelmPathExprKind int
+
+const (
+	PathExprLiteral HelmPathExprKind = iota
+	PathExprParamRef
+	PathExprGlobalRef
+	PathExprLetRef
+	PathExprCall
+)
+
+type HelmPathExpr struct {
+	Kind     HelmPathExprKind
+	Literal  string
+	Name     string
+	CallName string
+	CallArgs []HelmPathExpr
+}
+
+type HelmPathBinding struct {
+	Name string
+	Expr HelmPathExpr
 }
 
 type HelmArtifacts struct {

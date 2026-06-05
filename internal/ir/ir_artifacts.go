@@ -68,6 +68,12 @@ func expandArtifactSequenceFromVariableRef(
 			Literal: placeholder,
 		}}, true
 	}
+	if resolveScopeHasLetBinding(scope, varName) {
+		return []HelmArtifactInput{{
+			Kind:    ArtifactInputLetRef,
+			LetName: varName,
+		}}, true
+	}
 
 	return nil, false
 }
@@ -101,6 +107,9 @@ func resolveArtifactItem(
 
 	if varNode := artifactItemVarRefNode(node); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
+		if resolveScopeHasLetBinding(scope, varName) {
+			return HelmArtifactInput{Kind: ArtifactInputLetRef, LetName: varName}, true
+		}
 		if text, ok := resolveScopeVariableAsLiteral(scope, varName); ok {
 			return HelmArtifactInput{Kind: ArtifactInputString, Literal: text}, true
 		}

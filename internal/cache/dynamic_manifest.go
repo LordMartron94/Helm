@@ -6,8 +6,8 @@ import (
 	"helm/internal/artifactresolve"
 	"helm/internal/expand"
 	"helm/internal/ir"
+	"helm/internal/workspacepath"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -48,7 +48,8 @@ func DynamicManifestBootstrapMissContext(
 	}
 
 	for _, manifestPath := range manifestPaths {
-		if _, err := os.Stat(manifestPath); err != nil {
+		absPath := workspacepath.WorkspaceAnchor(helmBaseDir, manifestPath)
+		if _, err := os.Stat(absPath); err != nil {
 			if os.IsNotExist(err) {
 				return true, nil
 			}
@@ -59,8 +60,9 @@ func DynamicManifestBootstrapMissContext(
 }
 
 // DynamicManifestDiscoveredPaths reads each configured manifest (one discovered path
-// per non-empty line) and returns absolute paths whose file contents should be hashed
-// for cache state. Manifest files themselves are not included.
+// per non-empty line) and returns workspace-relative paths whose file contents should
+// be hashed for cache state. Manifest files themselves are not included. Paths outside
+// the workspace are silently dropped.
 func DynamicManifestDiscoveredPaths(
 	helmBaseDir string,
 	artifacts *ir.HelmArtifacts,
@@ -99,20 +101,21 @@ func DynamicManifestDiscoveredPathsContext(
 	var discovered []string
 
 	for _, manifestPath := range manifestPaths {
-		lines, err := cacheReadManifestLines(manifestPath)
+		absManifest := workspacepath.WorkspaceAnchor(helmBaseDir, manifestPath)
+		lines, err := cacheReadManifestLines(absManifest)
 		if err != nil {
 			return nil, err
 		}
 		for _, line := range lines {
-			absolute, err := cacheAnchorDiscoveredPath(helmBaseDir, line)
-			if err != nil {
-				return nil, fmt.Errorf("dynamic manifest '%s': %w", manifestPath, err)
-			}
-			if _, exists := seen[absolute]; exists {
+			rel, ok := workspacepath.WorkspaceRelative(helmBaseDir, line)
+			if !ok {
 				continue
 			}
-			seen[absolute] = struct{}{}
-			discovered = append(discovered, absolute)
+			if _, exists := seen[rel]; exists {
+				continue
+			}
+			seen[rel] = struct{}{}
+			discovered = append(discovered, rel)
 		}
 	}
 
@@ -139,17 +142,4 @@ func cacheReadManifestLines(manifestPath string) ([]string, error) {
 		return nil, fmt.Errorf("read manifest '%s': %w", manifestPath, err)
 	}
 	return lines, nil
-}
-
-func cacheAnchorDiscoveredPath(helmBaseDir, path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("empty path in manifest")
-	}
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path), nil
-	}
-	if helmBaseDir == "" {
-		return filepath.Clean(path), nil
-	}
-	return filepath.Clean(filepath.Join(helmBaseDir, path)), nil
 }

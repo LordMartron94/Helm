@@ -24,6 +24,11 @@ func ExpandFingerprintRunCommand(
 				buffer.WriteString(element.ParamName)
 				continue
 			}
+			if element.AbsPath != "" {
+				buffer.WriteString("abs_path:")
+				buffer.WriteString(InterpolationContextExpandLiteral(ctx, element.AbsPath))
+				continue
+			}
 			buffer.WriteString(InterpolationContextExpandLiteral(ctx, element.Literal))
 		}
 		return buffer.String()
