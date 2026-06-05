@@ -1,0 +1,27 @@
+FILES = [
+    "fixtures/one.c",
+    "fixtures/two.c"
+]
+
+target argv_link(SOURCE_FILES) {
+    help = "native argv link demo"
+    artifacts { volatile = true }
+    run [
+        "echo",
+        "argv-start",
+        param SOURCE_FILES
+    ]
+}
+
+target argv_entry() {
+    help = "entry for argv link"
+    artifacts { volatile = true }
+    depends_on [
+        argv_link {
+            params {
+                SOURCE_FILES = FILES
+            }
+        }
+    ]
+    run "echo argv_entry_done"
+}

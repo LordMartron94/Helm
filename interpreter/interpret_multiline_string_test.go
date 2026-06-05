@@ -63,7 +63,7 @@ func TestMultilineStringExtraction(t *testing.T) {
 	if len(demo.Steps) != 1 || demo.Steps[0].Kind != ir.TargetStepRun {
 		t.Fatalf("steps: %#v", demo.Steps)
 	}
-	runText := demo.Steps[0].Run
+	runText := demo.Steps[0].Run.String
 	for _, fragment := range []string{"echo start", "line one", "line two", "echo end"} {
 		if !strings.Contains(runText, fragment) {
 			t.Fatalf("run missing %q:\n%s", fragment, runText)

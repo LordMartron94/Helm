@@ -61,7 +61,7 @@ func TestTargetExecutorRunGraphRaceWithMatrix(t *testing.T) {
 					{TargetName: "gen_a"},
 					{TargetName: "gen_b"},
 				},
-				Steps: []ir.HelmTargetStep{{Kind: ir.TargetStepRun, Run: "echo entry"}},
+				Steps: []ir.HelmTargetStep{{Kind: ir.TargetStepRun, Run: ir.HelmRunCommandLiteral("echo entry")}},
 			},
 			"gen_a": {
 				Name: "gen_a",
@@ -75,7 +75,7 @@ func TestTargetExecutorRunGraphRaceWithMatrix(t *testing.T) {
 				Artifacts: &ir.HelmArtifacts{
 					Volatile: true,
 				},
-				Steps: []ir.HelmTargetStep{{Kind: ir.TargetStepRun, Run: "echo ${M}"}},
+				Steps: []ir.HelmTargetStep{{Kind: ir.TargetStepRun, Run: ir.HelmRunCommandLiteral("echo ${M}")}},
 			},
 			"gen_b": {
 				Name: "gen_b",
@@ -89,7 +89,7 @@ func TestTargetExecutorRunGraphRaceWithMatrix(t *testing.T) {
 				Artifacts: &ir.HelmArtifacts{
 					Volatile: true,
 				},
-				Steps: []ir.HelmTargetStep{{Kind: ir.TargetStepRun, Run: "echo ${M}"}},
+				Steps: []ir.HelmTargetStep{{Kind: ir.TargetStepRun, Run: ir.HelmRunCommandLiteral("echo ${M}")}},
 			},
 		},
 	}

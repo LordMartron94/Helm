@@ -658,11 +658,9 @@ func handleTargetRun(
 	scope resolveScope,
 	currentTarget *HelmTarget,
 ) {
-	stringNode := findStringContentNode(node)
-	runText := extractStringFromStringNode(builder, stringNode, scope)
 	currentTarget.Steps = append(currentTarget.Steps, HelmTargetStep{
 		Kind: TargetStepRun,
-		Run:  runText,
+		Run:  extractRunCommandFromNode(builder, node, scope),
 	})
 }
 
@@ -720,9 +718,7 @@ func handleTargetConditional(
 
 	runNodes := node.FindAllKind(artifacts.NodeRunStatement)
 	for _, runNode := range runNodes {
-		stringNode := findStringContentNode(runNode)
-		runText := extractStringFromStringNode(builder, stringNode, scope)
-		condition.Runs = append(condition.Runs, runText)
+		condition.Runs = append(condition.Runs, extractRunCommandFromNode(builder, runNode, scope))
 	}
 
 	currentTarget.Steps = append(currentTarget.Steps, HelmTargetStep{

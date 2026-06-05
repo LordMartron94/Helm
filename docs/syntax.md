@@ -337,21 +337,26 @@ target publish(TAG?) {
 }
 ```
 
+Each `run` inside a `when` block supports the same string and argv forms as a top-level `run` (see §7). Conditional argv runs splice `param NAME` the same way when the condition is satisfied.
+
 ---
 
 ## 7. Execution (`run`)
 
-The `run` keyword declares a single command. Helm parses the resolved command and passes it directly to the native OS process spawner (shlexing), bypassing shell interpreters to enforce complexity limits.
+The `run` keyword declares one process invocation. Helm supports two forms:
+
+* **String run** — a single quoted or triple-quoted string. After `${...}` interpolation, Helm shlex-splits the result and passes the argv slice to the native OS spawner. Shell interpreters are not used; piping (`|`, `&&`) is not evaluated.
+* **Argv run** — a bracket array of literal strings and `param NAME` splices. Helm materializes the array into a `[]string` and passes it directly to the OS spawner with no shlex pass and no shell quoting round-trip. Use this for link/compile scripts that must accept large file lists without hitting OS command-line length limits.
 
 ```helm
 target migrate() {
-    // Single command only. 
-    // Shell piping (|, &&) is not evaluated by the Helm engine.
     run "./scripts/db_migrate.sh up"
 }
 ```
 
-A `run` command may be authored as a triple-quoted (multiline) string, or assembled by interpolating a multiline global, so a long invocation can be wrapped across indented lines for readability. After `${...}` interpolation, Helm folds the line wrapping: any whitespace run containing a line break collapses to a single space and the ends are trimmed, yielding one clean command line. Deliberate horizontal spacing between arguments (without line breaks) is preserved. The same folded command is what executes, what feeds the cache fingerprint, and what the execution-graph export reports — so reformatting a multiline command for readability does not change its meaning or invalidate the cache.
+### String runs and multiline folding
+
+A string `run` may be authored as a triple-quoted (multiline) string, or assembled by interpolating a multiline global, so a long invocation can be wrapped across indented lines for readability. After `${...}` interpolation, Helm folds the line wrapping: any whitespace run containing a line break collapses to a single space and the ends are trimmed, yielding one clean command line. Deliberate horizontal spacing between arguments (without line breaks) is preserved.
 
 ```helm
 _COMMON_COMPILER_FLAGS = """
@@ -361,10 +366,26 @@ _COMMON_COMPILER_FLAGS = """
 """
 
 target build() {
-    // Resolves to: clang main.c -g -std=c89 -pedantic -Wall -Werror=vla -Wno-long-long -o out
     run "clang main.c ${_COMMON_COMPILER_FLAGS} -o out"
 }
 ```
+
+### Native argv runs
+
+Argv runs splice target parameters that hold artifact path lists (globals declared as `glob()` arrays, or parameters forwarded from callers). Each `param NAME` expands to one argv element per resolved path, in order, without shell quoting.
+
+```helm
+target link_objects(SOURCE_FILES, OUT_PATH) {
+    artifacts { volatile = true }
+    run [
+        "infra/standards/link_objects.sh",
+        "${OUT_PATH}",
+        param SOURCE_FILES
+    ]
+}
+```
+
+The execution-graph exporter reports native argv steps in `run_argvs` (parallel to `run_commands`). String steps populate `run_commands` only; argv steps populate both `run_commands` (joined for display) and `run_argvs` (the exact argv slice).
 
 ---
 

@@ -61,7 +61,7 @@ type HelmCondition struct {
 	ConditionType HelmConditionType
 	Parameter     string
 	TargetValue   string
-	Runs          []string
+	Runs          []HelmRunCommand
 }
 
 type HelmTargetStepKind int
@@ -71,9 +71,31 @@ const (
 	TargetStepWhen
 )
 
+// HelmRunArgvElement is one argv slot in a native run [ ... ] command.
+// Exactly one of Literal or ParamName is set: literals interpolate as scalars; ParamName splices
+// a bound parameter's path list (artifact arrays expand to one argv element per path).
+type HelmRunArgvElement struct {
+	Literal   string
+	ParamName string
+}
+
+// HelmRunCommand is either a legacy string run (shlex-split at execution) or a native argv template.
+type HelmRunCommand struct {
+	String string
+	Argv   []HelmRunArgvElement
+}
+
+func HelmRunCommandIsArgv(command HelmRunCommand) bool {
+	return len(command.Argv) > 0
+}
+
+func HelmRunCommandLiteral(text string) HelmRunCommand {
+	return HelmRunCommand{String: text}
+}
+
 type HelmTargetStep struct {
 	Kind HelmTargetStepKind
-	Run  string
+	Run  HelmRunCommand
 	When *HelmCondition
 }
 

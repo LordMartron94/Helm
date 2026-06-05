@@ -32,7 +32,7 @@ func TestTargetExecutorDependencyBlockedParametricProducerFailure(t *testing.T) 
 					},
 				},
 				Steps: []ir.HelmTargetStep{
-					{Kind: ir.TargetStepRun, Run: "false"},
+					{Kind: ir.TargetStepRun, Run: ir.HelmRunCommandLiteral("false")},
 				},
 			},
 			"build_application": {

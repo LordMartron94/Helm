@@ -146,7 +146,7 @@ func cacheWriteTargetExecution(
 		switch step.Kind {
 		case ir.TargetStepRun:
 			buffer.WriteString("run")
-			buffer.WriteString(expand.ExpandInterpolateRunCommand(step.Run, globalVars, parameters))
+			buffer.WriteString(expand.ExpandFingerprintRunCommand(step.Run, globalVars, parameters))
 		case ir.TargetStepWhen:
 			if step.When == nil {
 				continue
@@ -156,8 +156,8 @@ func cacheWriteTargetExecution(
 			binary.Write(buffer, binary.LittleEndian, int32(condition.ConditionType))
 			buffer.WriteString(condition.Parameter)
 			buffer.WriteString(condition.TargetValue)
-			for _, runLiteral := range condition.Runs {
-				buffer.WriteString(expand.ExpandInterpolateRunCommand(runLiteral, globalVars, parameters))
+			for _, runCommand := range condition.Runs {
+				buffer.WriteString(expand.ExpandFingerprintRunCommand(runCommand, globalVars, parameters))
 			}
 		}
 	}

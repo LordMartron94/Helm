@@ -56,7 +56,7 @@ func TestEmptyStringParsing(t *testing.T) {
 	if demo.HelpText != "" {
 		t.Fatalf("help: got %q", demo.HelpText)
 	}
-	if len(demo.Steps) != 1 || demo.Steps[0].Run != "" {
+	if len(demo.Steps) != 1 || demo.Steps[0].Run.String != "" {
 		t.Fatalf("run step: %#v", demo.Steps)
 	}
 }

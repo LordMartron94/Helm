@@ -16,7 +16,7 @@ func TestTargetExecutorExportExecutionGraph(t *testing.T) {
 			"leaf": {
 				Name: "leaf",
 				Steps: []ir.HelmTargetStep{
-					{Kind: ir.TargetStepRun, Run: "echo leaf"},
+					{Kind: ir.TargetStepRun, Run: ir.HelmRunCommandLiteral("echo leaf")},
 				},
 			},
 			"entry": {
@@ -25,7 +25,7 @@ func TestTargetExecutorExportExecutionGraph(t *testing.T) {
 					{TargetName: "leaf"},
 				},
 				Steps: []ir.HelmTargetStep{
-					{Kind: ir.TargetStepRun, Run: "echo entry"},
+					{Kind: ir.TargetStepRun, Run: ir.HelmRunCommandLiteral("echo entry")},
 				},
 			},
 		},
@@ -86,7 +86,7 @@ func TestTargetExecutorExportExecutionGraphParametric(t *testing.T) {
 					{Name: "MSG"},
 				},
 				Steps: []ir.HelmTargetStep{
-					{Kind: ir.TargetStepRun, Run: "echo ${MSG}"},
+					{Kind: ir.TargetStepRun, Run: ir.HelmRunCommandLiteral("echo ${MSG}")},
 				},
 			},
 			"entry": {
@@ -100,7 +100,7 @@ func TestTargetExecutorExportExecutionGraphParametric(t *testing.T) {
 					},
 				},
 				Steps: []ir.HelmTargetStep{
-					{Kind: ir.TargetStepRun, Run: "echo done"},
+					{Kind: ir.TargetStepRun, Run: ir.HelmRunCommandLiteral("echo done")},
 				},
 			},
 		},
@@ -134,7 +134,7 @@ func TestTargetExecutorExportExecutionGraphBundle(t *testing.T) {
 			"alpha": {
 				Name: "alpha",
 				Steps: []ir.HelmTargetStep{
-					{Kind: ir.TargetStepRun, Run: "echo alpha"},
+					{Kind: ir.TargetStepRun, Run: ir.HelmRunCommandLiteral("echo alpha")},
 				},
 			},
 			"beta": {
@@ -143,7 +143,7 @@ func TestTargetExecutorExportExecutionGraphBundle(t *testing.T) {
 					{TargetName: "alpha"},
 				},
 				Steps: []ir.HelmTargetStep{
-					{Kind: ir.TargetStepRun, Run: "echo beta"},
+					{Kind: ir.TargetStepRun, Run: ir.HelmRunCommandLiteral("echo beta")},
 				},
 			},
 		},

@@ -15,6 +15,7 @@ type TargetRunRequest struct {
 	TargetName  string
 	StepIndex   int
 	Command     string
+	Argv        []string
 	WorkDir     string
 	Env         map[string]string
 	Interactive bool
@@ -34,13 +35,9 @@ type TargetRunHandler func(req TargetRunRequest) (TargetRunResult, error)
 func TargetExecutorDefaultRunHandler(req TargetRunRequest) (TargetRunResult, error) {
 	var result TargetRunResult
 
-	argv, err := shlex.Split(req.Command)
+	argv, err := targetExecutorRunRequestArgv(req)
 	if err != nil {
-		return result, fmt.Errorf("target '%s' step %d: shlex split failed: %w", req.TargetName, req.StepIndex, err)
-	}
-
-	if len(argv) == 0 {
-		return result, fmt.Errorf("target '%s' step %d: empty command after shlex split", req.TargetName, req.StepIndex)
+		return result, err
 	}
 
 	cmd := exec.Command(argv[0], argv[1:]...)
@@ -120,4 +117,21 @@ func targetExecutorRunOutputWriter(capture io.Writer, live io.Writer) io.Writer 
 		return live
 	}
 	return io.MultiWriter(capture, live)
+}
+
+func targetExecutorRunRequestArgv(req TargetRunRequest) ([]string, error) {
+	if len(req.Argv) > 0 {
+		return req.Argv, nil
+	}
+
+	argv, err := shlex.Split(req.Command)
+	if err != nil {
+		return nil, fmt.Errorf("target '%s' step %d: shlex split failed: %w", req.TargetName, req.StepIndex, err)
+	}
+
+	if len(argv) == 0 {
+		return nil, fmt.Errorf("target '%s' step %d: empty command after shlex split", req.TargetName, req.StepIndex)
+	}
+
+	return argv, nil
 }

@@ -1,19 +1,18 @@
 package targetexecutor
 
 import (
-	"fmt"
 	"helm/internal/artifactresolve"
 	"helm/internal/ir"
 )
 
-// TargetExecutorResolveTargetRuns expands a target's steps into concrete command strings
+// TargetExecutorResolveTargetRuns expands a target's steps into concrete run steps
 // and an anchored working directory (helm file directory when workdir is unset).
 func TargetExecutorResolveTargetRuns(
 	helmBaseDir string,
 	target ir.HelmTarget,
 	globals map[string]ir.HelmGlobalVariable,
 	inv TargetInvocation,
-) (workDir string, commands []string, err error) {
+) (workDir string, steps []TargetResolvedRun, err error) {
 	paramValues := TargetExecutorParametersForTarget(target, inv)
 	resolvedParams, err := TargetExecutorResolveInvocationParameters(
 		helmBaseDir,
@@ -32,6 +31,8 @@ func TargetExecutorResolveTargetRuns(
 	return targetExecutorResolveTargetRunsFromResolved(
 		helmBaseDir,
 		target,
+		globals,
+		paramValues,
 		globalVars,
 		resolvedParams,
 	)
@@ -40,39 +41,28 @@ func TargetExecutorResolveTargetRuns(
 func targetExecutorResolveTargetRunsFromResolved(
 	helmBaseDir string,
 	target ir.HelmTarget,
+	globals map[string]ir.HelmGlobalVariable,
+	paramValues map[string]ir.HelmParameterValue,
 	globalVars map[string]string,
 	resolvedParams map[string]string,
-) (workDir string, commands []string, err error) {
+) (workDir string, steps []TargetResolvedRun, err error) {
 	workDir = TargetExecutorInterpolateLiteral(target.WorkDir, globalVars, resolvedParams)
 	workDir = artifactresolve.ArtifactAnchorPath(helmBaseDir, workDir)
 	if workDir == "" {
 		workDir = helmBaseDir
 	}
 
-	for _, step := range target.Steps {
-		switch step.Kind {
-		case ir.TargetStepRun:
-			commands = append(
-				commands,
-				TargetExecutorResolveRunCommand(step.Run, globalVars, resolvedParams),
-			)
-		case ir.TargetStepWhen:
-			if step.When == nil {
-				continue
-			}
-			if !TargetExecutorEvaluateCondition(*step.When, resolvedParams) {
-				continue
-			}
-			for _, runLiteral := range step.When.Runs {
-				commands = append(
-					commands,
-					TargetExecutorResolveRunCommand(runLiteral, globalVars, resolvedParams),
-				)
-			}
-		default:
-			return "", nil, fmt.Errorf("target '%s': unknown step kind", target.Name)
-		}
+	steps, err = targetExecutorResolveTargetRunSteps(
+		helmBaseDir,
+		target,
+		globals,
+		paramValues,
+		globalVars,
+		resolvedParams,
+	)
+	if err != nil {
+		return "", nil, err
 	}
 
-	return workDir, commands, nil
+	return workDir, steps, nil
 }

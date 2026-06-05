@@ -27,6 +27,7 @@ type TargetGraphExportEntry struct {
 	CanonicalTarget string            `json:"canonical_target"`
 	Directory       string            `json:"directory"`
 	RunCommands     []string          `json:"run_commands"`
+	RunArgvs        [][]string        `json:"run_argvs,omitempty"`
 	DependsOn       []string          `json:"depends_on,omitempty"`
 	MatrixInstance  string            `json:"matrix_instance,omitempty"`
 	Parameters      map[string]string `json:"parameters,omitempty"`
@@ -196,7 +197,7 @@ func targetExecutorExportGraphNode(
 
 	for _, instance := range instances {
 		effectiveInv := TargetInvocation{Parameters: targetExecutorEffectiveParameterValues(target, inv, instance.Bindings)}
-		workDir, commands, resolveErr := TargetExecutorResolveTargetRuns(
+		workDir, steps, resolveErr := TargetExecutorResolveTargetRuns(
 			builtIR.SourceDirectory,
 			target,
 			builtIR.GlobalVariables,
@@ -211,11 +212,14 @@ func targetExecutorExportGraphNode(
 			return fmt.Errorf("node '%s': resolve directory: %w", nodeName, absErr)
 		}
 
+		runCommands, runArgvs := TargetExecutorExportRunSteps(steps)
+
 		exportKey := targetExecutorExportGraphNodeKey(nodeName, instance.CacheKey)
 		entry := TargetGraphExportEntry{
 			CanonicalTarget: canonical,
 			Directory:       absDir,
-			RunCommands:     commands,
+			RunCommands:     runCommands,
+			RunArgvs:        runArgvs,
 			DependsOn:       append([]string(nil), dependsOn...),
 		}
 		if instance.CacheKey != "" {
