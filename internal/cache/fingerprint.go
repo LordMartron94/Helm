@@ -141,7 +141,7 @@ func cacheWriteTargetExecution(
 		switch step.Kind {
 		case ir.TargetStepRun:
 			buffer.WriteString("run")
-			buffer.WriteString(expand.ExpandInterpolateLiteral(step.Run, globalVars, parameters))
+			buffer.WriteString(expand.ExpandInterpolateRunCommand(step.Run, globalVars, parameters))
 		case ir.TargetStepWhen:
 			if step.When == nil {
 				continue
@@ -152,7 +152,7 @@ func cacheWriteTargetExecution(
 			buffer.WriteString(condition.Parameter)
 			buffer.WriteString(condition.TargetValue)
 			for _, runLiteral := range condition.Runs {
-				buffer.WriteString(expand.ExpandInterpolateLiteral(runLiteral, globalVars, parameters))
+				buffer.WriteString(expand.ExpandInterpolateRunCommand(runLiteral, globalVars, parameters))
 			}
 		}
 	}

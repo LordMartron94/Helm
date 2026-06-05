@@ -54,7 +54,7 @@ func targetExecutorResolveTargetRunsFromResolved(
 		case ir.TargetStepRun:
 			commands = append(
 				commands,
-				TargetExecutorInterpolateLiteral(step.Run, globalVars, resolvedParams),
+				TargetExecutorResolveRunCommand(step.Run, globalVars, resolvedParams),
 			)
 		case ir.TargetStepWhen:
 			if step.When == nil {
@@ -66,7 +66,7 @@ func targetExecutorResolveTargetRunsFromResolved(
 			for _, runLiteral := range step.When.Runs {
 				commands = append(
 					commands,
-					TargetExecutorInterpolateLiteral(runLiteral, globalVars, resolvedParams),
+					TargetExecutorResolveRunCommand(runLiteral, globalVars, resolvedParams),
 				)
 			}
 		default:

@@ -45,6 +45,16 @@ func TargetExecutorInterpolateLiteral(
 	return expand.ExpandInterpolateLiteral(literal, globalVars, parameters)
 }
 
+// TargetExecutorResolveRunCommand interpolates a run-command literal and folds multiline
+// formatting into a single command line (see expand.ExpandInterpolateRunCommand).
+func TargetExecutorResolveRunCommand(
+	literal string,
+	globalVars map[string]string,
+	parameters map[string]string,
+) string {
+	return expand.ExpandInterpolateRunCommand(literal, globalVars, parameters)
+}
+
 func targetExecutorInterpolateEnv(
 	env map[string]string,
 	globalVars map[string]string,
