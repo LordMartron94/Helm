@@ -14,6 +14,11 @@ import (
 	"sort"
 )
 
+// cacheMissingFileFingerprint is the stable content hash for a referenced path that does not
+// exist yet. The path itself is still written into the aggregate fingerprint so creation or
+// removal of the file changes the cache state.
+const cacheMissingFileFingerprint uint64 = 0
+
 // CacheFingerprintFileError is returned when hashing an artifact path for a fingerprint fails.
 type CacheFingerprintFileError struct {
 	Path  string
@@ -219,6 +224,13 @@ func cacheWritePaths(buffer *bytes.Buffer, paths []string) error {
 }
 
 func cacheFileContentHash(path string) (uint64, error) {
+	if _, statErr := os.Stat(path); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return cacheMissingFileFingerprint, nil
+		}
+		return 0, &CacheFingerprintFileError{Path: path, Cause: statErr}
+	}
+
 	content, err := system.FileReadAllBytes(path)
 	if err != nil {
 		return 0, &CacheFingerprintFileError{Path: path, Cause: err}
