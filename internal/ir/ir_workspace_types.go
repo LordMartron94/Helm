@@ -19,7 +19,9 @@ const (
 	ERROR_INVALID_LABEL              string = "LABEL_001"
 	ERROR_UNKNOWN_ENTITY_LABEL       string = "LABEL_002"
 	ERROR_ENTITY_CYCLE               string = "ENTITY_004"
-	ERROR_ENTITY_BIN_HAS_INTERFACE   string = "ENTITY_005"
+	ERROR_ENTITY_BIN_HAS_INTERFACE      string = "ENTITY_005"
+	ERROR_ENTITY_INTERFACE_HAS_USE      string = "ENTITY_006"
+	ERROR_ENTITY_INTERFACE_MISSING_BAG  string = "ENTITY_007"
 )
 
 // HelmWorkspace is the root workspace manifest (Helm 2.0).
@@ -41,7 +43,9 @@ func HelmLabelCanonical(label HelmLabel) string {
 	return "//" + label.Path + ":" + label.Name
 }
 
-// HelmEntity is a buildable workspace component (artifacts via adapter only).
+// HelmEntity is a workspace graph node. Compiled entities produce artifacts via
+// an adapter; metadata-only entities (kind interface or header_only) propagate
+// property bags without build steps.
 type HelmEntity struct {
 	Name         string
 	Label        HelmLabel

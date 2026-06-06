@@ -37,6 +37,10 @@ func EntityExpandAdapter(
 		return EntityAdapterPlan{}, fmt.Errorf("entity '%s' not found", entityKey)
 	}
 
+	if ir.HelmEntityIsMetadataOnly(entity) {
+		return EntityAdapterPlan{EntityKey: entityKey}, nil
+	}
+
 	adapter, ok := builtIR.Adapters[entity.AdapterName]
 	if !ok {
 		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': unknown adapter '%s'", entityKey, entity.AdapterName)

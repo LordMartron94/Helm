@@ -617,6 +617,118 @@ target build() {
 	}
 }
 
+func TestHelm2MetadataOnlyEntityParsesAndExports(t *testing.T) {
+	specPath, releaseSpec, err := helm.ResolveHelmLSpecPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseSpec()
+
+	interp, err := HelmInterpreterTryCreate(specPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer HelmInterpreterDestroy(interp)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "libs", "nexus", "nexus.helm"), `entity nexus {
+    kind = "interface"
+    interface {
+        CPPFLAGS = [ "-Ilibs/nexus/include" ]
+        HEADERS  = [ "libs/nexus/include/nexus.h" ]
+    }
+}
+`)
+	writeFile(t, filepath.Join(dir, "Helmfile"), `workspace {
+    exclude "build"
+}
+
+target smoke() {
+    help = "smoke test for metadata-only entity"
+    depends_on [ "//libs/nexus:nexus" ]
+    run "true"
+}
+`)
+
+	dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+		{Label: "ERROR", Weight: 20},
+	})
+	ctx := signal.SignalContextCreate(dispatcher)
+
+	merged, err := HelmInterpreterLoadWorkspace(interp, filepath.Join(dir, "Helmfile"), ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entity, ok := merged.Entities["//libs/nexus:nexus"]
+	if !ok {
+		t.Fatalf("entities = %#v", merged.Entities)
+	}
+	if !ir.HelmEntityIsMetadataOnly(entity) {
+		t.Fatalf("entity = %#v", entity)
+	}
+	if entity.AdapterName != "" {
+		t.Fatalf("adapter name = %q, want empty", entity.AdapterName)
+	}
+
+	export, err := entityexecutor.EntityExportExecutionGraph(
+		merged,
+		[]ir.HelmLabel{{Path: "libs/nexus", Name: "nexus"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := export.Entities["//libs/nexus:nexus"]
+	if len(entry.RunArgvs) != 0 {
+		t.Fatalf("run_argvs = %#v", entry.RunArgvs)
+	}
+	if entry.PropertyBag["CPPFLAGS"][0] != "-Ilibs/nexus/include" {
+		t.Fatalf("CPPFLAGS = %#v", entry.PropertyBag["CPPFLAGS"])
+	}
+}
+
+func TestHelm2MetadataOnlyEntityRejectsUseBlock(t *testing.T) {
+	specPath, releaseSpec, err := helm.ResolveHelmLSpecPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseSpec()
+
+	interp, err := HelmInterpreterTryCreate(specPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer HelmInterpreterDestroy(interp)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "bad.helm"), `entity nexus {
+    kind = "interface"
+    use noop {
+        params {
+            OUT = "x"
+        }
+    }
+    interface {
+        CPPFLAGS = [ "-Inexus" ]
+    }
+}
+
+adapter noop(OUT) {
+    run [ "true" ]
+}
+`)
+
+	dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+		{Label: "ERROR", Weight: 20},
+	})
+	ctx := signal.SignalContextCreate(dispatcher)
+
+	result := HelmInterpreterInterpretFile(interp, filepath.Join(dir, "bad.helm"), ctx)
+	if result.BuiltIR.Succeeded {
+		t.Fatal("expected semantic error for interface entity with use block")
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

@@ -14,6 +14,10 @@ func EntityAdapterTargetHooks(builtIR ir.HelmIR, entityKey string) ([]string, er
 		return nil, fmt.Errorf("entity '%s' not found", entityKey)
 	}
 
+	if ir.HelmEntityIsMetadataOnly(entity) {
+		return nil, nil
+	}
+
 	adapter, ok := builtIR.Adapters[entity.AdapterName]
 	if !ok {
 		return nil, fmt.Errorf("entity '%s': unknown adapter '%s'", entityKey, entity.AdapterName)

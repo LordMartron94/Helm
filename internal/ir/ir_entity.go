@@ -151,13 +151,39 @@ func handleEntityDeclaration(
 		)
 	}
 
+	if HelmEntityKindIsMetadataOnly(entity.Kind) {
+		if entity.AdapterName != "" {
+			emitSemanticError(
+				builder,
+				nameNode,
+				ERROR_ENTITY_INTERFACE_HAS_USE,
+				fmt.Sprintf(
+					"entity '%s' with kind '%s' must not declare use <adapter>",
+					entityName,
+					entity.Kind,
+				),
+			)
+		}
+		if len(entity.InterfaceBag) == 0 {
+			emitSemanticError(
+				builder,
+				nameNode,
+				ERROR_ENTITY_INTERFACE_MISSING_BAG,
+				fmt.Sprintf(
+					"entity '%s' with kind '%s' must declare an interface block",
+					entityName,
+					entity.Kind,
+				),
+			)
+		}
+	} else if entity.AdapterName == "" {
+		emitSemanticError(builder, nameNode, ERROR_ENTITY_MISSING_USE, fmt.Sprintf("entity '%s' must declare use <adapter>", entityName))
+	}
+
 	key := HelmLabelCanonical(entity.Label)
 	if _, exists := builder.entities[key]; exists {
 		emitSemanticError(builder, nameNode, ERROR_DUPLICATE_ENTITY, fmt.Sprintf("entity '%s' already declared", key))
 		return
-	}
-	if entity.AdapterName == "" {
-		emitSemanticError(builder, nameNode, ERROR_ENTITY_MISSING_USE, fmt.Sprintf("entity '%s' must declare use <adapter>", entityName))
 	}
 	builder.entities[key] = entity
 }

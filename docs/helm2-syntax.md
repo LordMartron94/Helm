@@ -48,7 +48,23 @@ entity splash {
 }
 ```
 
-Entities **must** declare `use <adapter>`. They cannot declare `run` or `artifacts`.
+Entities with compiled artifacts **must** declare `use <adapter>`. Metadata-only entities (`kind = "interface"` or `kind = "header_only"`) propagate property bags without an adapter or build steps.
+
+### Metadata-only entity (header-only / interface library)
+
+```helm
+entity nexus {
+    kind = "interface"
+    interface {
+        CPPFLAGS = [ "-Ilibs/nexus/include" ]
+        HEADERS  = [ "libs/nexus/include/nexus.h" ]
+    }
+}
+```
+
+Metadata-only entities appear in the dependency graph and export-graph with an empty `run_argvs` list. Dependents collect their `interface` values via `deps = [ ... ]` and `collect(DEPENDENCIES, "CPPFLAGS")`. No stamp files or stub compilation is required.
+
+Compiled entities cannot declare `run` or `artifacts`.
 
 ## Labels
 
