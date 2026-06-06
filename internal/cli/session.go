@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"fmt"
 	"helm/interpreter"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -14,12 +14,17 @@ type Session struct {
 	Catalog     TargetCatalog
 	Renderer    *DiagnosticRenderer
 	UI          *TerminalUI
+	// StreamRunOutput streams subprocess stdout/stderr during runs instead of only after completion.
+	StreamRunOutput bool
 }
 
 type SessionConfig struct {
-	HelmFile  string
-	LSpecPath string
-	ColorMode ColorMode
+	HelmFile         string
+	LSpecPath        string
+	ColorMode        ColorMode
+	DiagnosticOutput io.Writer
+	// StreamRunOutput defaults to true when unset at the call site (see SessionCreate).
+	StreamRunOutput *bool
 }
 
 func SessionCreate(config SessionConfig) (*Session, error) {
@@ -28,29 +33,45 @@ func SessionCreate(config SessionConfig) (*Session, error) {
 		return nil, err
 	}
 
-	renderer := DiagnosticRendererCreate(config.ColorMode, os.Stderr)
-
-	result := interpreter.HelmInterpreterInterpretFile(interpreterInstance, config.HelmFile, renderer.Context())
-	renderer.Flush()
-
-	if result.Error != nil {
-		interpreter.HelmInterpreterDestroy(interpreterInstance)
-		return nil, result.Error
+	session := &Session{
+		HelmFile:        config.HelmFile,
+		Interpreter:     interpreterInstance,
+		UI:              TerminalUICreate(config.ColorMode),
+		StreamRunOutput: true,
+	}
+	if config.StreamRunOutput != nil {
+		session.StreamRunOutput = *config.StreamRunOutput
 	}
 
-	if !result.BuiltIR.Succeeded {
-		interpreter.HelmInterpreterDestroy(interpreterInstance)
-		return nil, fmt.Errorf("interpretation aborted due to semantic errors")
+	diagnosticOutput := config.DiagnosticOutput
+	if diagnosticOutput == nil {
+		diagnosticOutput = os.Stderr
 	}
 
-	return &Session{
-		HelmFile:    config.HelmFile,
-		Interpreter: interpreterInstance,
-		Result:      result,
-		Catalog:     TargetCatalogBuild(result.BuiltIR),
-		Renderer:    renderer,
-		UI:          TerminalUICreate(config.ColorMode),
-	}, nil
+	session.Renderer = DiagnosticRendererCreate(DiagnosticRendererConfig{
+		ColorMode: config.ColorMode,
+		Output:    diagnosticOutput,
+	})
+
+	mergedIR, loadErr := interpreter.HelmInterpreterLoadWorkspace(
+		interpreterInstance,
+		config.HelmFile,
+		session.Renderer.Context(),
+	)
+	session.Renderer.Flush()
+
+	if loadErr != nil {
+		interpreter.HelmInterpreterDestroy(interpreterInstance)
+		return nil, loadErr
+	}
+
+	session.Result = interpreter.HelmInterpreterInterpretationResultFromIR(
+		interpreterInstance,
+		config.HelmFile,
+		mergedIR,
+	)
+	session.Catalog = TargetCatalogBuild(mergedIR)
+	return session, nil
 }
 
 func SessionDestroy(session *Session) {

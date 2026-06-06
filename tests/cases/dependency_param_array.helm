@@ -1,0 +1,30 @@
+target leaf() {
+	help = "leaf dependency"
+	artifacts { volatile = true }
+	run "echo leaf"
+}
+
+target middle(DEPS) {
+	help = "forwards dependency array parameter"
+	hidden = true
+	artifacts { volatile = true }
+	depends_on [
+		param DEPS
+	]
+	run "echo middle"
+}
+
+target entry() {
+	help = "entry using nested dependency params"
+	artifacts { volatile = true }
+	depends_on [
+		middle {
+			params {
+				DEPS = [
+					leaf
+				]
+			}
+		}
+	]
+	run "echo entry"
+}

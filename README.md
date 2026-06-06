@@ -130,9 +130,75 @@ target db-migrate() {
 }
 ```
 
+### 4. Interactive terminal ownership
+
+Targets that launch REPLs or other TTY-driven programs set `interactive = true` at the target body level (not inside `artifacts`). Helm attaches the host `stdin`/`stdout`/`stderr` to the child process and enforces that no other target runs in the same parallel DAG phase. Interactive targets cannot use a `matrix` block.
+
 For more detail see: [syntax reference](./docs/syntax.md)
 
 As with all my syntaxes, the [LangSpec](https://github.com/LordMartron94/LangSpec) definition lives in [Lingua](https://github.com/LordMartron94/Lingua).
+
+## CLI
+
+With no arguments, `helm` starts an interactive shell (`helm>` prompt). Every built-in shell command also works as a one-shot invocation:
+
+```bash
+helm help
+helm run <target> [key=value ...]
+helm run --bypass-cache <target>
+helm run -q <target>
+helm export-graph <target>[,<target>...] [key=value ...]
+helm export-graph -o build-graph.json <target>
+helm export-graph -o graphs.json target_a,target_b
+helm clean-cache
+helm set stream-runs off
+helm version
+```
+
+Pass an explicit helm file before the command when needed:
+
+```bash
+helm path/to/project.helm run <target>
+```
+
+`helm -version` prints the binary version without loading a helm file. `helm version` runs through the normal session (discover helm file, interpret, then print version), matching the REPL `version` command.
+
+`helm completion bash` prints a bash tab-completion script (also listed under `helm help`). See `helm help completion` for install examples.
+
+### Graph introspection (`export-graph`)
+
+Before executing anything, Helm can resolve the full dependency graph, expand parameters on every edge, and interpolate every `run` string. The `export-graph` command writes that resolved state as JSON (language-agnostic introspection for external tools):
+
+```bash
+helm path/to/Helmfile export-graph run_tests
+helm path/to/Helmfile export-graph -o graph.json build_testbed
+helm path/to/Helmfile export-graph -o graphs.json build_testbed,run_tests
+```
+
+A single target writes one graph object (`entry_target`, `phases`, `targets`). Comma-separated targets write a bundle with a `graphs` map (one full graph per entry target). CLI `key=value` parameters apply only when a single target is exported.
+
+Each key under `targets` is an execution node (canonical target name, or `target#<hash>` for parametric instances). Fields include `directory` (absolute working directory) and `run_commands` (expanded command strings). No subprocesses are started and the artifact cache is not consulted.
+
+### Run output presentation
+
+Helm separates orchestration reporting from the live terminal:
+
+* **Live stream**: raw subprocess stdout/stderr only (no Helm phase/target banners).
+* **Post-run stderr**: diagnostics and execution summary (suppressed for `interactive` entry targets; use `-q` to hide `[INFO]` and summary for build targets).
+* **Transcript**: `.helm/last-run.log` is rewritten on each `helm run` with phase/target boundaries, captured I/O, and the full diagnostic render for post-mortem review.
+* **Exit code**: interactive entry targets propagate the child process exit code; orchestration errors exit `1`.
+
+### Bash completion
+
+Install tab completion for flags, built-in commands, helm files, and (when a helm file can be resolved) target names:
+
+```bash
+helm completion bash | sudo tee /etc/bash_completion.d/helm
+# or for the current shell only:
+source <(helm completion bash)
+```
+
+Target and parameter completion interprets the helm file on each Tab press, so it may feel slow on large projects. The internal `helm __complete` command is for shell integration only and is not intended for direct use.
 
 ## Building
 

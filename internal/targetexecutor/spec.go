@@ -1,12 +1,7 @@
 package targetexecutor
 
-type TargetInvocation struct {
-	Parameters map[string]string
-}
+import "helm/internal/ir"
 
-func TargetInvocationParameters(inv TargetInvocation) map[string]string {
-	if inv.Parameters == nil {
-		return map[string]string{}
-	}
-	return inv.Parameters
+type TargetInvocation struct {
+	Parameters map[string]ir.HelmParameterValue
 }

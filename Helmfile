@@ -5,9 +5,10 @@
 // Override version at link time via the build targets (VERSION below) or:
 //   run build GOOS=linux GOARCH=amd64 OUT=bin/helm-custom VERSION=1.2.3
 
-VERSION = "0.3.0"
+VERSION = "2.1.2"
 REPO_ROOT = "../.."
 BIN_DIR = "bin"
+GO_TOOL_CACHE = "tools/helm/.helm/cache/go"
 LOCAL_DEST = "/home/user/.local/bin/helm"
 
 target build(GOOS, GOARCH, OUT) {
@@ -26,7 +27,8 @@ target build(GOOS, GOARCH, OUT) {
 		CGO_ENABLED = "0"
 	}
 
-	run "go build -ldflags \"-X helm/internal/version.Version=${VERSION} -X helm/internal/version.Commit=embedded\" -o tools/helm/${OUT} ./tools/helm/cmd/helm"
+	run "mkdir -p ${GO_TOOL_CACHE}/tmp ${GO_TOOL_CACHE}/gocache"
+	run "sh -c 'export GOTMPDIR=\"$PWD/${GO_TOOL_CACHE}/tmp\"; export GOCACHE=\"$PWD/${GO_TOOL_CACHE}/gocache\"; go build -ldflags \"-X helm/internal/version.Version=${VERSION} -X helm/internal/version.Commit=embedded\" -o tools/helm/${OUT} ./tools/helm/cmd/helm'"
 }
 
 target build_linux_amd64() {
@@ -128,11 +130,11 @@ target build_all() {
 	}
 
 	depends_on [
-		build_linux_amd64
-		build_linux_arm64
-		build_windows_amd64
-		build_darwin_amd64
-		build_darwin_arm64
+		build_linux_amd64,
+		build_linux_arm64,
+		build_windows_amd64,
+		build_darwin_amd64,
+		build_darwin_arm64,
 	]
 }
 
@@ -168,6 +170,8 @@ target deploy(SOURCE, DEST) {
 
 target deploy_local() {
 	help = "Build locally and install to LOCAL_DEST"
+
+	workdir = "."
 
 	artifacts {
 		inputs = [ "${BIN_DIR}/helm" ]

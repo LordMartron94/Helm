@@ -1,0 +1,44 @@
+target leaf() {
+	help = "leaf"
+	artifacts { volatile = true }
+	run "echo leaf"
+}
+
+target inner(DEPS) {
+	help = "splices dependency param"
+	hidden = true
+	artifacts { volatile = true }
+	depends_on [
+		param DEPS
+	]
+	run "echo inner"
+}
+
+target outer(DEPS) {
+	help = "forwards DEPS to inner"
+	hidden = true
+	artifacts { volatile = true }
+	depends_on [
+		inner {
+			params {
+				DEPS = DEPS
+			}
+		}
+	]
+	run "echo outer"
+}
+
+target entry() {
+	help = "nested forward"
+	artifacts { volatile = true }
+	depends_on [
+		outer {
+			params {
+				DEPS = [
+					leaf
+				]
+			}
+		}
+	]
+	run "echo entry"
+}

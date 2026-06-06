@@ -28,6 +28,8 @@ Environment:
 
 Expects the force monorepo layout (go.work at root with ./tools/helm) or an
 equivalent workspace after running scripts/install_dependencies.sh.
+
+After install, enable bash tab completion with: helm completion bash
 EOF
 }
 

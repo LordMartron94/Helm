@@ -3,11 +3,21 @@ package targetexecutor
 import (
 	"helm/internal/cache"
 	"helm/internal/ir"
+	"io"
 	"signal"
 )
 
 type TargetExecutorOptions struct {
+	// Targets is the full Helm IR target map (required for export collect() at run time).
+	Targets map[string]ir.HelmTarget
+
 	RunHandler TargetRunHandler
+
+	// StreamRunOutput writes subprocess stdout/stderr as they are produced (see LiveStdout/LiveStderr).
+	StreamRunOutput bool
+	// StreamStdout and StreamStderr default to os.Stdout and os.Stderr when StreamRunOutput is true.
+	StreamStdout io.Writer
+	StreamStderr io.Writer
 
 	ConfirmDependency func(dependent string, dep ir.HelmTargetDependency) (proceed bool, err error)
 
@@ -22,4 +32,11 @@ type TargetExecutorOptions struct {
 	BypassCache bool
 	// CacheStore is opened from CacheRoot by the graph runner when nil.
 	CacheStore *cache.TargetCacheStore
+
+	// RunTranscript records phase/target boundaries and captured subprocess I/O in a log file only.
+	RunTranscript *TargetExecutorRunTranscript
+	// RunState is optional per-run state (entry target reach tracking).
+	RunState *TargetExecutorRunState
+	// TranscriptNodeID is the active execution node for subprocess capture.
+	TranscriptNodeID string
 }

@@ -10,7 +10,7 @@ import (
 func evaluatePath(
 	builder *irBuilder,
 	pathNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
-	globalVariables map[string]string,
+	scope resolveScope,
 ) string {
 	argsNode := pathNode.FindFirstKind(artifacts.NodePathArgs)
 	if argsNode == nil {
@@ -36,7 +36,7 @@ func evaluatePath(
 
 	segments := make([]string, 0, len(children))
 	for _, child := range children {
-		segment, ok := resolvePathElement(builder, child, globalVariables)
+		segment, ok := resolvePathElement(builder, child, scope)
 		if !ok {
 			return ""
 		}
@@ -49,12 +49,19 @@ func evaluatePath(
 func resolvePathElement(
 	builder *irBuilder,
 	elementNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
-	globalVariables map[string]string,
+	scope resolveScope,
 ) (segment string, ok bool) {
 	if varNode := elementNode.FindFirstKind(artifacts.NodeVariableReference); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
-		if val, exists := globalVariables[varName]; exists {
-			return val, true
+		if text, ok := resolveScopeVariableAsLiteral(scope, varName); ok {
+			return text, true
+		}
+		if globalVariableIsArtifactArray(scope, varName) {
+			emitVariableNotScalar(builder, varNode, varName, "path() element")
+			return "", false
+		}
+		if scope.permissiveGlobals {
+			return "${" + varName + "}", true
 		}
 		emitSemanticError(
 			builder,
@@ -66,7 +73,6 @@ func resolvePathElement(
 	}
 
 	if strNode := elementNode.FindFirstKind(artifacts.NodeStringLiteral); strNode != nil {
-		scope := resolveScopeForGlobals(globalVariables)
 		return extractStringFromStringNode(builder, strNode, scope), true
 	}
 

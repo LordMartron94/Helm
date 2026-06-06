@@ -2,6 +2,7 @@ package targetexecutor
 
 import (
 	"helm/internal/cache"
+	"helm/internal/expand"
 	"helm/internal/ir"
 	"helm/shared"
 	"signal"
@@ -16,7 +17,9 @@ type targetExecutorCacheDecision struct {
 func targetExecutorEvaluateCache(
 	builtIR ir.HelmIR,
 	targetName string,
+	instanceKey string,
 	inv TargetInvocation,
+	depExecutionNodeIDs []string,
 	opts TargetExecutorOptions,
 	depStateFingerprints map[string]uint64,
 	depOutputFingerprints map[string]uint64,
@@ -28,7 +31,7 @@ func targetExecutorEvaluateCache(
 		return decision, nil
 	}
 
-	if target.Artifacts.Volatile {
+	if target.Artifacts.Volatile || target.Interactive {
 		return decision, nil
 	}
 
@@ -36,12 +39,30 @@ func targetExecutorEvaluateCache(
 		return decision, nil
 	}
 
+	interpCtx, resolvedEnv, interpErr := targetExecutorCacheExecutionContext(builtIR, target, inv)
+	if interpErr != nil {
+		return decision, interpErr
+	}
+
+	bootstrapMiss, bootstrapErr := cache.DynamicManifestBootstrapMissContext(
+		builtIR.SourceDirectory,
+		target.Artifacts,
+		interpCtx,
+	)
+	if bootstrapErr != nil {
+		return decision, bootstrapErr
+	}
+	if bootstrapMiss {
+		return decision, nil
+	}
+
 	stateFingerprint, err := cache.CacheFingerprintState(
 		builtIR.SourceDirectory,
 		target,
 		builtIR.Targets,
-		builtIR.GlobalVariables,
-		TargetInvocationParameters(inv),
+		interpCtx,
+		resolvedEnv,
+		depExecutionNodeIDs,
 		depStateFingerprints,
 		depOutputFingerprints,
 	)
@@ -54,7 +75,7 @@ func targetExecutorEvaluateCache(
 		return decision, nil
 	}
 
-	record, found, err := cache.TargetCacheStoreGet(opts.CacheStore, targetName)
+	record, found, err := cache.TargetCacheStoreGet(opts.CacheStore, targetName, instanceKey)
 	if err != nil {
 		return decision, err
 	}
@@ -68,13 +89,19 @@ func targetExecutorEvaluateCache(
 
 	decision.Skip = true
 	decision.OutputFingerprint = record.OutputFingerprint
+	if staleErr := targetExecutorInvalidateStaleCacheHit(builtIR, target, inv, &decision); staleErr != nil {
+		return decision, staleErr
+	}
+
 	return decision, nil
 }
 
 func targetExecutorCommitCache(
 	builtIR ir.HelmIR,
 	targetName string,
+	instanceKey string,
 	inv TargetInvocation,
+	depExecutionNodeIDs []string,
 	opts TargetExecutorOptions,
 	depStateFingerprints map[string]uint64,
 	depOutputFingerprints map[string]uint64,
@@ -89,16 +116,22 @@ func targetExecutorCommitCache(
 		return 0, err
 	}
 
-	if target.Artifacts.Volatile || opts.CacheStore == nil {
+	if target.Artifacts.Volatile || target.Interactive || opts.CacheStore == nil {
 		return outputFingerprint, nil
+	}
+
+	interpCtx, resolvedEnv, interpErr := targetExecutorCacheExecutionContext(builtIR, target, inv)
+	if interpErr != nil {
+		return 0, interpErr
 	}
 
 	stateFingerprint, err := cache.CacheFingerprintState(
 		builtIR.SourceDirectory,
 		target,
 		builtIR.Targets,
-		builtIR.GlobalVariables,
-		TargetInvocationParameters(inv),
+		interpCtx,
+		resolvedEnv,
+		depExecutionNodeIDs,
 		depStateFingerprints,
 		depOutputFingerprints,
 	)
@@ -108,6 +141,7 @@ func targetExecutorCommitCache(
 
 	record := cache.TargetCacheRecord{
 		TargetName:        targetName,
+		InstanceKey:       instanceKey,
 		StateFingerprint:  stateFingerprint,
 		OutputFingerprint: outputFingerprint,
 	}
@@ -132,29 +166,87 @@ func targetExecutorOutputFingerprintAfterRun(
 		return 0, nil
 	}
 
+	interpCtx, err := targetExecutorCacheInterpolationGlobals(builtIR, target, inv)
+	if err != nil {
+		return 0, err
+	}
+
 	return cache.CacheFingerprintOutput(
 		builtIR.SourceDirectory,
 		target,
-		builtIR.GlobalVariables,
-		TargetInvocationParameters(inv),
+		interpCtx,
 	)
+}
+
+func targetExecutorCacheInterpolationGlobals(
+	builtIR ir.HelmIR,
+	target ir.HelmTarget,
+	inv TargetInvocation,
+) (expand.InterpolationContext, error) {
+	interpCtx, _, err := targetExecutorCacheExecutionContext(builtIR, target, inv)
+	return interpCtx, err
+}
+
+func targetExecutorCacheExecutionContext(
+	builtIR ir.HelmIR,
+	target ir.HelmTarget,
+	inv TargetInvocation,
+) (expand.InterpolationContext, map[string]string, error) {
+	paramValues := TargetExecutorParametersForTarget(target, inv)
+	resolved, err := TargetExecutorResolveInvocationParameters(
+		builtIR.SourceDirectory,
+		ir.IRGlobalsForRootManifest(builtIR),
+		paramValues,
+	)
+	if err != nil {
+		return expand.InterpolationContext{}, nil, err
+	}
+	interpCtx, err := TargetExecutorInterpolationGlobals(
+		builtIR.SourceDirectory,
+		ir.IRGlobalsForRootManifest(builtIR),
+		resolved,
+	)
+	if err != nil {
+		return expand.InterpolationContext{}, nil, err
+	}
+	interpCtx, err = TargetExecutorEvaluateLetBindings(builtIR.SourceDirectory, target, interpCtx)
+	if err != nil {
+		return expand.InterpolationContext{}, nil, err
+	}
+	resolvedEnv, err := targetExecutorResolvedEnvForFingerprint(
+		target,
+		builtIR.Targets,
+		paramValues,
+		resolved,
+		interpCtx,
+	)
+	if err != nil {
+		return expand.InterpolationContext{}, nil, err
+	}
+	return interpCtx, resolvedEnv, nil
 }
 
 func targetExecutorEmitCacheSkipSignals(
 	ctx *signal.SignalContext,
 	targetName string,
+	instanceKey string,
 	stateFingerprint uint64,
 ) {
 	if ctx == nil {
 		return
 	}
 
-	signal.SignalContextBuild(ctx, shared.SignalExecSkipped, "INFO").
+	builder := signal.SignalContextBuild(ctx, shared.SignalExecSkipped, "INFO").
 		Payload(shared.PhasePayloadKey, shared.TargetExecutionPhase).
 		Payload(shared.TargetPayloadKey, targetName).
 		Payload(shared.ReasonPayloadKey, shared.CacheHitReason).
-		Payload(shared.StateFingerprintPayloadKey, stateFingerprint).
-		Emit()
+		Payload(shared.StateFingerprintPayloadKey, stateFingerprint)
+
+	if instanceKey != "" {
+		builder = builder.Payload(shared.MatrixInstancePayloadKey, instanceKey)
+	}
+
+	builder.Emit()
 }
 
 func targetExecutorEmitCacheUpdatedSignals(

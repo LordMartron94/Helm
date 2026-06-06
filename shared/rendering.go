@@ -8,6 +8,7 @@ import (
 	"signal/rendering"
 	"splash"
 	"strings"
+	"time"
 )
 
 func HelmCombineDetailHooks(hooks ...rendering.SignalDetailExtension) rendering.SignalDetailExtension {
@@ -146,7 +147,139 @@ func helmSplitLinesRunes(runes []rune) [][]rune {
 	return lines
 }
 
-func HelmExecutionOutputDetailHook(metaIntent int) rendering.SignalDetailExtension {
+// HelmExecutionRenderIntents maps execution outcome lines to palette slots on the CLI renderer.
+type HelmExecutionRenderIntents struct {
+	Success int
+	Skipped int
+	Failed  int
+	Cache   int
+	Meta    int
+}
+
+// HelmExecutionTally counts target-execution signals emitted during a run.
+type HelmExecutionTally struct {
+	OK           int
+	Failed       int
+	Skipped      int
+	Cache        int
+	RunDurations []time.Duration
+}
+
+func HelmExecutionTallyRecord(tally *HelmExecutionTally, sig signal.Signal) {
+	if tally == nil {
+		return
+	}
+
+	phase, err := signal.SignalPayloadGetAs[string](&sig, PhasePayloadKey)
+	if err != nil || phase != TargetExecutionPhase {
+		return
+	}
+
+	switch sig.ID() {
+	case SignalExecOK:
+		tally.OK++
+		helmExecutionRecordDuration(tally, sig)
+	case SignalExecFail:
+		tally.Failed++
+		helmExecutionRecordDuration(tally, sig)
+	case SignalExecSkipped:
+		tally.Skipped++
+	case SignalCacheUpdated:
+		tally.Cache++
+	}
+}
+
+func (tally HelmExecutionTally) HasExecutionSignals() bool {
+	return tally.OK+tally.Failed+tally.Skipped+tally.Cache > 0
+}
+
+// HelmRenderExecutionSummary formats a colored footer with execution outcome counts.
+func HelmRenderExecutionSummary(
+	renderer *splash.SPLASH_Rendering_TerminalRenderer,
+	tally HelmExecutionTally,
+	intents HelmExecutionRenderIntents,
+) string {
+	if !tally.HasExecutionSignals() {
+		return ""
+	}
+
+	splash.SPLASH_Rendering_TerminalRendererReset(renderer)
+	splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+	splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(
+		renderer,
+		"=== Execution summary ===",
+		intents.Meta,
+	)
+	splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+	splash.SPLASH_Rendering_TerminalRendererIndent(renderer)
+
+	helmRenderExecutionSummaryCount(renderer, "OK", tally.OK, intents.Success)
+	helmRenderExecutionSummaryCount(renderer, "FAILED", tally.Failed, intents.Failed)
+	helmRenderExecutionSummaryCount(renderer, "SKIPPED", tally.Skipped, intents.Skipped)
+	helmRenderExecutionSummaryCount(renderer, "CACHE", tally.Cache, intents.Cache)
+
+	if len(tally.RunDurations) > 0 {
+		total := HelmDurationTotal(tally.RunDurations)
+		average := HelmDurationAverage(tally.RunDurations)
+		median := HelmDurationMedian(tally.RunDurations)
+		helmRenderExecutionSummaryDuration(renderer, "time total", total, intents.Meta)
+		helmRenderExecutionSummaryDuration(renderer, "time average", average, intents.Meta)
+		helmRenderExecutionSummaryDuration(renderer, "time median", median, intents.Meta)
+	}
+
+	splash.SPLASH_Rendering_TerminalRendererDedent(renderer)
+	splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+
+	return splash.SPLASH_Rendering_TerminalRendererRender(renderer)
+}
+
+func helmRenderExecutionSummaryCount(
+	renderer *splash.SPLASH_Rendering_TerminalRenderer,
+	label string,
+	count int,
+	intent int,
+) {
+	if count == 0 {
+		return
+	}
+
+	splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, label, intent)
+	splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, fmt.Sprintf(": %d", count))
+	splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+}
+
+func helmRenderExecutionSummaryDuration(
+	renderer *splash.SPLASH_Rendering_TerminalRenderer,
+	label string,
+	duration time.Duration,
+	intent int,
+) {
+	splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, label, intent)
+	splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, ": "+HelmFormatDuration(duration))
+	splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+}
+
+func HelmExecutionOutputDetailHook(intents HelmExecutionRenderIntents) rendering.SignalDetailExtension {
+	return HelmExecutionOutputDetailHookFailOnly(intents)
+}
+
+// HelmExecutionOutputDetailHookFailOnly omits stdout/stderr on success; includes them on failure.
+func HelmExecutionOutputDetailHookFailOnly(intents HelmExecutionRenderIntents) rendering.SignalDetailExtension {
+	return helmExecutionOutputDetailHook(intents, true)
+}
+
+// HelmExecutionOutputDetailHookOmitBuffered skips stdout/stderr blocks when omitBufferedStdoutStderr is true.
+func HelmExecutionOutputDetailHookOmitBuffered(
+	intents HelmExecutionRenderIntents,
+	omitBufferedStdoutStderr bool,
+) rendering.SignalDetailExtension {
+	return helmExecutionOutputDetailHook(intents, omitBufferedStdoutStderr)
+}
+
+func helmExecutionOutputDetailHook(
+	intents HelmExecutionRenderIntents,
+	omitStdoutStderrUnlessFailed bool,
+) rendering.SignalDetailExtension {
 	return func(renderer *splash.SPLASH_Rendering_TerminalRenderer, sig signal.Signal, baseIntent int) {
 		id := sig.ID()
 		if id == SignalExecSkipped {
@@ -155,17 +288,16 @@ func HelmExecutionOutputDetailHook(metaIntent int) rendering.SignalDetailExtensi
 				return
 			}
 			target, _ := signal.SignalPayloadGetAs[string](&sig, TargetPayloadKey)
+			instanceKey, _ := signal.SignalPayloadGetAs[string](&sig, MatrixInstancePayloadKey)
 			reason, _ := signal.SignalPayloadGetAs[string](&sig, ReasonPayloadKey)
-			splash.SPLASH_Rendering_TerminalRendererIndent(renderer)
-			splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, "skipped:", metaIntent)
-			if target != "" {
-				splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, fmt.Sprintf(" %s", target))
-			}
-			if reason != "" {
-				splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, fmt.Sprintf(" (%s)", reason))
-			}
-			splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
-			splash.SPLASH_Rendering_TerminalRendererDedent(renderer)
+			helmRenderExecutionStatus(
+				renderer,
+				"SKIPPED",
+				intents.Skipped,
+				intents.Meta,
+				target,
+				helmExecutionSkipDetail(instanceKey, reason),
+			)
 			return
 		}
 
@@ -175,13 +307,7 @@ func HelmExecutionOutputDetailHook(metaIntent int) rendering.SignalDetailExtensi
 				return
 			}
 			target, _ := signal.SignalPayloadGetAs[string](&sig, TargetPayloadKey)
-			splash.SPLASH_Rendering_TerminalRendererIndent(renderer)
-			splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, "cache updated:", metaIntent)
-			if target != "" {
-				splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, fmt.Sprintf(" %s", target))
-			}
-			splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
-			splash.SPLASH_Rendering_TerminalRendererDedent(renderer)
+			helmRenderExecutionStatus(renderer, "CACHE", intents.Cache, intents.Meta, target, "")
 			return
 		}
 
@@ -194,27 +320,114 @@ func HelmExecutionOutputDetailHook(metaIntent int) rendering.SignalDetailExtensi
 			return
 		}
 
-		stdout, _ := signal.SignalPayloadGetAs[string](&sig, StdoutPayloadKey)
-		stderr, _ := signal.SignalPayloadGetAs[string](&sig, StderrPayloadKey)
+		target, _ := signal.SignalPayloadGetAs[string](&sig, TargetPayloadKey)
+		command, _ := signal.SignalPayloadGetAs[string](&sig, CommandPayloadKey)
+		durationNS, _ := signal.SignalPayloadGetAs[int64](&sig, DurationNSPayloadKey)
 
-		if stdout != "" {
-			helmRenderOutputBlock(renderer, "stdout", stdout, metaIntent, baseIntent)
+		switch id {
+		case SignalExecOK:
+			helmRenderExecutionStatus(
+				renderer,
+				"OK",
+				intents.Success,
+				intents.Meta,
+				target,
+				helmExecutionStatusDetail(command, durationNS),
+			)
+		case SignalExecFail:
+			helmRenderExecutionStatus(
+				renderer,
+				"FAILED",
+				intents.Failed,
+				intents.Meta,
+				target,
+				helmExecutionStatusDetail(command, durationNS),
+			)
 		}
-		if stderr != "" {
-			helmRenderOutputBlock(renderer, "stderr", stderr, metaIntent, baseIntent)
+
+		shouldRenderOutput := !omitStdoutStderrUnlessFailed || id == SignalExecFail
+		if shouldRenderOutput {
+			stdout, _ := signal.SignalPayloadGetAs[string](&sig, StdoutPayloadKey)
+			stderr, _ := signal.SignalPayloadGetAs[string](&sig, StderrPayloadKey)
+
+			if stdout != "" {
+				helmRenderOutputBlock(renderer, "stdout", stdout, intents.Meta, intents.Success)
+			}
+			if stderr != "" {
+				helmRenderOutputBlock(renderer, "stderr", stderr, intents.Meta, intents.Failed)
+			}
 		}
 
 		if id == SignalExecFail {
 			exitCode, err := signal.SignalPayloadGetAs[int](&sig, ExitCodePayloadKey)
 			if err == nil {
 				splash.SPLASH_Rendering_TerminalRendererIndent(renderer)
-				splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, "exit_code:", metaIntent)
+				splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, "exit code:", intents.Failed)
 				splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, fmt.Sprintf(" %d", exitCode))
 				splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
 				splash.SPLASH_Rendering_TerminalRendererDedent(renderer)
 			}
 		}
 	}
+}
+
+func helmExecutionSkipDetail(instanceKey string, reason string) string {
+	var lines []string
+	if instanceKey != "" {
+		lines = append(lines, instanceKey)
+	}
+	if reason != "" {
+		lines = append(lines, reason)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func helmExecutionStatusDetail(command string, durationNS int64) string {
+	if command == "" && durationNS <= 0 {
+		return ""
+	}
+
+	if command == "" {
+		return HelmFormatDuration(time.Duration(durationNS))
+	}
+
+	if durationNS <= 0 {
+		return command
+	}
+
+	return command + "  (" + HelmFormatDuration(time.Duration(durationNS)) + ")"
+}
+
+func helmRenderExecutionStatus(
+	renderer *splash.SPLASH_Rendering_TerminalRenderer,
+	statusLabel string,
+	statusIntent int,
+	metaIntent int,
+	target string,
+	detail string,
+) {
+	splash.SPLASH_Rendering_TerminalRendererIndent(renderer)
+	splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, statusLabel, statusIntent)
+	if target != "" {
+		splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, "  ")
+		splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, target)
+	}
+	splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+
+	if detail != "" {
+		for _, line := range strings.Split(detail, "\n") {
+			if line == "" {
+				continue
+			}
+			splash.SPLASH_Rendering_TerminalRendererIndent(renderer)
+			splash.SPLASH_Rendering_TerminalRendererBufferColoredContent(renderer, "  ", metaIntent)
+			splash.SPLASH_Rendering_TerminalRendererBufferContent(renderer, line)
+			splash.SPLASH_Rendering_TerminalRendererBufferLineBreak(renderer)
+			splash.SPLASH_Rendering_TerminalRendererDedent(renderer)
+		}
+	}
+
+	splash.SPLASH_Rendering_TerminalRendererDedent(renderer)
 }
 
 func helmRenderOutputBlock(

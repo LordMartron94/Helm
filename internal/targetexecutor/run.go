@@ -3,6 +3,7 @@ package targetexecutor
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -11,11 +12,16 @@ import (
 )
 
 type TargetRunRequest struct {
-	TargetName string
-	StepIndex  int
-	Command    string
-	WorkDir    string
-	Env        map[string]string
+	TargetName  string
+	StepIndex   int
+	Command     string
+	Argv        []string
+	WorkDir     string
+	Env         map[string]string
+	Interactive bool
+	// LiveStdout and LiveStderr, when non-nil, receive a copy of process output as it is produced.
+	LiveStdout io.Writer
+	LiveStderr io.Writer
 }
 
 type TargetRunResult struct {
@@ -29,13 +35,9 @@ type TargetRunHandler func(req TargetRunRequest) (TargetRunResult, error)
 func TargetExecutorDefaultRunHandler(req TargetRunRequest) (TargetRunResult, error) {
 	var result TargetRunResult
 
-	argv, err := shlex.Split(req.Command)
+	argv, err := targetExecutorRunRequestArgv(req)
 	if err != nil {
-		return result, fmt.Errorf("target '%s' step %d: shlex split failed: %w", req.TargetName, req.StepIndex, err)
-	}
-
-	if len(argv) == 0 {
-		return result, fmt.Errorf("target '%s' step %d: empty command after shlex split", req.TargetName, req.StepIndex)
+		return result, err
 	}
 
 	cmd := exec.Command(argv[0], argv[1:]...)
@@ -45,14 +47,31 @@ func TargetExecutorDefaultRunHandler(req TargetRunRequest) (TargetRunResult, err
 
 	cmd.Env = targetExecutorMergeEnv(req.Env)
 
-	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	if req.Interactive {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		var stdoutBuf, stderrBuf bytes.Buffer
+		cmd.Stdout = targetExecutorRunOutputWriter(&stdoutBuf, req.LiveStdout)
+		cmd.Stderr = targetExecutorRunOutputWriter(&stderrBuf, req.LiveStderr)
+
+		runErr := cmd.Run()
+		result.Stdout = stdoutBuf.String()
+		result.Stderr = stderrBuf.String()
+
+		if runErr != nil {
+			result.ExitCode = 1
+			if exitErr, ok := runErr.(*exec.ExitError); ok {
+				result.ExitCode = exitErr.ExitCode()
+			}
+			return result, fmt.Errorf("target '%s' step %d: %w", req.TargetName, req.StepIndex, runErr)
+		}
+
+		return result, nil
+	}
 
 	runErr := cmd.Run()
-	result.Stdout = stdoutBuf.String()
-	result.Stderr = stderrBuf.String()
-
 	if runErr != nil {
 		result.ExitCode = 1
 		if exitErr, ok := runErr.(*exec.ExitError); ok {
@@ -88,4 +107,31 @@ func targetExecutorMergeEnv(targetEnv map[string]string) []string {
 	}
 
 	return out
+}
+
+func targetExecutorRunOutputWriter(capture io.Writer, live io.Writer) io.Writer {
+	if live == nil {
+		return capture
+	}
+	if capture == nil {
+		return live
+	}
+	return io.MultiWriter(capture, live)
+}
+
+func targetExecutorRunRequestArgv(req TargetRunRequest) ([]string, error) {
+	if len(req.Argv) > 0 {
+		return req.Argv, nil
+	}
+
+	argv, err := shlex.Split(req.Command)
+	if err != nil {
+		return nil, fmt.Errorf("target '%s' step %d: shlex split failed: %w", req.TargetName, req.StepIndex, err)
+	}
+
+	if len(argv) == 0 {
+		return nil, fmt.Errorf("target '%s' step %d: empty command after shlex split", req.TargetName, req.StepIndex)
+	}
+
+	return argv, nil
 }

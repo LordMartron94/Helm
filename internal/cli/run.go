@@ -6,9 +6,11 @@ import (
 )
 
 type RunConfig struct {
-	HelmFilePath string
-	LSpecPath    string
-	ColorMode    ColorMode
+	HelmFilePath    string
+	LSpecPath       string
+	ColorMode       ColorMode
+	StreamRunOutput *bool
+	CommandFields   []string
 }
 
 func Run(config RunConfig) error {
@@ -18,8 +20,9 @@ func Run(config RunConfig) error {
 	}
 
 	lSpecPath := config.LSpecPath
+	var releaseLSpec func()
 	if lSpecPath == "" {
-		lSpecPath, err = ResolveHelmLSpecPath()
+		lSpecPath, releaseLSpec, err = ResolveHelmLSpecPath()
 		if err != nil {
 			return err
 		}
@@ -31,30 +34,44 @@ func Run(config RunConfig) error {
 	}
 
 	session, err := SessionCreate(SessionConfig{
-		HelmFile:  helmFile,
-		LSpecPath: lSpecPath,
-		ColorMode: colorMode,
+		HelmFile:        helmFile,
+		LSpecPath:       lSpecPath,
+		ColorMode:       colorMode,
+		StreamRunOutput: config.StreamRunOutput,
 	})
+	if releaseLSpec != nil {
+		releaseLSpec()
+	}
 	if err != nil {
 		return err
 	}
 	defer SessionDestroy(session)
 
-	if err := printStartupBanner(os.Stderr, session.UI, helmFile, session.CacheDirectory()); err != nil {
+	if !shouldSuppressStartupBanner(session, config.CommandFields) {
+		if err := printStartupBanner(os.Stderr, session.UI, session, helmFile, session.CacheDirectory()); err != nil {
+			return err
+		}
+	}
+
+	if len(config.CommandFields) > 0 {
+		_, err := CommandExecuteFields(session, config.CommandFields, os.Stdin, os.Stdout)
 		return err
 	}
 
 	return RunShell(session)
 }
 
-func printStartupBanner(w io.Writer, ui *TerminalUI, helmFile, cacheDir string) error {
+func printStartupBanner(w io.Writer, ui *TerminalUI, session *Session, helmFile, cacheDir string) error {
 	if err := terminalUIWrite(w, ui, uiIntentHeading, "session\n"); err != nil {
 		return err
 	}
 	if err := writeStartupLine(w, ui, "  helm file  ", helmFile); err != nil {
 		return err
 	}
-	return writeStartupLine(w, ui, "  cache      ", cacheDir)
+	if err := writeStartupLine(w, ui, "  cache      ", cacheDir); err != nil {
+		return err
+	}
+	return writeStartupLine(w, ui, "  stream-runs", formatBoolSetting(session.StreamRunOutput))
 }
 
 func writeStartupLine(w io.Writer, ui *TerminalUI, label, value string) error {

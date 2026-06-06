@@ -15,6 +15,14 @@ import (
 )
 
 func CommandExecute(session *Session, line string, stdin io.Reader, stdout io.Writer) (bool, error) {
+	fields, err := shlex.Split(line)
+	if err != nil {
+		return true, fmt.Errorf("could not parse command: %w", err)
+	}
+	return CommandExecuteFields(session, fields, stdin, stdout)
+}
+
+func CommandExecuteFields(session *Session, fields []string, stdin io.Reader, stdout io.Writer) (bool, error) {
 	if stdin == nil {
 		stdin = os.Stdin
 	}
@@ -22,10 +30,6 @@ func CommandExecute(session *Session, line string, stdin io.Reader, stdout io.Wr
 		stdout = os.Stdout
 	}
 
-	fields, err := shlex.Split(line)
-	if err != nil {
-		return true, fmt.Errorf("could not parse command: %w", err)
-	}
 	if len(fields) == 0 {
 		return true, nil
 	}
@@ -42,14 +46,29 @@ func CommandExecute(session *Session, line string, stdin io.Reader, stdout io.Wr
 		return true, commandHelp(session.UI, stdout, session.Catalog, args)
 	case "clean-cache":
 		return true, commandCleanCache(session.UI, stdout, session)
+	case "set", "config":
+		return true, commandSet(session, stdout, args)
 	case "run":
 		return true, commandRun(session, stdin, stdout, args)
+	case "export-graph":
+		return true, commandExportGraph(session, stdout, args)
 	default:
 		return true, fmt.Errorf("unknown command %q (try help)", verb)
 	}
 }
 
+func parseHelpArgs(args []string) (showHidden bool, rest []string) {
+	rest = args
+	for len(rest) > 0 && rest[0] == "--show-hidden" {
+		showHidden = true
+		rest = rest[1:]
+	}
+	return showHidden, rest
+}
+
 func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args []string) error {
+	showHidden, args := parseHelpArgs(args)
+
 	if len(args) == 0 {
 		if err := terminalUIWrite(stdout, ui, uiIntentHeading, "commands\n"); err != nil {
 			return err
@@ -60,13 +79,22 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 		if err := printBuiltinCommand(stdout, ui, "version", "print helm version"); err != nil {
 			return err
 		}
-		if err := printBuiltinCommand(stdout, ui, "help [target]", "list commands or describe a target"); err != nil {
+		if err := printBuiltinCommand(stdout, ui, "help [--show-hidden] [target]", "list commands or describe a target"); err != nil {
 			return err
 		}
 		if err := printBuiltinCommand(stdout, ui, "clean-cache", "remove .helm/cache for this helm file"); err != nil {
 			return err
 		}
-		if err := printBuiltinCommand(stdout, ui, "run [--bypass-cache] <target> [key=value ...]", "execute a target"); err != nil {
+		if err := printBuiltinCommand(stdout, ui, "set [name on|off]", "show or change shell settings (e.g. set stream-runs off)"); err != nil {
+			return err
+		}
+		if err := printBuiltinCommand(stdout, ui, "run [--bypass-cache] [-q] <target> [key=value ...]", "execute a target"); err != nil {
+			return err
+		}
+		if err := printBuiltinCommand(stdout, ui, "export-graph [-o path] <target>[,<target>...] [key=value ...]", "dump resolved execution graph(s) as JSON (no runs)"); err != nil {
+			return err
+		}
+		if err := printBuiltinCommand(stdout, ui, "completion bash", "print bash tab-completion script (install: source <(helm completion bash))"); err != nil {
 			return err
 		}
 
@@ -76,12 +104,39 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 		if err := terminalUIWrite(stdout, ui, uiIntentHeading, "targets\n"); err != nil {
 			return err
 		}
-		for _, name := range catalog.CanonicalNames() {
+		for _, name := range catalog.VisibleCanonicalNames() {
 			if err := printTargetSummary(stdout, ui, catalog, name); err != nil {
 				return err
 			}
 		}
+		if showHidden {
+			hiddenNames := catalog.HiddenCanonicalNames()
+			if len(hiddenNames) > 0 {
+				if _, err := fmt.Fprintln(stdout); err != nil {
+					return err
+				}
+				if err := terminalUIWrite(stdout, ui, uiIntentHeading, "hidden targets\n"); err != nil {
+					return err
+				}
+				for _, name := range hiddenNames {
+					if err := printTargetSummary(stdout, ui, catalog, name); err != nil {
+						return err
+					}
+				}
+			}
+		} else if catalog.HasHiddenTargets() {
+			if _, err := fmt.Fprintln(stdout); err != nil {
+				return err
+			}
+			if err := terminalUIWrite(stdout, ui, uiIntentMuted, "  (hidden targets omitted; use help --show-hidden)\n"); err != nil {
+				return err
+			}
+		}
 		return nil
+	}
+
+	if args[0] == "completion" {
+		return commandHelpCompletion(stdout, ui)
 	}
 
 	canonical, ok := catalog.ResolveTargetName(args[0])
@@ -89,6 +144,31 @@ func commandHelp(ui *TerminalUI, stdout io.Writer, catalog TargetCatalog, args [
 		return fmt.Errorf("unknown target %q", args[0])
 	}
 	return printTargetDetail(stdout, ui, catalog, canonical)
+}
+
+func commandHelpCompletion(stdout io.Writer, ui *TerminalUI) error {
+	if err := terminalUIWrite(stdout, ui, uiIntentHeading, "completion\n"); err != nil {
+		return err
+	}
+	if err := printBuiltinCommand(stdout, ui, "completion bash", "print bash tab-completion script to stdout"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(stdout); err != nil {
+		return err
+	}
+	if err := terminalUIWrite(stdout, ui, uiIntentLabel, "install\n"); err != nil {
+		return err
+	}
+	lines := []string{
+		"  source <(helm completion bash)",
+		"  helm completion bash | sudo tee /etc/bash_completion.d/helm",
+	}
+	for _, line := range lines {
+		if _, err := io.WriteString(stdout, line+"\n"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func printBuiltinCommand(stdout io.Writer, ui *TerminalUI, name, description string) error {
@@ -223,11 +303,15 @@ func commandCleanCache(ui *TerminalUI, stdout io.Writer, session *Session) error
 
 func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []string) error {
 	bypassCache := false
+	quiet := false
 	rest := args
 	for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
 		switch rest[0] {
 		case "--bypass-cache":
 			bypassCache = true
+			rest = rest[1:]
+		case "-q", "--quiet":
+			quiet = true
 			rest = rest[1:]
 		default:
 			return fmt.Errorf("unknown run flag %q", rest[0])
@@ -235,7 +319,7 @@ func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []stri
 	}
 
 	if len(rest) == 0 {
-		return fmt.Errorf("usage: run [--bypass-cache] <target> [key=value ...]")
+		return fmt.Errorf("usage: run [--bypass-cache] [-q] <target> [key=value ...]")
 	}
 
 	targetName := rest[0]
@@ -262,12 +346,40 @@ func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []stri
 	}
 
 	invocations := map[string]targetexecutor.TargetInvocation{
-		canonical: {Parameters: parameters},
+		canonical: targetexecutor.TargetInvocationWithScalars(parameters),
 	}
 
+	entryTarget, ok := session.Result.BuiltIR.Targets[canonical]
+	if !ok {
+		return fmt.Errorf("unknown target %q", targetName)
+	}
+
+	presentation := DiagnosticPresentationFull
+	if quiet {
+		presentation = DiagnosticPresentationQuiet
+	}
+	if entryTarget.Interactive {
+		presentation = DiagnosticPresentationSilent
+	}
+	session.Renderer.SetPresentation(presentation)
+
+	runLog, err := RunLogOpen(session.SourceDirectory(), canonical)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = runLog.Close()
+	}()
+
+	runState := &targetexecutor.TargetExecutorRunState{}
+	transcript := targetexecutor.TargetExecutorRunTranscriptCreate(runLog.Writer())
+
 	opts := targetexecutor.TargetExecutorOptions{
-		BypassCache: bypassCache,
-		RunHandler:  targetexecutor.TargetExecutorDefaultRunHandler,
+		BypassCache:     bypassCache,
+		StreamRunOutput: session.StreamRunOutput,
+		RunHandler:      targetexecutor.TargetExecutorDefaultRunHandler,
+		RunTranscript:   transcript,
+		RunState:        runState,
 		ConfirmDependency: func(dependent string, dep ir.HelmTargetDependency) (bool, error) {
 			return promptConfirm(stdin, stdout, session.UI, dependent, dep)
 		},
@@ -280,16 +392,60 @@ func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []stri
 		invocations,
 		opts,
 	)
-	session.FlushDiagnostics()
+
+	commandRunFinalizeLog(session, runLog)
 
 	if runErr != nil {
+		commandRunFlushTerminal(session, presentation, runState, true)
 		return runErr
+	}
+
+	commandRunFlushTerminal(session, presentation, runState, false)
+
+	if presentation == DiagnosticPresentationSilent {
+		return nil
 	}
 
 	if err := terminalUIWrite(stdout, session.UI, uiIntentAccent, "finished "); err != nil {
 		return err
 	}
 	return terminalUIWrite(stdout, session.UI, uiIntentName, canonical+"\n")
+}
+
+func commandRunFinalizeLog(session *Session, runLog *RunLog) {
+	if session == nil || session.Renderer == nil || runLog == nil {
+		return
+	}
+	var buffer strings.Builder
+	session.Renderer.FlushTo(&buffer)
+	_ = runLog.AppendDiagnostics(buffer.String())
+}
+
+func commandRunFlushTerminal(
+	session *Session,
+	presentation DiagnosticPresentation,
+	runState *targetexecutor.TargetExecutorRunState,
+	failed bool,
+) {
+	if session == nil || session.Renderer == nil {
+		return
+	}
+	if presentation == DiagnosticPresentationSilent {
+		if failed && (runState == nil || !runState.EntryReached) {
+			session.Renderer.FlushErrorsOnly()
+		}
+		return
+	}
+	session.FlushDiagnostics()
+}
+
+// CommandExitCode returns a subprocess exit code when err is a target process exit error.
+func CommandExitCode(err error) (int, bool) {
+	exitErr, ok := err.(targetexecutor.TargetExecutorProcessExitError)
+	if !ok {
+		return 0, false
+	}
+	return exitErr.ExitCode, true
 }
 
 func parseRunParameters(entry TargetCatalogEntry, args []string) (map[string]string, error) {
@@ -329,14 +485,11 @@ func promptMissingParameters(
 
 	reader := bufio.NewReader(stdin)
 	for _, param := range entry.Parameters {
-		if param.Optional {
-			continue
-		}
 		if _, exists := provided[param.Name]; exists {
 			continue
 		}
 
-		if err := writeParameterPrompt(stdout, ui, param.Name); err != nil {
+		if err := writeParameterPrompt(stdout, ui, param.Name, param.Optional); err != nil {
 			return nil, err
 		}
 
@@ -347,6 +500,9 @@ func promptMissingParameters(
 
 		value := strings.TrimSpace(line)
 		if value == "" {
+			if param.Optional {
+				continue
+			}
 			return nil, fmt.Errorf("parameter %s is required", param.Name)
 		}
 		provided[param.Name] = value
@@ -355,12 +511,17 @@ func promptMissingParameters(
 	return provided, nil
 }
 
-func writeParameterPrompt(stdout io.Writer, ui *TerminalUI, paramName string) error {
+func writeParameterPrompt(stdout io.Writer, ui *TerminalUI, paramName string, optional bool) error {
 	if err := terminalUIWrite(stdout, ui, uiIntentLabel, "parameter "); err != nil {
 		return err
 	}
 	if err := terminalUIWrite(stdout, ui, uiIntentName, paramName); err != nil {
 		return err
+	}
+	if optional {
+		if err := terminalUIWrite(stdout, ui, uiIntentMuted, " (optional, leave empty to skip)"); err != nil {
+			return err
+		}
 	}
 	_, err := io.WriteString(stdout, ": ")
 	return err

@@ -11,10 +11,51 @@ A `.helm` file consists of global variable declarations and target definitions.
 * **Whitespace:** Newlines are structurally significant to terminate statements. Semicolons are not used.
 
 ### Global Variables
-Variables are declared at the root level and can be interpolated into strings.
+Variables are declared at the root level. A variable may be a string literal or an artifact array (the same path/glob/string forms used in `inputs` / `outputs`).
 ```helm
 BUILD_DIR = "bin"
 VERSION = "1.0.0"
+
+C_SOURCES = [
+    glob("libs", includes = ["**/*.c"], recursive = true),
+    path("tools", "extra.c"),
+]
+
+target compile() {
+    run "clang ${C_SOURCES} -o out.o"
+    inputs = C_SOURCES
+}
+```
+
+* **String variables** expand in `${NAME}` interpolation, `path()`, `glob()` base directories, and scalar `VAR_REF` sites.
+* **Artifact array variables** hold paths, `path()` values, `glob()` patterns, and string literals. Use them as `inputs = VAR`, `outputs = VAR`, `matrix X in VAR`, or inline inside `[ ... ]`. In `run` commands, `${VAR}` resolves each entry at execution time (globs are walked) and expands to a shell-safe, space-separated list of paths. `VAR_004` applies only when an artifact array is used where a single scalar is required (e.g. one `path()` segment or `glob()` base directory).
+
+### Multiline strings
+
+Python-style triple-quoted strings (`""" ... """`) are supported where a free-form text value is expected:
+
+* Global string variables (`NAME = """ ... """`)
+* `help = """ ... """`
+* `run """ ... """` (including `run` steps inside `when` blocks)
+
+They support the same `${VAR}` interpolation and escape sequences as single-quoted strings. Empty single-quoted strings (`""`) are also valid wherever a `TEXT_STRING` is accepted. Multiline strings are **not** allowed for paths, `workdir`, `env` values, artifact entries, aliases, or `when` comparison literals.
+
+```helm
+SCRIPT = """
+#!/bin/sh
+echo hello
+"""
+
+target deploy() {
+    help = """
+    Deploy the service.
+    Run: helm run deploy
+    """
+    run """
+    ${SCRIPT}
+    echo done
+    """
+}
 ```
 
 ---
@@ -44,6 +85,54 @@ target test() {
     }
 }
 ```
+
+### Interactive targets (`interactive`)
+
+Use `interactive = true` when a target must control the host terminal for its entire run (REPLs, debuggers, prompts). Helm wires `stdin`, `stdout`, and `stderr` directly to the child process instead of capturing output in buffers.
+
+```helm
+target shield() {
+    help = "Launch the SHIELD REPL"
+
+    interactive = true
+
+    depends_on [ build_shield ]
+
+    artifacts {
+        volatile = true
+    }
+
+    run "./build/dev-bin/shield_cli"
+}
+```
+
+* **`interactive = true`**: Claims the host TTY for all `run` steps on this target. Cache lookup is skipped (the target always runs when reached, like `volatile`).
+* **Incompatible with `matrix`**: Matrix legs run in parallel; interactive targets cannot share a matrix block (`TARGET_019`).
+* **Parallel phases**: An interactive target must be the only target in its DAG execution phase. Helm fails with `EXEC_002` if another target would run in parallel in the same phase.
+* **Typical usage**: Declare `interactive` on a leaf-style entry target (e.g. `helm run shield`) after build dependencies have finished in earlier phases.
+* **Silent CLI exit**: When the entry target is `interactive = true`, Helm suppresses post-run diagnostics and the `finished` line, then exits with the child process exit code. Orchestration failures before the entry runs still emit errors to stderr.
+* **Run transcript**: Every `helm run` writes `.helm/last-run.log` (truncated per run) with nested phase/target sections, captured subprocess I/O, and a plain-text diagnostic render (no ANSI color) for later review. Helm does not inject phase/target banners into the live terminal stream.
+
+### Run output and `-q`
+
+* **Live terminal**: subprocess stdout/stderr only during execution (when `stream-runs` is on). Helm does not print phase/target banners to the terminal.
+* **Post-run diagnostics**: successful steps stay quiet in the summary; stdout/stderr appear in diagnostics only when a step fails.
+* **`helm run -q` / `--quiet`**: suppress `[INFO]` signals and the execution summary on stderr (errors and warnings still print).
+
+### Hidden targets (`hidden`)
+
+Use `hidden = true` to keep a target runnable but omit it from default `help` output. Hidden targets still appear in `run` tab completion and can be invoked with `helm run <name>`.
+
+```helm
+target _internal_fixup() {
+    help = "Regenerate local fixtures (maintainer only)"
+    hidden = true
+    ...
+}
+```
+
+* **`hidden = true`**: Excluded from the main target list in `help`. Use `help --show-hidden` to list them under a separate **hidden targets** section.
+* **`hidden = false`**: Default; target is shown in normal help.
 
 ---
 
@@ -100,6 +189,29 @@ target build_linux_amd64() {
 }
 ```
 
+Pass an artifact-array global by **variable reference** (not a quoted string):
+
+```helm
+C_SOURCES = [
+    glob("src", include="**/*.c", recursive = true),
+]
+
+target link(SOURCE_FILES, OUT) {
+    run "clang ${SOURCE_FILES} -o ${OUT}"
+}
+
+target build_app() {
+    depends_on [
+        link {
+            params {
+                SOURCE_FILES = C_SOURCES
+                OUT = "bin/app.so"
+            }
+        }
+    ]
+}
+```
+
 **Compile-time rules (semantic validation):**
 
 * Every key in `params { ... }` must name a parameter on the dependency target (`TARGET_015` if unknown).
@@ -109,10 +221,12 @@ target build_linux_amd64() {
 
 **Runtime behavior:**
 
-* Parameter values are string literals. They may contain `${NAME}` placeholders; Helm resolves those using **global variables** and the **invocation parameters of the dependent target** (the target that owns the `depends_on` edge), then passes the resolved map to the dependency.
+* Parameter values are **string literals** or **variable references**. String literals may contain `${NAME}` placeholders; Helm resolves those using **global variables** and the **invocation parameters of the dependent target** (the target that owns the `depends_on` edge). A variable reference binds a **global** when that name is declared at file scope (string globals become scalars; **artifact-array** globals expand to a shell-safe file list). The same reference form forwards a **parameter of the depending target** when the name matches one of its own parameters (e.g. `SOURCE_FILES = SOURCE_FILES` into an inner `params` block).
 * Resolved parameters are in scope for the dependency’s `run` strings, `env` values, and `workdir` (same interpolation rules as a directly invoked target).
-* Each dependency target runs **at most once** per graph execution. If two dependents in the same run both list the same dependency with `params`, every edge must supply the **same** resolved parameter map; otherwise the engine reports a conflict and aborts.
+* Each dependency target runs **at most once per distinct bound `params` map** per graph execution. Edges with `params` create a parametric instance (same target definition, different invocation); **identical** bound parameters are deduplicated to a single run. Edges without a `params` block still share the canonical target name (one run). Targets that receive parameters only from upstream `depends_on` edges (no CLI invocation) merge those edges when resolving the dependent’s own parameters; conflicting maps for the **same** canonical target name still abort.
 * Parameters supplied on the CLI for the entry target (`helm run build_linux_amd64` / `run build GOOS=linux`) apply only to that target’s own signature, not automatically to its dependencies—you wire dependency arguments explicitly in `params`.
+* A target parameter may be a **dependency array**: in `params`, assign `DEPS = [ other_target, wrapper { params { ... } } ]`. The callee splices that list via `depends_on [ param DEPS ]` (the `param` keyword avoids ambiguity with target names in the grammar). Arrays may be forwarded with `DEPS = DEPS` on inner `params` blocks (including nested wrappers such as `_build_code` → `build_application` → `build_testbed`).
+* Leaf call sites with no extra deps may declare the parameter optional (`DEPS?`); omitted parameters default to an empty dependency array at runtime.
 
 `params` can be combined with `optional` and `confirm` in the same braced dependency entry:
 
@@ -129,9 +243,53 @@ depends_on [
 
 ---
 
-## 4. State & Caching (`artifacts`)
+## 4. Path model (workspace-relative)
 
-The `artifacts` block defines the I/O state boundary of the target. Helm uses this block to cryptographically hash the state and automatically skip redundant executions.
+Helm’s workspace root is the directory containing the Helmfile. Every path produced by `glob()`, `path()`, parameter resolution, matrix bindings, `let` bindings, and path transforms is stored as a **workspace-relative** path with forward slashes (for example `testbed/main.c`). Graph state, cache keys, and export JSON use these relative paths only.
+
+Absolute paths exist **only** at the execution/filesystem boundary. In native argv runs, use `abs_path("relative/path")` when a tool requires an absolute path. Internal cache hashing anchors relative paths against the workspace root automatically.
+
+`.deps` / `dynamic` manifest files use the same contract: **one workspace-relative path per line**. Paths outside the workspace (system headers, toolchain installs) are **silently dropped** on read and should be omitted on write. This keeps remote cache portable across machines and OS images.
+
+---
+
+## 5. Target-local `let` bindings
+
+Targets may declare path-array bindings before `artifacts` / `run`:
+
+```helm
+target link(SOURCE_FILES, OBJ_DIR, OUT_NAME, OUT_DIR) {
+    let OBJECT_FILES = map_ext(
+        join_prefix(SOURCE_FILES, "${OBJ_DIR}/${OUT_NAME}_obj"),
+        ".c",
+        ".o"
+    )
+
+    artifacts {
+        inputs = OBJECT_FILES
+        outputs = [ "${OUT_DIR}/${OUT_NAME}" ]
+    }
+
+    run [
+        "tools/scripts/link_objects.sh",
+        "${OUT_DIR}/${OUT_NAME}",
+        param OBJECT_FILES
+    ]
+}
+```
+
+* **`let NAME = <path-expr>`** — evaluated after invocation parameters resolve, in declaration order. Each binding may reference earlier `let` names, target parameters, and global artifact arrays.
+* **Shadowing** — `let` cannot reuse a target parameter name or global name (`LET_002`).
+* **Artifacts** — use bare identifiers (`inputs = OBJECT_FILES`). The `param` keyword is reserved for `run` argv and `depends_on` splices only.
+* **Path functions** — `map_ext(paths, oldExt, newExt)` appends `newExt` when a path ends with `oldExt`; `join_prefix(paths, prefix)` prepends a prefix to each path; `rebase_dir(paths, oldBase, newBase)` replaces a leading directory prefix.
+
+---
+
+## 6. State & Caching (`artifacts`)
+
+The `artifacts` block defines the I/O state boundary of the target. Helm uses this block to cryptographically hash the state and automatically skip redundant executions. A cache hit also requires unchanged execution content: `workdir`, `env`, every `run` / `when` command string (after interpolation), invocation parameters, and dependency fingerprints—not only input artifact file hashes.
+
+When a dependency fails, dependents are blocked with that error (transitive over the execution graph), including parametric `depends_on` edges (`_build_code` instances keyed by bound `params`). A recorded cache hit is ignored when declared `outputs` are absent on disk (for example after a failed compile or a manual clean).
 
 ```helm
 target compile(OS) {
@@ -143,9 +301,10 @@ target compile(OS) {
             glob("src", "*.go"),
         ]
         
-        // Outputs can mix explicit files and constructed paths
+        // Outputs can mix explicit files, globs, and constructed paths
         outputs = [
             path("bin", "app-${OS}"),
+            glob("bin", "*.exe"),
             "build.log",
         ]
     }
@@ -153,12 +312,51 @@ target compile(OS) {
 ```
 
 * **`inputs`**: A single string/glob/path, or a multiline array mixing explicit file strings and `glob()` / `path()` calls. Defines the files Helm must hash to determine if the target needs to run.
-* **`outputs`**: A single string/path, or a multiline array mixing explicit file strings and `path()` calls. Defines the deterministic files Helm expects the target to produce.
+* **`dynamic`**: Path(s) to a **manifest file** (not the tool-native `.d` / `.tsbuildinfo` format). At cache evaluation time Helm reads each manifest line-by-line (workspace-relative paths only; `#` comments and blank lines ignored) and hashes the **contents** of in-workspace paths alongside `inputs`. Lines outside the workspace are dropped silently. If `dynamic` is set but the manifest file does not exist yet, Helm forces a cache miss (bootstrap). Adapters in `run` steps normalize compiler `.d` output into the manifest contract.
+* **`outputs`**: A single string/glob/path, or a multiline array mixing explicit file strings, `glob()` / `path()` calls. Defines the deterministic files Helm expects the target to produce.
 * **`volatile = true`**: Explicitly tells the engine to *never* cache this target (e.g., for deployments or database migrations). If `outputs` is omitted, the engine uses inputs-only caching unless `volatile` is set.
+
+Target and matrix variables may appear in `glob()` / `path()` / string literals as `${NAME}` placeholders; they are resolved at execution time using the effective parameter map for that run.
+
+Bare variable references in `inputs`, `outputs`, and `dynamic` may name a **target parameter**, a **`let` binding**, or a global. Globals that hold artifact arrays still expand at IR build time; parameters and `let` names resolve at execution via structured path lists.
 
 ---
 
-## 5. Procedural Control Flow (`when`)
+## 7. Matrix execution (`matrix`)
+
+A `matrix` block turns one target into multiple parallel execution units. Each unit binds the matrix variable for that run. Matrix legs share the same target name in the DAG (dependents still list the target once).
+
+```helm
+target generate() {
+    help = "Generates all Go modules independently"
+
+    matrix MOD in [
+        "libs/lingua",
+        "libs/syntaxa",
+    ]
+
+    artifacts {
+        inputs = [
+            glob("${MOD}", include="*.go"),
+        ]
+        outputs = [
+            glob("${MOD}", include="*_gen.go"),
+        ]
+    }
+
+    run "cd ${MOD} && go generate ."
+}
+```
+
+* **`matrix VAR in [...]`**: Required list of literal strings, `path()` values, variable references, or a single `glob()` whose matches become separate bindings (one instance per matched path).
+* **`matrix VAR in PARAM`**: When `PARAM` is a target parameter bound to an artifact path list (a global `glob()` array or forwarded `SOURCE_FILES`), Helm expands one matrix instance per resolved path at runtime. Each binding is a clean helm-relative path (no shell quoting).
+* **Caching**: Each matrix leg has its own cache record keyed by target name and binding (e.g. `MOD=libs/lingua`). Unchanged legs can be skipped independently on later runs.
+* **Parallelism**: All legs of a matrix target in a phase run concurrently, like unrelated targets in the same phase.
+* The matrix variable name must not match a target parameter name.
+
+---
+
+## 8. Procedural Control Flow (`when`)
 
 While Helm targets are nodes in a DAG, their internal execution is procedural. `when` blocks allow you to conditionally gate specific `run` commands based on target parameters.
 
@@ -182,32 +380,72 @@ target publish(TAG?) {
 }
 ```
 
+Each `run` inside a `when` block supports the same string and argv forms as a top-level `run` (see §7). Conditional argv runs splice `param NAME` the same way when the condition is satisfied.
+
 ---
 
-## 6. Execution (`run`)
+## 9. Execution (`run`)
 
-The `run` keyword accepts a single-line string. Helm parses this string and passes it directly to the native OS process spawner (shlexing), bypassing shell interpreters to enforce complexity limits.
+The `run` keyword declares one process invocation. Helm supports two forms:
+
+* **String run** — a single quoted or triple-quoted string. After `${...}` interpolation, Helm shlex-splits the result and passes the argv slice to the native OS spawner. Shell interpreters are not used; piping (`|`, `&&`) is not evaluated.
+* **Argv run** — a bracket array of literal strings, `abs_path("relative")` calls, and `param NAME` splices. Helm materializes the array into a `[]string` and passes it directly to the OS spawner with no shlex pass. Path-list splices emit workspace-relative paths by default; `abs_path` anchors a single path at spawn time.
 
 ```helm
 target migrate() {
-    // Single-line execution only. 
-    // Shell piping (|, &&) is not evaluated by the Helm engine.
     run "./scripts/db_migrate.sh up"
 }
 ```
 
+### String runs and multiline folding
+
+A string `run` may be authored as a triple-quoted (multiline) string, or assembled by interpolating a multiline global, so a long invocation can be wrapped across indented lines for readability. After `${...}` interpolation, Helm folds the line wrapping: any whitespace run containing a line break collapses to a single space and the ends are trimmed, yielding one clean command line. Deliberate horizontal spacing between arguments (without line breaks) is preserved.
+
+```helm
+_COMMON_COMPILER_FLAGS = """
+    -g -std=c89 -pedantic
+    -Wall -Werror=vla
+    -Wno-long-long
+"""
+
+target build() {
+    run "clang main.c ${_COMMON_COMPILER_FLAGS} -o out"
+}
+```
+
+### Native argv runs
+
+Argv runs splice target parameters and `let` bindings that hold artifact path lists. Each `param NAME` expands to one argv element per resolved workspace-relative path, in order, without shell quoting.
+
+```helm
+target link_objects(SOURCE_FILES, OUT_PATH) {
+    artifacts { volatile = true }
+    run [
+        "infra/standards/link_objects.sh",
+        "${OUT_PATH}",
+        param SOURCE_FILES
+    ]
+}
+```
+
+The execution-graph exporter reports native argv steps in `run_argvs` (parallel to `run_commands`). String steps populate `run_commands` only; argv steps populate both `run_commands` (joined for display) and `run_argvs` (the exact argv slice).
+
 ---
 
-## 7. Built-in Functions
+## 10. Built-in Functions
 
 Helm provides native functions for resolving paths and file trees safely across platforms.
 
-* **`glob(base_dir, kwarg="...")`**: Declares a file-tree scan boundary for cache inputs. Recognized keyword arguments (stored in IR for the runtime walker; not expanded at compile time):
-  * `include`, `exclude` (string patterns)
+* **`glob(base_dir, kwarg="...")`**: Declares a file-tree scan boundary for artifact `inputs` and `outputs`. Recognized keyword arguments (stored in IR for the runtime walker; not expanded at compile time):
+  * `include`, `exclude` (string patterns). Each may appear multiple times; patterns are merged (`include` matches the union of all patterns, `exclude` removes paths matching any pattern).
   * `follow_symlinks` (boolean literal `true`/`false` or string `"true"`/`"false"`, default `false`)
   * `recursive` (boolean literal `true`/`false` or string `"true"`/`"false"`, default `true`)
-  * `types` (string, default `"files"`)
+  * `types` (string, default `"files"`): which entries under `base_dir` are collected:
+    * `"files"` — regular files only. When `recursive = true`, directories are descended and matching files inside are included.
+    * `"directories"` — directories only (the directory paths themselves, not their contents).
 * **`path(element1, element2, ...)`**: Constructs OS-safe paths safely.
+* **`map_ext(paths, oldExt, newExt)`**, **`join_prefix(paths, prefix)`**, **`rebase_dir(paths, oldBase, newBase)`**: Path-array transforms for `let` bindings (see §5).
+* **`abs_path("relative/path")`**: Argv-only spawn boundary helper; anchors a workspace-relative path to an absolute path for the child process.
 
 ```helm
 target clean() {
@@ -220,7 +458,7 @@ target clean() {
 
 ---
 
-## 8. Strings & Interpolation
+## 11. Strings & Interpolation
 
 Helm uses double quotes `"..."` for strings. Variables and parameters can be injected using `${VAR}`.
 
@@ -229,3 +467,74 @@ target greet(NAME) {
     run "echo 'Hello ${NAME}, starting build in ${BUILD_DIR}'"
 }
 ```
+
+---
+
+## 12. Graph introspection (`export-graph`)
+
+The CLI command `export-graph` resolves the same execution graph as `run` (parameters, parametric instances, matrix expansion, interpolated `run` strings) but does not execute commands or read the artifact cache. Output is JSON for external tools:
+
+```bash
+helm Helmfile export-graph run_tests
+helm Helmfile export-graph -o graph.json build_testbed
+helm Helmfile export-graph -o graphs.json build_testbed,run_tests,generate_compilation_database
+```
+
+Pass one target for a single graph (same JSON shape as before). Pass comma-separated targets for multiple independent graphs in one file:
+
+```json
+{
+  "source_directory": "/path/to/project",
+  "graphs": {
+    "build_testbed": { "entry_target": "build_testbed", "phases": [...], "targets": {...} },
+    "run_tests": { "entry_target": "run_tests", "phases": [...], "targets": {...} }
+  }
+}
+```
+
+`key=value` CLI parameters are only supported when exporting a single entry target.
+
+Each object under `targets` uses the execution node id as its key (`canonical_target`, or `name#<hash>` for parametric edges). Fields include `directory` (absolute working directory) and `run_commands` (expanded command strings).
+
+Workspace-mode graphs also include an `entities` section with resolved `run_argvs` per entity label.
+
+---
+
+## 13. Flag propagation (`export` / `collect`)
+
+Legacy v1.7 targets propagate build flags through named property bags:
+
+```helm
+target lib() {
+    help = "library"
+    artifacts { outputs = [ "lib.so" ] }
+    export {
+        LD_FLAGS = [ "-lmylib" ]
+        C_INCLUDES = [ "-Iinclude" ]
+    }
+    run "true"
+}
+
+target app(DEPS?) {
+    help = "application"
+    artifacts { outputs = [ "app" ] }
+    env {
+        LDFLAGS = [ collect(DEPS, "LD_FLAGS") ]
+        CPPFLAGS = [ collect(DEPS, "C_INCLUDES") ]
+    }
+    run "true"
+}
+```
+
+* `export { KEY = [ ... ] }` publishes string-list fragments on a target.
+* `collect(DEPS, "KEY")` flattens matching keys from dependency targets in deterministic order.
+* Helm 2.0 entities use the same flattening model via `interface { CPPFLAGS = [ ... ] }` and `deps` — no type checking; Clang/linker validate flags.
+
+---
+
+## 14. Helm 2.0 workspace mode
+
+Helm 2.0 adds `workspace`, `entity`, `interface`, and `adapter` blocks with strict entity/target segregation.
+
+* [Helm 2.0 syntax reference](helm2-syntax.md)
+* [Migration guide](helm2-migration.md)

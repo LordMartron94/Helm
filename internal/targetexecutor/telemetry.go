@@ -3,6 +3,7 @@ package targetexecutor
 import (
 	"helm/shared"
 	"signal"
+	"time"
 )
 
 // Programmatic callers collect run output by registering a SignalDispatcher sink
@@ -12,10 +13,13 @@ func targetExecutorEmitRunSignals(
 	req TargetRunRequest,
 	result TargetRunResult,
 	runErr error,
+	elapsed time.Duration,
 ) {
 	if ctx == nil {
 		return
 	}
+
+	durationNS := elapsed.Nanoseconds()
 
 	builder := signal.SignalContextBuild(ctx, shared.SignalExecOK, "INFO").
 		Payload(shared.PhasePayloadKey, shared.TargetExecutionPhase).
@@ -23,7 +27,8 @@ func targetExecutorEmitRunSignals(
 		Payload(shared.CommandPayloadKey, req.Command).
 		Payload(shared.StdoutPayloadKey, result.Stdout).
 		Payload(shared.StderrPayloadKey, result.Stderr).
-		Payload(shared.ExitCodePayloadKey, result.ExitCode)
+		Payload(shared.ExitCodePayloadKey, result.ExitCode).
+		Payload(shared.DurationNSPayloadKey, durationNS)
 
 	if runErr != nil {
 		builder = signal.SignalContextBuild(ctx, shared.SignalExecFail, "ERROR").
@@ -33,7 +38,8 @@ func targetExecutorEmitRunSignals(
 			Payload(shared.StdoutPayloadKey, result.Stdout).
 			Payload(shared.StderrPayloadKey, result.Stderr).
 			Payload(shared.ExitCodePayloadKey, result.ExitCode).
-			Payload(shared.MessagePayloadKey, runErr.Error())
+			Payload(shared.MessagePayloadKey, runErr.Error()).
+			Payload(shared.DurationNSPayloadKey, durationNS)
 	}
 
 	builder.Emit()

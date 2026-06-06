@@ -59,12 +59,17 @@ func handleTargetDeclaration(
 }
 
 type targetParseState struct {
-	helpDeclared      bool
-	aliasesDeclared   bool
-	artifactsDeclared bool
-	workDirDeclared   bool
-	envDeclared       bool
-	dependsDeclared   bool
+	helpDeclared        bool
+	aliasesDeclared     bool
+	matrixDeclared      bool
+	artifactsDeclared   bool
+	workDirDeclared     bool
+	envDeclared         bool
+	exportDeclared      bool
+	dependsDeclared     bool
+	interactiveDeclared bool
+	hiddenDeclared      bool
+	dynamicDeclared     bool
 }
 
 func handleTargetBody(
@@ -74,22 +79,43 @@ func handleTargetBody(
 	currentTarget *HelmTarget,
 ) {
 	state := &targetParseState{}
-	scope := resolveScopeForTarget(builder.globalVariables, currentTarget.Parameters)
-
-	currentTarget.Env = make(map[string]string)
+	currentTarget.Env = make(map[string]HelmStringListExpr)
 
 	contentNodes := node.ChildrenUnsafe()
+
+	for _, contentNode := range contentNodes {
+		if contentNode.Kind() == artifacts.NodeMatrixBlock {
+			handleTargetMatrix(builder, contentNode, currentTarget, state)
+		}
+	}
+
+	matrixVariable := ""
+	if currentTarget.Matrix != nil {
+		matrixVariable = currentTarget.Matrix.VariableName
+	}
+	baseScope := resolveScopeForTargetWithMatrix(
+		builder.effectiveGlobals(),
+		currentTarget.Parameters,
+		matrixVariable,
+	)
+	scope := handleTargetLetBindings(builder, contentNodes, baseScope, currentTarget)
 
 	for _, contentNode := range contentNodes {
 		kind := contentNode.Kind()
 
 		switch kind {
+		case artifacts.NodeMatrixBlock:
+			continue
+		case artifacts.NodeLetBinding:
+			continue
+		case artifacts.NodeExportDeclaration:
+			handleTargetExport(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeHelpStatement:
 			handleTargetHelp(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeAliases:
 			handleTargetAliases(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeArtifactsBlock:
-			handleTargetArtifacts(builder, contentNode, currentTarget, state)
+			handleTargetArtifacts(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeWorkingDirectory:
 			handleTargetWorkDir(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeEnvDeclaration:
@@ -100,9 +126,22 @@ func handleTargetBody(
 			handleTargetConditional(builder, contentNode, scope, currentTarget)
 		case artifacts.NodeTargetDepends:
 			handleTargetDependsOn(builder, contentNode, scope, currentTarget, state)
+		case artifacts.NodeInteractiveStatement:
+			handleTargetInteractive(builder, contentNode, currentTarget, state)
+		case artifacts.NodeHiddenStatement:
+			handleTargetHidden(builder, contentNode, currentTarget, state)
 		default:
 			panic(fmt.Errorf("interpreter error: unhandled child kind '%v'", kind))
 		}
+	}
+
+	if currentTarget.Interactive && currentTarget.Matrix != nil {
+		emitSemanticError(
+			builder,
+			targetNode,
+			ERROR_INTERACTIVE_MATRIX,
+			fmt.Sprintf("target '%s' cannot use interactive = true with a matrix block", currentTarget.Name),
+		)
 	}
 
 	if !state.helpDeclared {
@@ -114,12 +153,82 @@ func handleTargetBody(
 		)
 	}
 
-	if !state.artifactsDeclared {
+	if !state.artifactsDeclared && !builder.workspaceDeclared && len(builder.entities) == 0 {
 		emitSemanticError(
 			builder,
 			targetNode,
 			ERROR_NO_ARTIFACTS,
 			fmt.Sprintf("artifacts block for target '%s' is missing and required", currentTarget.Name),
+		)
+	}
+}
+
+func handleTargetHidden(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	currentTarget *HelmTarget,
+	state *targetParseState,
+) {
+	if state.hiddenDeclared {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_DUPLICATE_HIDDEN,
+			fmt.Sprintf("hidden for target '%s' already declared", currentTarget.Name),
+		)
+		return
+	}
+	state.hiddenDeclared = true
+
+	boolNode := node.FindFirstKind(artifacts.NodeBoolean)
+	if boolNode == nil {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_INVALID_HIDDEN,
+			fmt.Sprintf("hidden for target '%s' must be true or false", currentTarget.Name),
+		)
+		return
+	}
+
+	currentTarget.Hidden = extractBooleanNode(builder, boolNode)
+}
+
+func handleTargetInteractive(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	currentTarget *HelmTarget,
+	state *targetParseState,
+) {
+	if state.interactiveDeclared {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_DUPLICATE_INTERACTIVE,
+			fmt.Sprintf("interactive for target '%s' already declared", currentTarget.Name),
+		)
+		return
+	}
+	state.interactiveDeclared = true
+
+	boolNode := node.FindFirstKind(artifacts.NodeBoolean)
+	if boolNode == nil {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_INVALID_INTERACTIVE,
+			fmt.Sprintf("interactive for target '%s' must be true or false", currentTarget.Name),
+		)
+		return
+	}
+
+	currentTarget.Interactive = extractBooleanNode(builder, boolNode)
+	if currentTarget.Interactive && currentTarget.Matrix != nil {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_INTERACTIVE_MATRIX,
+			fmt.Sprintf("target '%s' cannot use interactive = true with a matrix block", currentTarget.Name),
 		)
 	}
 }
@@ -137,7 +246,7 @@ func handleTargetHelp(
 	}
 	state.helpDeclared = true
 
-	stringNode := node.FindFirstKind(artifacts.NodeStringLiteral)
+	stringNode := findStringContentNode(node)
 	currentTarget.HelpText = extractStringFromStringNode(builder, stringNode, scope)
 }
 
@@ -184,6 +293,94 @@ func handleTargetDependsOn(
 	for _, depNode := range dependencyNodes {
 		currentTarget.DependsOn = append(currentTarget.DependsOn, extractDependency(builder, depNode, scope))
 	}
+
+	labelDepNodes := node.FindAllKind(artifacts.NodeEntityLabelDependency)
+	for _, labelDepNode := range labelDepNodes {
+		labelRef := labelDepNode.FindFirstKind(artifacts.NodeLabelRef)
+		if labelRef == nil {
+			continue
+		}
+		stringNode := labelRef.FindFirstKind(artifacts.NodeStringLiteral)
+		if stringNode == nil {
+			continue
+		}
+		text := extractStringFromStringNode(builder, stringNode, scope)
+		label, ok := helmLabelFromStringLiteral(builder, text)
+		if !ok {
+			emitSemanticError(builder, labelRef, ERROR_INVALID_LABEL, fmt.Sprintf("invalid entity label %q", text))
+			continue
+		}
+		currentTarget.DependsOn = append(currentTarget.DependsOn, HelmTargetDependency{
+			EntityLabel: &label,
+			SourceNode:  labelRef,
+		})
+	}
+
+	paramRefNodes := node.FindAllKind(artifacts.NodeDependsOnParameterRef)
+	for _, refNode := range paramRefNodes {
+		nameNode := refNode.FindDirectChildKind(artifacts.NodeDependencyParameterName)
+		refName := extractContentFromSingleTokenNode(builder, nameNode)
+		if !resolveScopeHasParameter(scope, refName) {
+			emitSemanticError(
+				builder,
+				refNode,
+				ERROR_UNDECLARED_VARIABLE,
+				fmt.Sprintf(
+					"depends_on param '%s' is not declared on target '%s'",
+					refName,
+					currentTarget.Name,
+				),
+			)
+			continue
+		}
+		duplicate := false
+		for _, existing := range currentTarget.DependsOnParamNames {
+			if existing == refName {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		currentTarget.DependsOnParamNames = append(currentTarget.DependsOnParamNames, refName)
+		irMarkTargetParameterDependencyListOnTarget(currentTarget, refName)
+	}
+}
+
+func irMarkTargetParameterDependencyListOnTarget(target *HelmTarget, parameterName string) {
+	for i := range target.Parameters {
+		if target.Parameters[i].Name == parameterName {
+			target.Parameters[i].DependencyList = true
+			return
+		}
+	}
+}
+
+func irMarkTargetParameterDependencyList(
+	targets map[string]HelmTarget,
+	targetName string,
+	parameterName string,
+) {
+	target, ok := targets[targetName]
+	if !ok {
+		return
+	}
+	irMarkTargetParameterDependencyListOnTarget(&target, parameterName)
+	targets[targetName] = target
+}
+
+func extractTargetArrayDependencies(
+	builder *irBuilder,
+	arrayNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+) []HelmTargetDependency {
+	dependencyNodes := arrayNode.FindAllKind(artifacts.NodeTargetDependency)
+	out := make([]HelmTargetDependency, 0, len(dependencyNodes))
+	for _, depNode := range dependencyNodes {
+		out = append(out, extractDependency(builder, depNode, scope))
+	}
+	return out
 }
 
 func extractDependency(
@@ -192,7 +389,7 @@ func extractDependency(
 	scope resolveScope,
 ) HelmTargetDependency {
 	dep := HelmTargetDependency{
-		Parameters: make(map[string]string),
+		Parameters: make(map[string]HelmParameterValue),
 	}
 
 	targetNameNode := node.FindDirectChildKind(artifacts.NodeInvokeTarget)
@@ -238,27 +435,110 @@ func extractDependencyParameters(
 	scope resolveScope,
 	dep *HelmTargetDependency,
 ) {
-	keyNodes := paramsNode.FindAllKind(artifacts.NodeDependencyParameterName)
-	valueNodes := paramsNode.FindAllKind(artifacts.NodeStringLiteral)
+	var pendingKey string
+	var pendingKeyNode *syntaxa.SyntaxaLSTNode[artifacts.Node]
 
-	if len(keyNodes) != len(valueNodes) {
-		return
-	}
-
-	for i, keyNode := range keyNodes {
-		keyStr := extractContentFromSingleTokenNode(builder, keyNode)
-
-		if _, exists := dep.Parameters[keyStr]; exists {
-			emitSemanticError(
-				builder,
-				keyNode,
-				ERROR_DUPLICATE_DEPENDENCY_PARAM,
-				fmt.Sprintf("parameter '%s' declared multiple times for dependency '%s'", keyStr, dep.TargetName),
-			)
-			continue
+	_ = paramsNode.WalkPre(func(cur *syntaxa.SyntaxaLSTNode[artifacts.Node]) (bool, bool) {
+		switch cur.Kind() {
+		case artifacts.NodeDependencyParameterName:
+			keyStr := extractContentFromSingleTokenNode(builder, cur)
+			if pendingKey != "" {
+				emitSemanticError(
+					builder,
+					pendingKeyNode,
+					ERROR_INVALID_VARIABLE_VALUE,
+					fmt.Sprintf(
+						"parameter '%s' for dependency '%s' must be a string literal or variable reference",
+						pendingKey,
+						dep.TargetName,
+					),
+				)
+			}
+			if _, exists := dep.Parameters[keyStr]; exists {
+				emitSemanticError(
+					builder,
+					cur,
+					ERROR_DUPLICATE_DEPENDENCY_PARAM,
+					fmt.Sprintf("parameter '%s' declared multiple times for dependency '%s'", keyStr, dep.TargetName),
+				)
+				pendingKey = ""
+				pendingKeyNode = nil
+				return false, false
+			}
+			pendingKey = keyStr
+			pendingKeyNode = cur
+		case artifacts.NodeStringLiteral:
+			if pendingKey == "" {
+				return false, false
+			}
+			dep.Parameters[pendingKey] = HelmParameterValue{
+				Kind:   HelmParameterScalar,
+				Scalar: extractStringFromStringNode(builder, cur, scope),
+			}
+			pendingKey = ""
+			pendingKeyNode = nil
+		case artifacts.NodeStringListArray:
+			if pendingKey == "" {
+				return false, false
+			}
+			dep.Parameters[pendingKey] = HelmParameterValue{
+				Kind:       HelmParameterStringList,
+				StringList: extractStringListFromArrayNode(builder, cur, scope, true),
+			}
+			pendingKey = ""
+			pendingKeyNode = nil
+		case artifacts.NodeParamValueArray:
+			if pendingKey == "" {
+				return false, false
+			}
+			dep.Parameters[pendingKey] = extractParamValueArrayParameter(builder, cur, scope)
+			pendingKey = ""
+			pendingKeyNode = nil
+		case artifacts.NodeVariableReference:
+			if pendingKey == "" {
+				return false, false
+			}
+			refName := extractContentFromSingleTokenNode(builder, cur)
+			if _, ok := scope.globals[refName]; ok {
+				dep.Parameters[pendingKey] = HelmParameterValue{
+					Kind:       HelmParameterGlobalRef,
+					GlobalName: refName,
+				}
+			} else if resolveScopeHasParameter(scope, refName) {
+				dep.Parameters[pendingKey] = HelmParameterValue{
+					Kind:            HelmParameterTargetParamRef,
+					TargetParamName: refName,
+				}
+			} else {
+				emitSemanticError(
+					builder,
+					cur,
+					ERROR_UNDECLARED_VARIABLE,
+					fmt.Sprintf(
+						"parameter '%s' references undeclared name '%s' for dependency '%s' (not a global or target parameter)",
+						pendingKey,
+						refName,
+						dep.TargetName,
+					),
+				)
+			}
+			pendingKey = ""
+			pendingKeyNode = nil
 		}
+		return false, false
+	})
 
-		dep.Parameters[keyStr] = extractStringFromStringNode(builder, valueNodes[i], scope)
+	if pendingKey != "" {
+		emitSemanticError(
+			builder,
+			pendingKeyNode,
+			ERROR_INVALID_VARIABLE_VALUE,
+			fmt.Sprintf(
+				"parameter '%s' for dependency '%s' must be a string literal or variable reference",
+				pendingKey,
+				dep.TargetName,
+			),
+		)
 	}
 }
 
@@ -323,6 +603,7 @@ func extractArtifactsVolatile(
 func handleTargetArtifacts(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
 	currentTarget *HelmTarget,
 	state *targetParseState,
 ) {
@@ -335,11 +616,25 @@ func handleTargetArtifacts(
 	artifactsIR := &HelmArtifacts{}
 
 	if inputsNode := node.FindFirstKind(artifacts.NodeCacheInputs); inputsNode != nil {
-		artifactsIR.Inputs = extractInputArtifactSequence(builder, inputsNode, builder.globalVariables)
+		artifactsIR.Inputs = extractInputArtifactSequence(builder, inputsNode, scope)
 	}
 
 	if outputsNode := node.FindFirstKind(artifacts.NodeCacheOutputDirectory); outputsNode != nil {
-		artifactsIR.Outputs = extractOutputArtifactSequence(builder, outputsNode, builder.globalVariables)
+		artifactsIR.Outputs = extractOutputArtifactSequence(builder, outputsNode, scope)
+	}
+
+	if dynamicNode := node.FindFirstKind(artifacts.NodeDynamic); dynamicNode != nil {
+		if state.dynamicDeclared {
+			emitSemanticError(
+				builder,
+				dynamicNode,
+				ERROR_DUPLICATE_DYNAMIC,
+				fmt.Sprintf("dynamic for target '%s' already declared", currentTarget.Name),
+			)
+		} else {
+			state.dynamicDeclared = true
+			artifactsIR.Dynamic = extractDynamicArtifactSequence(builder, dynamicNode, scope)
+		}
 	}
 
 	artifactsIR.Volatile = extractArtifactsVolatile(builder, node)
@@ -377,18 +672,58 @@ func handleTargetEnv(
 	}
 	state.envDeclared = true
 
-	keyNodes := node.FindAllKind(artifacts.NodeEnvKey)
-	valueNodes := node.FindAllKind(artifacts.NodeStringLiteral)
+	var pendingKey string
+	var pendingKeyNode *syntaxa.SyntaxaLSTNode[artifacts.Node]
 
-	for i, keyNode := range keyNodes {
-		keyStr := extractContentFromSingleTokenNode(builder, keyNode)
-
-		if _, exists := currentTarget.Env[keyStr]; exists {
-			emitSemanticError(builder, keyNode, ERROR_DUPLICATE_ENV_KEY, fmt.Sprintf("environment variable '%s' declared multiple times", keyStr))
-		} else {
-			valStr := extractStringFromStringNode(builder, valueNodes[i], scope)
-			currentTarget.Env[keyStr] = valStr
+	_ = node.WalkPre(func(cur *syntaxa.SyntaxaLSTNode[artifacts.Node]) (bool, bool) {
+		switch cur.Kind() {
+		case artifacts.NodeEnvKey:
+			keyStr := extractContentFromSingleTokenNode(builder, cur)
+			if pendingKey != "" {
+				emitSemanticError(
+					builder,
+					pendingKeyNode,
+					ERROR_INVALID_EXPORT_VALUE,
+					fmt.Sprintf("environment variable '%s' is missing a value", pendingKey),
+				)
+			}
+			if _, exists := currentTarget.Env[keyStr]; exists {
+				emitSemanticError(
+					builder,
+					cur,
+					ERROR_DUPLICATE_ENV_KEY,
+					fmt.Sprintf("environment variable '%s' declared multiple times", keyStr),
+				)
+				pendingKey = ""
+				pendingKeyNode = nil
+				return false, false
+			}
+			pendingKey = keyStr
+			pendingKeyNode = cur
+		case artifacts.NodeStringLiteral, artifacts.NodeStringListArray:
+			if pendingKey == "" {
+				return false, false
+			}
+			currentTarget.Env[pendingKey] = extractStringListFromNode(
+				builder,
+				cur,
+				scope,
+				true,
+			)
+			pendingKey = ""
+			pendingKeyNode = nil
+			return true, false
 		}
+		return false, false
+	})
+
+	if pendingKey != "" {
+		emitSemanticError(
+			builder,
+			pendingKeyNode,
+			ERROR_INVALID_EXPORT_VALUE,
+			fmt.Sprintf("environment variable '%s' is missing a value", pendingKey),
+		)
 	}
 }
 
@@ -398,11 +733,9 @@ func handleTargetRun(
 	scope resolveScope,
 	currentTarget *HelmTarget,
 ) {
-	stringNode := node.FindFirstKind(artifacts.NodeStringLiteral)
-	runText := extractStringFromStringNode(builder, stringNode, scope)
 	currentTarget.Steps = append(currentTarget.Steps, HelmTargetStep{
 		Kind: TargetStepRun,
-		Run:  runText,
+		Run:  extractRunCommandFromNode(builder, node, scope),
 	})
 }
 
@@ -460,9 +793,7 @@ func handleTargetConditional(
 
 	runNodes := node.FindAllKind(artifacts.NodeRunStatement)
 	for _, runNode := range runNodes {
-		stringNode := runNode.FindFirstKind(artifacts.NodeStringLiteral)
-		runText := extractStringFromStringNode(builder, stringNode, scope)
-		condition.Runs = append(condition.Runs, runText)
+		condition.Runs = append(condition.Runs, extractRunCommandFromNode(builder, runNode, scope))
 	}
 
 	currentTarget.Steps = append(currentTarget.Steps, HelmTargetStep{

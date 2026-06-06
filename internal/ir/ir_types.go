@@ -6,8 +6,10 @@ import (
 )
 
 const (
-	ERROR_DUPLICATE_VARIABLE  string = "VAR_001"
-	ERROR_UNDECLARED_VARIABLE string = "VAR_002"
+	ERROR_DUPLICATE_VARIABLE        string = "VAR_001"
+	ERROR_UNDECLARED_VARIABLE       string = "VAR_002"
+	ERROR_INVALID_VARIABLE_VALUE    string = "VAR_003"
+	ERROR_VARIABLE_ARRAY_NOT_SCALAR string = "VAR_004"
 
 	ERROR_DUPLICATE_TARGET           string = "TARGET_001"
 	ERROR_UNDECLARED_TARGET          string = "TARGET_002"
@@ -26,6 +28,12 @@ const (
 	ERROR_UNKNOWN_DEPENDENCY_PARAM   string = "TARGET_015"
 	ERROR_MISSING_DEPENDENCY_PARAM   string = "TARGET_016"
 	ERROR_DUPLICATE_DEPENDENCY_PARAM string = "TARGET_017"
+	ERROR_DUPLICATE_INTERACTIVE      string = "TARGET_018"
+	ERROR_INTERACTIVE_MATRIX         string = "TARGET_019"
+	ERROR_INVALID_INTERACTIVE        string = "TARGET_020"
+	ERROR_DUPLICATE_HIDDEN           string = "TARGET_021"
+	ERROR_INVALID_HIDDEN             string = "TARGET_022"
+	ERROR_DUPLICATE_DYNAMIC          string = "TARGET_023"
 
 	ERROR_UNDECLARED_PARAMETER string = "COND_001"
 
@@ -34,6 +42,20 @@ const (
 	ERROR_INVALID_GLOB         string = "GLOB_001"
 	ERROR_UNKNOWN_GLOB_KWARG   string = "GLOB_002"
 	ERROR_DUPLICATE_GLOB_KWARG string = "GLOB_003"
+
+	ERROR_DUPLICATE_MATRIX    string = "MATRIX_001"
+	ERROR_MATRIX_PARAM_SHADOW string = "MATRIX_002"
+	ERROR_EMPTY_MATRIX        string = "MATRIX_003"
+
+	ERROR_DUPLICATE_LET       string = "LET_001"
+	ERROR_LET_SHADOWS_BINDING string = "LET_002"
+	ERROR_INVALID_PATH_EXPR   string = "LET_003"
+
+	ERROR_DUPLICATE_EXPORT         string = "EXPORT_001"
+	ERROR_DUPLICATE_EXPORT_KEY     string = "EXPORT_002"
+	ERROR_INVALID_COLLECT_CALL     string = "EXPORT_003"
+	ERROR_UNDECLARED_COLLECT_PARAM string = "EXPORT_004"
+	ERROR_INVALID_EXPORT_VALUE     string = "EXPORT_005"
 )
 
 type HelmConditionType int
@@ -49,7 +71,7 @@ type HelmCondition struct {
 	ConditionType HelmConditionType
 	Parameter     string
 	TargetValue   string
-	Runs          []string
+	Runs          []HelmRunCommand
 }
 
 type HelmTargetStepKind int
@@ -59,18 +81,77 @@ const (
 	TargetStepWhen
 )
 
+type HelmStringListElementKind int
+
+const (
+	StringListLiteral HelmStringListElementKind = iota
+	StringListParamRef
+	StringListCollect
+)
+
+// HelmStringListElement is one fragment in a string-list expression (env, export, parameters).
+type HelmStringListElement struct {
+	Kind      HelmStringListElementKind
+	Literal   string
+	ParamName string
+	Collect   *HelmCollectExpr
+}
+
+// HelmCollectExpr aggregates export keys from dependency-list parameters.
+type HelmCollectExpr struct {
+	DependenciesParam string
+	ExportKey         string
+}
+
+// HelmStringListExpr evaluates to a flat list of strings (e.g. linker flags).
+type HelmStringListExpr []HelmStringListElement
+
+// HelmRunArgvElement is one argv slot in a native run [ ... ] command.
+// Exactly one of Literal, ParamName, PhaseOutputs, AbsPath, or Collect is set.
+type HelmRunArgvElement struct {
+	Literal      string
+	ParamName    string
+	PhaseOutputs string
+	AbsPath      string
+	Collect      *HelmCollectExpr
+}
+
+// HelmRunCommand is either a legacy string run (shlex-split at execution) or a native argv template.
+type HelmRunCommand struct {
+	String string
+	Argv   []HelmRunArgvElement
+}
+
+func HelmRunCommandIsArgv(command HelmRunCommand) bool {
+	return len(command.Argv) > 0
+}
+
+func HelmRunCommandLiteral(text string) HelmRunCommand {
+	return HelmRunCommand{String: text}
+}
+
 type HelmTargetStep struct {
 	Kind HelmTargetStepKind
-	Run  string
+	Run  HelmRunCommand
 	When *HelmCondition
 }
 
 type HelmIR struct {
-	// SourceDirectory is the directory containing the interpreted .helm file.
+	// SourceDirectory is the workspace root (directory containing the root Helmfile).
 	SourceDirectory string
-	GlobalVariables map[string]string
-	Targets         map[string]HelmTarget
-	Succeeded       bool
+	// RootManifestPath is the absolute path to the workspace root Helmfile.
+	RootManifestPath string
+	// GlobalVariables holds file-local globals for single-file (legacy) interpretation.
+	GlobalVariables map[string]HelmGlobalVariable
+	// FileGlobals maps absolute helm file paths to file-local global variables.
+	FileGlobals map[string]map[string]HelmGlobalVariable
+	Targets     map[string]HelmTarget
+	Workspace   *HelmWorkspace
+	Entities    map[string]HelmEntity
+	Interfaces  map[string]HelmInterfaceDecl
+	Adapters    map[string]HelmAdapterDecl
+	Mode        HelmExecutionMode
+	Succeeded   bool
 }
 
 type HelmTarget struct {
@@ -80,35 +161,90 @@ type HelmTarget struct {
 	Parameters []HelmTargetParameter
 
 	WorkDir string
-	Env     map[string]string
+	Env     map[string]HelmStringListExpr
+	Export  map[string]HelmStringListExpr
 
-	DependsOn []HelmTargetDependency
-	Artifacts *HelmArtifacts
-	Steps     []HelmTargetStep
+	DependsOn           []HelmTargetDependency
+	DependsOnParamNames []string
+	Matrix              *HelmMatrix
+	LetBindings         []HelmPathBinding
+	Artifacts           *HelmArtifacts
+	Interactive         bool
+	Hidden              bool
+	Steps               []HelmTargetStep
+}
+
+type HelmMatrix struct {
+	VariableName string
+	Values       []HelmMatrixValue
+}
+
+type HelmMatrixValueKind int
+
+const (
+	MatrixValueLiteral HelmMatrixValueKind = iota
+	MatrixValueGlob
+	MatrixValueParameterRef
+)
+
+type HelmMatrixValue struct {
+	Kind          HelmMatrixValueKind
+	Literal       string
+	Glob          *HelmGlob
+	ParameterName string
 }
 
 type HelmTargetParameter struct {
-	Name     string
-	Optional bool
+	Name           string
+	Optional       bool
+	DependencyList bool
+}
+
+type HelmParameterValueKind int
+
+const (
+	HelmParameterScalar HelmParameterValueKind = iota
+	HelmParameterGlobalRef
+	HelmParameterTargetParamRef
+	HelmParameterDependencyList
+	HelmParameterStringList
+	HelmParameterArtifactItems
+)
+
+// HelmParameterValue is a dependency or invocation parameter at IR/runtime.
+// Scalar values come from string literals; GlobalRef binds a global by name (string or artifact array).
+// TargetParamRef forwards a parameter from the depending target (e.g. SOURCE_FILES = SOURCE_FILES).
+// DependencyList holds nested depends_on entries (including braced targets with params).
+type HelmParameterValue struct {
+	Kind            HelmParameterValueKind
+	Scalar          string
+	GlobalName      string
+	TargetParamName string
+	Dependencies    []HelmTargetDependency
+	StringList      HelmStringListExpr
+	ArtifactItems   []HelmArtifactInput
 }
 
 // HelmTargetDependency describes an edge in depends_on.
-// Parameters holds literal values from params { ... }; values may retain ${NAME}
-// placeholders until runtime using the dependent target's invocation. Each dependency
-// target runs at most once per graph execution, so all edges supplying params for the
-// same dependency must agree (enforced at runtime).
+// Parameters holds values from params { ... }. Each dependency target runs at most once
+// per graph execution, so all edges supplying params for the same dependency must agree.
 type HelmTargetDependency struct {
-	TargetName string
-	Optional   bool
-	Confirm    bool
-	Parameters map[string]string
-	SourceNode *syntaxa.SyntaxaLSTNode[artifacts.Node]
+	TargetName  string
+	EntityLabel *HelmLabel
+	Optional    bool
+	Confirm     bool
+	Parameters  map[string]HelmParameterValue
+	SourceNode  *syntaxa.SyntaxaLSTNode[artifacts.Node]
+}
+
+func HelmTargetDependencyIsEntityLabel(dep HelmTargetDependency) bool {
+	return dep.EntityLabel != nil
 }
 
 type HelmGlob struct {
 	BaseDirectory  string
-	Include        string
-	Exclude        string
+	Includes       []string
+	Excludes       []string
 	FollowSymlinks bool
 	Recursive      bool
 	Types          string
@@ -119,16 +255,44 @@ type HelmArtifactInputKind int
 const (
 	ArtifactInputString HelmArtifactInputKind = iota
 	ArtifactInputGlob
+	ArtifactInputLetRef
 )
 
 type HelmArtifactInput struct {
 	Kind    HelmArtifactInputKind
 	Literal string
 	Glob    *HelmGlob
+	LetName string
+}
+
+type HelmPathExprKind int
+
+const (
+	PathExprLiteral HelmPathExprKind = iota
+	PathExprParamRef
+	PathExprGlobalRef
+	PathExprLetRef
+	PathExprCall
+)
+
+type HelmPathExpr struct {
+	Kind     HelmPathExprKind
+	Literal  string
+	Name     string
+	CallName string
+	CallArgs []HelmPathExpr
+}
+
+type HelmPathBinding struct {
+	Name string
+	Expr HelmPathExpr
 }
 
 type HelmArtifacts struct {
 	Volatile bool
 	Inputs   []HelmArtifactInput
-	Outputs  []string
+	Outputs  []HelmArtifactInput
+	// Dynamic holds manifest file paths (one path per line format). Cache evaluation
+	// hashes the files listed inside each manifest, not the manifest bytes alone.
+	Dynamic []HelmArtifactInput
 }

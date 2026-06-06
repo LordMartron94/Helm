@@ -1,13 +1,16 @@
 package targetexecutor
 
 import (
-	"fmt"
 	"helm/internal/ir"
+	"io"
+	"os"
+	"time"
 )
 
 func TargetExecutorRunTarget(
+	helmBaseDir string,
 	target ir.HelmTarget,
-	globalVars map[string]string,
+	globals map[string]ir.HelmGlobalVariable,
 	inv TargetInvocation,
 	opts TargetExecutorOptions,
 ) error {
@@ -16,50 +19,104 @@ func TargetExecutorRunTarget(
 		handler = TargetExecutorDefaultRunHandler
 	}
 
-	parameters := TargetInvocationParameters(inv)
-	workDir := TargetExecutorInterpolateLiteral(target.WorkDir, globalVars, parameters)
-	env := targetExecutorInterpolateEnv(target.Env, globalVars, parameters)
+	workDir, steps, err := TargetExecutorResolveTargetRuns(
+		helmBaseDir,
+		target,
+		opts.Targets,
+		globals,
+		inv,
+	)
+	if err != nil {
+		return err
+	}
 
-	for stepIndex, step := range target.Steps {
-		switch step.Kind {
-		case ir.TargetStepRun:
-			command := TargetExecutorInterpolateLiteral(step.Run, globalVars, parameters)
-			req := TargetRunRequest{
-				TargetName: target.Name,
-				StepIndex:  stepIndex,
-				Command:    command,
-				WorkDir:    workDir,
-				Env:        env,
-			}
-			if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
-				return err
-			}
-		case ir.TargetStepWhen:
-			if step.When == nil {
-				continue
-			}
-			if !TargetExecutorEvaluateCondition(*step.When, parameters) {
-				continue
-			}
-			for _, runLiteral := range step.When.Runs {
-				command := TargetExecutorInterpolateLiteral(runLiteral, globalVars, parameters)
-				req := TargetRunRequest{
-					TargetName: target.Name,
-					StepIndex:  stepIndex,
-					Command:    command,
-					WorkDir:    workDir,
-					Env:        env,
-				}
-				if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
-					return err
-				}
-			}
-		default:
-			return fmt.Errorf("target '%s' step %d: unknown step kind", target.Name, stepIndex)
+	paramValues := TargetExecutorParametersForTarget(target, inv)
+	resolved, err := TargetExecutorResolveInvocationParameters(helmBaseDir, globals, paramValues)
+	if err != nil {
+		return err
+	}
+
+	baseInterpCtx, err := TargetExecutorInterpolationGlobals(helmBaseDir, globals, resolved)
+	if err != nil {
+		return err
+	}
+	interpCtx, err := TargetExecutorEvaluateLetBindings(helmBaseDir, target, baseInterpCtx)
+	if err != nil {
+		return err
+	}
+
+	env, err := targetExecutorInterpolateEnv(
+		target.Env,
+		opts.Targets,
+		paramValues,
+		resolved,
+		interpCtx,
+	)
+	if err != nil {
+		return err
+	}
+
+	for stepIndex, step := range steps {
+		req := targetExecutorRunRequestCreate(target.Name, stepIndex, step, workDir, env, target.Interactive, opts)
+		if err := targetExecutorInvokeRun(handler, req, opts); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+func targetExecutorRunRequestCreate(
+	targetName string,
+	stepIndex int,
+	step TargetResolvedRun,
+	workDir string,
+	env map[string]string,
+	interactive bool,
+	opts TargetExecutorOptions,
+) TargetRunRequest {
+	req := TargetRunRequest{
+		TargetName:  targetName,
+		StepIndex:   stepIndex,
+		Command:     TargetResolvedRunDisplay(step),
+		Argv:        step.Argv,
+		WorkDir:     workDir,
+		Env:         env,
+		Interactive: interactive,
+	}
+
+	if !interactive && opts.StreamRunOutput {
+		req.LiveStdout = opts.StreamStdout
+		if req.LiveStdout == nil {
+			req.LiveStdout = os.Stdout
+		}
+
+		req.LiveStderr = opts.StreamStderr
+		if req.LiveStderr == nil {
+			req.LiveStderr = os.Stderr
+		}
+	}
+
+	if opts.RunTranscript != nil && opts.TranscriptNodeID != "" && !interactive {
+		if req.LiveStdout != nil {
+			req.LiveStdout = io.MultiWriter(
+				req.LiveStdout,
+				opts.RunTranscript.StdoutWriter(opts.TranscriptNodeID),
+			)
+		} else {
+			req.LiveStdout = opts.RunTranscript.StdoutWriter(opts.TranscriptNodeID)
+		}
+		if req.LiveStderr != nil {
+			req.LiveStderr = io.MultiWriter(
+				req.LiveStderr,
+				opts.RunTranscript.StderrWriter(opts.TranscriptNodeID),
+			)
+		} else {
+			req.LiveStderr = opts.RunTranscript.StderrWriter(opts.TranscriptNodeID)
+		}
+	}
+
+	return req
 }
 
 func targetExecutorInvokeRun(
@@ -67,9 +124,20 @@ func targetExecutorInvokeRun(
 	req TargetRunRequest,
 	opts TargetExecutorOptions,
 ) error {
+	startedAt := time.Now()
 	result, err := handler(req)
 	if opts.SignalContext != nil {
-		targetExecutorEmitRunSignals(opts.SignalContext, req, result, err)
+		targetExecutorEmitRunSignals(opts.SignalContext, req, result, err, time.Since(startedAt))
+	}
+	if err == nil {
+		return nil
+	}
+	if result.ExitCode != 0 {
+		return TargetExecutorProcessExitError{
+			Target:   req.TargetName,
+			ExitCode: result.ExitCode,
+			Err:      err,
+		}
 	}
 	return err
 }

@@ -13,7 +13,7 @@ func TargetExecutorRunGraph(
 	invocations map[string]TargetInvocation,
 	opts TargetExecutorOptions,
 ) error {
-	chain, err := TargetExecutorExecutionChain(builtIR, entryTarget)
+	plan, err := TargetExecutorBuildExecutionPlan(builtIR, entryTarget, invocations)
 	if err != nil {
 		return err
 	}
@@ -23,21 +23,21 @@ func TargetExecutorRunGraph(
 		return fmt.Errorf("target '%s' does not exist in IR", entryTarget)
 	}
 
-	closure := targetExecutorClosureNames(chain)
+	closure := targetExecutorClosureNames(plan.Phases)
 	if targetExecutorClosureRequiresConfirm(builtIR, closure) && opts.ConfirmDependency == nil {
 		return fmt.Errorf("%s: dependency confirmation required but ConfirmDependency callback is nil", ERROR_CONFIRM_CALLBACK_REQUIRED)
 	}
 
-	effectiveInvocations, err := targetExecutorResolveEffectiveInvocations(builtIR, closure, invocations)
-	if err != nil {
-		return err
-	}
-
-	results := make(map[string]error, len(closure))
-	depStateFingerprints := make(map[string]uint64, len(closure))
-	depOutputFingerprints := make(map[string]uint64, len(closure))
+	results := make(map[string]error)
+	depStateFingerprints := make(map[string]uint64)
+	depOutputFingerprints := make(map[string]uint64)
+	var resultsMu sync.RWMutex
+	var fingerprintMu sync.RWMutex
 
 	runOpts := opts
+	if runOpts.Targets == nil {
+		runOpts.Targets = builtIR.Targets
+	}
 	var ownedCacheStore *cache.TargetCacheStore
 	if !runOpts.DisableArtifactCache && runOpts.CacheStore == nil && runOpts.CacheRoot != "" {
 		opened, openErr := cache.TargetCacheStoreOpen(runOpts.CacheRoot)
@@ -49,7 +49,15 @@ func TargetExecutorRunGraph(
 		defer cache.TargetCacheStoreClose(ownedCacheStore)
 	}
 
-	for _, phase := range chain {
+	for phaseIndex, phase := range plan.Phases {
+		if err := targetExecutorValidatePhaseTTY(phase, builtIR.Targets); err != nil {
+			return err
+		}
+
+		if runOpts.RunTranscript != nil {
+			runOpts.RunTranscript.PhaseStart(phaseIndex + 1)
+		}
+
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 		var phaseErr error
@@ -59,7 +67,7 @@ func TargetExecutorRunGraph(
 			go func(name string) {
 				defer wg.Done()
 
-				if err := targetExecutorConfirmBeforeTarget(builtIR, name, closure, runOpts); err != nil {
+				if err := targetExecutorConfirmBeforeTarget(builtIR, TargetExecutorExecutionNodeCanonical(name), closure, runOpts); err != nil {
 					mu.Lock()
 					if phaseErr == nil {
 						phaseErr = err
@@ -68,88 +76,242 @@ func TargetExecutorRunGraph(
 					return
 				}
 
-				if blockedErr := targetExecutorDependencyBlocked(builtIR, name, results); blockedErr != nil {
-					mu.Lock()
+				canonicalName := TargetExecutorExecutionNodeCanonical(name)
+				target := builtIR.Targets[canonicalName]
+				inv := targetExecutorInvocationForNode(plan, name, invocations)
+
+				var blockedErr error
+				resultsMu.RLock()
+				blockedErr = targetExecutorDependencyBlocked(plan, builtIR, name, inv, results)
+				resultsMu.RUnlock()
+				if blockedErr != nil {
+					resultsMu.Lock()
 					results[name] = blockedErr
-					mu.Unlock()
+					resultsMu.Unlock()
 					return
 				}
 
-				target := builtIR.Targets[name]
-				inv := TargetInvocation{}
-				if mapped, exists := effectiveInvocations[name]; exists {
-					inv = mapped
-				}
-
-				decision, cacheErr := targetExecutorEvaluateCache(
-					builtIR,
-					name,
-					inv,
-					runOpts,
-					depStateFingerprints,
-					depOutputFingerprints,
+				paramValues := TargetExecutorParametersForTarget(target, inv)
+				resolved, resolveErr := TargetExecutorResolveInvocationParameters(
+					builtIR.SourceDirectory,
+					ir.IRGlobalsForRootManifest(builtIR),
+					paramValues,
 				)
-				if cacheErr != nil {
-					mu.Lock()
-					if phaseErr == nil {
-						phaseErr = cacheErr
-					}
-					mu.Unlock()
+				if resolveErr != nil {
+					resultsMu.Lock()
+					results[name] = resolveErr
+					resultsMu.Unlock()
 					return
 				}
-
-				if decision.Skip {
-					targetExecutorEmitCacheSkipSignals(runOpts.SignalContext, name, decision.StateFingerprint)
-					mu.Lock()
-					results[name] = nil
-					depStateFingerprints[name] = decision.StateFingerprint
-					depOutputFingerprints[name] = decision.OutputFingerprint
-					mu.Unlock()
-					return
-				}
-
-				runErr := TargetExecutorRunTarget(target, builtIR.GlobalVariables, inv, runOpts)
-				if runErr != nil {
-					mu.Lock()
-					results[name] = runErr
-					mu.Unlock()
-					return
-				}
-
-				outputFingerprint, commitErr := targetExecutorCommitCache(
-					builtIR,
-					name,
-					inv,
-					runOpts,
-					depStateFingerprints,
-					depOutputFingerprints,
+				baseInterpCtx, globalErr := TargetExecutorInterpolationGlobals(
+					builtIR.SourceDirectory,
+					ir.IRGlobalsForRootManifest(builtIR),
+					resolved,
 				)
-				if commitErr != nil {
-					mu.Lock()
-					if phaseErr == nil {
-						phaseErr = commitErr
-					}
-					mu.Unlock()
+				if globalErr != nil {
+					resultsMu.Lock()
+					results[name] = globalErr
+					resultsMu.Unlock()
+					return
+				}
+				interpCtx, globalErr := TargetExecutorEvaluateLetBindings(
+					builtIR.SourceDirectory,
+					target,
+					baseInterpCtx,
+				)
+				if globalErr != nil {
+					resultsMu.Lock()
+					results[name] = globalErr
+					resultsMu.Unlock()
 					return
 				}
 
-				targetForCache := builtIR.Targets[name]
-				if targetForCache.Artifacts != nil &&
-					!targetForCache.Artifacts.Volatile &&
-					runOpts.CacheStore != nil {
-					targetExecutorEmitCacheUpdatedSignals(
-						runOpts.SignalContext,
-						name,
-						decision.StateFingerprint,
-						outputFingerprint,
-					)
+				instances, instanceErr := TargetExecutorMatrixInstances(
+					builtIR.SourceDirectory,
+					target,
+					paramValues,
+					ir.IRGlobalsForRootManifest(builtIR),
+					interpCtx,
+				)
+				if instanceErr != nil {
+					resultsMu.Lock()
+					results[name] = instanceErr
+					resultsMu.Unlock()
+					return
 				}
 
+				var instWg sync.WaitGroup
+				var instMu sync.Mutex
+				var instStateFingerprints []uint64
+				var instOutputFingerprints []uint64
+				var targetErr error
+
+				for _, instance := range instances {
+					instWg.Add(1)
+					go func(inst TargetMatrixInstance) {
+						defer instWg.Done()
+
+						effectiveParamValues := targetExecutorEffectiveParameterValues(target, inv, inst.Bindings)
+						effectiveInv := TargetInvocation{Parameters: effectiveParamValues}
+
+						paramInstanceKey := TargetExecutorExecutionNodeInstanceKey(name)
+						cacheInstanceKey := inst.CacheKey
+						if cacheInstanceKey == "" && paramInstanceKey != "" {
+							cacheInstanceKey = paramInstanceKey
+						}
+
+						depExecNodes, depNodesErr := targetExecutorDependencyNodes(
+							plan,
+							builtIR,
+							name,
+							inv,
+						)
+						if depNodesErr != nil {
+							instMu.Lock()
+							if targetErr == nil {
+								targetErr = depNodesErr
+							}
+							instMu.Unlock()
+							return
+						}
+
+						fingerprintMu.RLock()
+						decision, cacheErr := targetExecutorEvaluateCache(
+							builtIR,
+							canonicalName,
+							cacheInstanceKey,
+							effectiveInv,
+							depExecNodes,
+							runOpts,
+							depStateFingerprints,
+							depOutputFingerprints,
+						)
+						fingerprintMu.RUnlock()
+						if cacheErr != nil {
+							instMu.Lock()
+							if targetErr == nil {
+								targetErr = cacheErr
+							}
+							instMu.Unlock()
+							return
+						}
+
+						transcriptNode := targetExecutorTranscriptNodeID(name, inst.CacheKey)
+						if runOpts.RunTranscript != nil {
+							runOpts.RunTranscript.TargetStart(transcriptNode, target.Interactive)
+						}
+
+						var outputFingerprint uint64
+						var instanceRunErr error
+						if decision.Skip {
+							targetExecutorEmitCacheSkipSignals(
+								runOpts.SignalContext,
+								canonicalName,
+								cacheInstanceKey,
+								decision.StateFingerprint,
+							)
+							outputFingerprint = decision.OutputFingerprint
+						} else {
+							instanceRunOpts := runOpts
+							instanceRunOpts.TranscriptNodeID = transcriptNode
+							if canonicalName == canonicalEntry {
+								targetExecutorMarkEntryReached(runOpts.RunState)
+							}
+
+							instanceRunErr = TargetExecutorRunTarget(
+								builtIR.SourceDirectory,
+								target,
+								ir.IRGlobalsForRootManifest(builtIR),
+								effectiveInv,
+								instanceRunOpts,
+							)
+							if instanceRunErr != nil {
+								instMu.Lock()
+								if targetErr == nil {
+									targetErr = instanceRunErr
+								}
+								instMu.Unlock()
+							}
+						}
+
+						if runOpts.RunTranscript != nil {
+							runOpts.RunTranscript.TargetEnd(transcriptNode, instanceRunErr)
+						}
+
+						if instanceRunErr != nil {
+							return
+						}
+
+						if !decision.Skip {
+
+							var commitErr error
+							fingerprintMu.RLock()
+							outputFingerprint, commitErr = targetExecutorCommitCache(
+								builtIR,
+								canonicalName,
+								cacheInstanceKey,
+								effectiveInv,
+								depExecNodes,
+								runOpts,
+								depStateFingerprints,
+								depOutputFingerprints,
+							)
+							fingerprintMu.RUnlock()
+							if commitErr != nil {
+								instMu.Lock()
+								if targetErr == nil {
+									targetErr = commitErr
+								}
+								instMu.Unlock()
+								return
+							}
+
+							targetForCache := builtIR.Targets[canonicalName]
+							if targetForCache.Artifacts != nil &&
+								!targetForCache.Artifacts.Volatile &&
+								runOpts.CacheStore != nil {
+								targetExecutorEmitCacheUpdatedSignals(
+									runOpts.SignalContext,
+									canonicalName,
+									decision.StateFingerprint,
+									outputFingerprint,
+								)
+							}
+						}
+
+						instMu.Lock()
+						if decision.StateFingerprint != 0 {
+							instStateFingerprints = append(instStateFingerprints, decision.StateFingerprint)
+						}
+						if outputFingerprint != 0 {
+							instOutputFingerprints = append(instOutputFingerprints, outputFingerprint)
+						}
+						instMu.Unlock()
+					}(instance)
+				}
+
+				instWg.Wait()
+
+				if targetErr != nil {
+					resultsMu.Lock()
+					results[name] = targetErr
+					resultsMu.Unlock()
+					return
+				}
 				mu.Lock()
-				results[name] = nil
-				depStateFingerprints[name] = decision.StateFingerprint
-				depOutputFingerprints[name] = outputFingerprint
+				if phaseErr != nil {
+					mu.Unlock()
+					return
+				}
 				mu.Unlock()
+
+				fingerprintMu.Lock()
+				depStateFingerprints[name] = cache.CacheAggregateInstanceFingerprints(instStateFingerprints)
+				depOutputFingerprints[name] = cache.CacheAggregateInstanceFingerprints(instOutputFingerprints)
+				fingerprintMu.Unlock()
+				resultsMu.Lock()
+				results[name] = nil
+				resultsMu.Unlock()
 			}(targetName)
 		}
 
@@ -158,13 +320,63 @@ func TargetExecutorRunGraph(
 		if phaseErr != nil {
 			return phaseErr
 		}
+
+		if runOpts.RunTranscript != nil {
+			runOpts.RunTranscript.PhaseEnd(phaseIndex + 1)
+		}
 	}
 
-	if err := results[canonicalEntry]; err != nil {
-		return err
+	entryNode := canonicalEntry
+	resultsMu.RLock()
+	entryErr := results[entryNode]
+	resultsMu.RUnlock()
+	if entryErr != nil {
+		return targetExecutorPreferEntryProcessExit(entryErr, entryNode)
 	}
 
 	return nil
+}
+
+func targetExecutorTranscriptNodeID(nodeID string, matrixCacheKey string) string {
+	if matrixCacheKey == "" {
+		return nodeID
+	}
+	return nodeID + "#matrix:" + matrixCacheKey
+}
+
+func targetExecutorMarkEntryReached(state *TargetExecutorRunState) {
+	if state == nil {
+		return
+	}
+	state.EntryReached = true
+}
+
+func targetExecutorPreferEntryProcessExit(err error, entryNode string) error {
+	exitErr, ok := err.(TargetExecutorProcessExitError)
+	if !ok {
+		return err
+	}
+	exitErr.Target = entryNode
+	return exitErr
+}
+
+func targetExecutorInvocationForNode(
+	plan *TargetExecutionPlan,
+	nodeID string,
+	callerInvocations map[string]TargetInvocation,
+) TargetInvocation {
+	if inv, ok := plan.NodeInvocations[nodeID]; ok {
+		return inv
+	}
+
+	canonical := TargetExecutorExecutionNodeCanonical(nodeID)
+	if callerInvocations != nil {
+		if inv, ok := callerInvocations[canonical]; ok {
+			return inv
+		}
+	}
+
+	return TargetInvocation{}
 }
 
 func targetExecutorClosureNames(chain [][]string) map[string]struct{} {
@@ -179,7 +391,11 @@ func targetExecutorClosureNames(chain [][]string) map[string]struct{} {
 
 func targetExecutorClosureRequiresConfirm(builtIR ir.HelmIR, closure map[string]struct{}) bool {
 	for name := range closure {
-		target := builtIR.Targets[name]
+		canonical := TargetExecutorExecutionNodeCanonical(name)
+		target, ok := builtIR.Targets[canonical]
+		if !ok {
+			continue
+		}
 		for _, dep := range target.DependsOn {
 			if dep.Confirm {
 				return true
@@ -195,8 +411,12 @@ func targetExecutorConfirmBeforeTarget(
 	closure map[string]struct{},
 	opts TargetExecutorOptions,
 ) error {
-	for dependentName := range closure {
-		dependent := builtIR.Targets[dependentName]
+	for dependentNodeID := range closure {
+		dependentName := TargetExecutorExecutionNodeCanonical(dependentNodeID)
+		dependent, ok := builtIR.Targets[dependentName]
+		if !ok {
+			continue
+		}
 		for _, dep := range dependent.DependsOn {
 			canonical, ok := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
 			if !ok || canonical != dependencyName || !dep.Confirm {
@@ -216,29 +436,31 @@ func targetExecutorConfirmBeforeTarget(
 	return nil
 }
 
-func targetExecutorDependencyBlocked(
-	builtIR ir.HelmIR,
-	targetName string,
-	results map[string]error,
-) error {
-	target := builtIR.Targets[targetName]
+func targetExecutorValidatePhaseTTY(phase []string, targets map[string]ir.HelmTarget) error {
+	var interactiveTargets []string
 
-	for _, dep := range target.DependsOn {
-		canonical, ok := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
+	for _, targetName := range phase {
+		canonical := TargetExecutorExecutionNodeCanonical(targetName)
+		target, ok := targets[canonical]
 		if !ok {
 			continue
 		}
-
-		depErr := results[canonical]
-		if depErr == nil {
-			continue
+		if target.Interactive {
+			interactiveTargets = append(interactiveTargets, targetName)
 		}
+	}
 
-		if dep.Optional {
-			continue
-		}
+	if len(interactiveTargets) == 0 {
+		return nil
+	}
 
-		return TargetExecutorFormatDependencyBlockedError(targetName, canonical, depErr)
+	if len(phase) > 1 {
+		return fmt.Errorf(
+			"%s: interactive target %q cannot run in parallel with %d other target(s) in the same phase",
+			ERROR_TTY_CONFLICT,
+			interactiveTargets[0],
+			len(phase)-1,
+		)
 	}
 
 	return nil

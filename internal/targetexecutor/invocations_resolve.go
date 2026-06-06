@@ -3,134 +3,100 @@ package targetexecutor
 import (
 	"fmt"
 	"helm/internal/ir"
-	"sort"
-	"strings"
 )
 
-func targetExecutorResolveEffectiveInvocations(
+// targetExecutorResolvedParamsForTarget returns the effective parameters for a target
+// in the current closure: CLI invocation overrides, otherwise merged from dependents' depends_on edges.
+func targetExecutorResolvedParamsForTarget(
 	builtIR ir.HelmIR,
 	closure map[string]struct{},
+	targetName string,
 	callerInvocations map[string]TargetInvocation,
-) (map[string]TargetInvocation, error) {
-	effective := make(map[string]TargetInvocation, len(closure))
+	visiting map[string]struct{},
+) (TargetResolvedParameters, error) {
+	if visiting == nil {
+		visiting = make(map[string]struct{})
+	}
+	if _, onStack := visiting[targetName]; onStack {
+		return TargetResolvedParameters{}, fmt.Errorf("cyclic parameter resolution involving target '%s'", targetName)
+	}
+	visiting[targetName] = struct{}{}
+	defer delete(visiting, targetName)
 
-	for dependencyName := range closure {
-		edgeMaps, dependents, err := targetExecutorCollectDependencyParamMaps(
-			builtIR,
-			closure,
-			dependencyName,
-			callerInvocations,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		merged := map[string]string{}
-		if len(edgeMaps) > 0 {
-			merged = edgeMaps[0]
-			for i := 1; i < len(edgeMaps); i++ {
-				if targetExecutorParamMapFingerprint(edgeMaps[i]) != targetExecutorParamMapFingerprint(merged) {
-					return nil, fmt.Errorf(
-						"conflicting parameters for dependency '%s' from '%s' and '%s'",
-						dependencyName,
-						dependents[0],
-						dependents[i],
-					)
-				}
+	if callerInvocations != nil {
+		if inv, exists := callerInvocations[targetName]; exists {
+			target, ok := builtIR.Targets[targetName]
+			if !ok {
+				return TargetResolvedParameters{}, fmt.Errorf("target '%s' does not exist in IR", targetName)
 			}
-		}
-
-		if callerInvocations != nil {
-			if caller, exists := callerInvocations[dependencyName]; exists {
-				for key, value := range TargetInvocationParameters(caller) {
-					merged[key] = value
-				}
-			}
-		}
-
-		if len(merged) > 0 {
-			effective[dependencyName] = TargetInvocation{Parameters: merged}
+			paramValues := TargetExecutorParametersForTarget(target, inv)
+			return TargetExecutorResolveInvocationParameters(
+				builtIR.SourceDirectory,
+				ir.IRGlobalsForRootManifest(builtIR),
+				paramValues,
+			)
 		}
 	}
 
-	return effective, nil
-}
-
-func targetExecutorCollectDependencyParamMaps(
-	builtIR ir.HelmIR,
-	closure map[string]struct{},
-	dependencyName string,
-	callerInvocations map[string]TargetInvocation,
-) ([]map[string]string, []string, error) {
-	var edgeMaps []map[string]string
-	var dependents []string
-
+	var edgeMaps []map[string]ir.HelmParameterValue
 	for dependentName := range closure {
 		dependent, ok := builtIR.Targets[dependentName]
 		if !ok {
 			continue
 		}
 
-		parentParams := map[string]string{}
-		if callerInvocations != nil {
-			if inv, exists := callerInvocations[dependentName]; exists {
-				parentParams = TargetInvocationParameters(inv)
-			}
-		}
-
 		for _, dep := range dependent.DependsOn {
 			canonical, ok := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
-			if !ok || canonical != dependencyName {
+			if !ok || canonical != targetName || len(dep.Parameters) == 0 {
 				continue
 			}
 
-			interpolated := targetExecutorInterpolateParamMap(
-				builtIR.GlobalVariables,
-				parentParams,
+			dependentResolved, err := targetExecutorResolvedParamsForTarget(
+				builtIR,
+				closure,
+				dependentName,
+				callerInvocations,
+				visiting,
+			)
+			if err != nil {
+				return TargetResolvedParameters{}, err
+			}
+
+			dependentInv := TargetInvocation{}
+			if callerInvocations != nil {
+				if inv, exists := callerInvocations[dependentName]; exists {
+					dependentInv = inv
+				}
+			}
+			parentParameters := TargetExecutorParametersForTarget(dependent, dependentInv)
+
+			bound, err := targetExecutorBindDependencyParams(
+				ir.IRGlobalsForRootManifest(builtIR),
+				dependentResolved,
+				parentParameters,
 				dep.Parameters,
 			)
-
-			edgeMaps = append(edgeMaps, interpolated)
-			dependents = append(dependents, dependentName)
+			if err != nil {
+				return TargetResolvedParameters{}, fmt.Errorf("target '%s' dependency '%s': %w", dependentName, dep.TargetName, err)
+			}
+			edgeMaps = append(edgeMaps, bound)
 		}
 	}
 
-	return edgeMaps, dependents, nil
-}
-
-func targetExecutorInterpolateParamMap(
-	globalVars map[string]string,
-	parentParams map[string]string,
-	raw map[string]string,
-) map[string]string {
-	if len(raw) == 0 {
-		return map[string]string{}
+	if len(edgeMaps) == 0 {
+		return TargetResolvedParametersEmpty(), nil
 	}
 
-	out := make(map[string]string, len(raw))
-	for key, value := range raw {
-		out[key] = TargetExecutorInterpolateLiteral(value, globalVars, parentParams)
-	}
-	return out
-}
-
-func targetExecutorParamMapFingerprint(parameters map[string]string) string {
-	if len(parameters) == 0 {
-		return ""
+	merged := edgeMaps[0]
+	for i := 1; i < len(edgeMaps); i++ {
+		if targetExecutorParameterMapFingerprint(edgeMaps[i]) != targetExecutorParameterMapFingerprint(merged) {
+			return TargetResolvedParameters{}, fmt.Errorf("conflicting parameters for target '%s' from multiple dependents", targetName)
+		}
 	}
 
-	keys := make([]string, 0, len(parameters))
-	for key := range parameters {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	var buffer strings.Builder
-	for _, key := range keys {
-		buffer.WriteString(key)
-		buffer.WriteByte(0)
-		buffer.WriteString(parameters[key])
-		buffer.WriteByte(0)
-	}
-	return buffer.String()
+	return TargetExecutorResolveInvocationParameters(
+		builtIR.SourceDirectory,
+		ir.IRGlobalsForRootManifest(builtIR),
+		merged,
+	)
 }

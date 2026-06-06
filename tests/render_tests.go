@@ -24,8 +24,22 @@ const (
 	IntentCategoryError
 	IntentDefault
 	IntentMeta
+	IntentExecSuccess
+	IntentExecSkipped
+	IntentExecFailed
+	IntentExecCache
 	intentCount
 )
+
+func helmTestExecutionRenderIntents() shared.HelmExecutionRenderIntents {
+	return shared.HelmExecutionRenderIntents{
+		Success: IntentExecSuccess,
+		Skipped: IntentExecSkipped,
+		Failed:  IntentExecFailed,
+		Cache:   IntentExecCache,
+		Meta:    IntentMeta,
+	}
+}
 
 var defaultRenderingIntentMap = map[string]int{
 	"INFO":    IntentCategoryInfo,
@@ -163,7 +177,7 @@ func HelmRenderTestSyntax(t *testing.T) {
 		// Validation Closure
 		func() error {
 			if ok, reason := helmBadSyntaxDiagnosticsMatch(collected); !ok {
-				return fmt.Errorf(reason)
+				return fmt.Errorf("%s", reason)
 			}
 			return nil
 		},
@@ -192,7 +206,7 @@ func HelmRenderTestSemantics(t *testing.T) {
 		// Validation Closure
 		func() error {
 			if ok, reason := helmBadSemanticsDiagnosticsMatch(collected); !ok {
-				return fmt.Errorf(reason)
+				return fmt.Errorf("%s", reason)
 			}
 			return nil
 		},
@@ -261,7 +275,7 @@ func HelmRenderTestCache(t *testing.T) {
 		t.Fatalf("failed to seed cache_render fixtures: %v", err)
 	}
 
-	executeVisualDiagnosticHarness(t, "cache_render/cache.helm", shared.HelmExecutionOutputDetailHook(IntentMeta),
+	executeVisualDiagnosticHarness(t, "cache_render/cache.helm", shared.HelmExecutionOutputDetailHook(helmTestExecutionRenderIntents()),
 		func(res interpreter.HelmInterpreterInterpretationResult, ctx *signal.SignalContext) error {
 			opts := targetexecutor.TargetExecutorOptions{}
 			return interpreter.HelmInterpreterExecuteTarget(res, ctx, "render_downstream", nil, opts)
@@ -340,9 +354,9 @@ func cacheRenderSeedFixturesIfMissing(fixtureDir string) error {
 }
 
 func HelmRenderTestExecution(t *testing.T) {
-	var execOKStdout []string
+	var execFailStdout []string
 
-	executeVisualDiagnosticHarness(t, "execution.helm", shared.HelmExecutionOutputDetailHook(IntentMeta),
+	executeVisualDiagnosticHarness(t, "execution.helm", shared.HelmExecutionOutputDetailHookFailOnly(helmTestExecutionRenderIntents()),
 		func(res interpreter.HelmInterpreterInterpretationResult, ctx *signal.SignalContext) error {
 			opts := targetexecutor.TargetExecutorOptions{
 				ConfirmDependency: func(dep string, target ir.HelmTargetDependency) (bool, error) {
@@ -353,7 +367,7 @@ func HelmRenderTestExecution(t *testing.T) {
 			return interpreter.HelmInterpreterExecuteTarget(res, ctx, "optional_recovery_node", nil, opts)
 		},
 		func(sig signal.Signal) error {
-			if sig.ID() != shared.SignalExecOK {
+			if sig.ID() != shared.SignalExecFail {
 				return nil
 			}
 			phase, err := signal.SignalPayloadGetAs[string](&sig, shared.PhasePayloadKey)
@@ -364,16 +378,16 @@ func HelmRenderTestExecution(t *testing.T) {
 			if err != nil {
 				return nil
 			}
-			execOKStdout = append(execOKStdout, stdout)
+			execFailStdout = append(execFailStdout, stdout)
 			return nil
 		},
 		func() error {
-			for _, stdout := range execOKStdout {
-				if strings.Contains(stdout, "cmd_recovery") {
+			for _, stdout := range execFailStdout {
+				if strings.Contains(stdout, "cmd_fail") {
 					return nil
 				}
 			}
-			return fmt.Errorf("expected EXEC_OK stdout containing cmd_recovery, got: %v", execOKStdout)
+			return fmt.Errorf("expected EXEC_FAIL stdout containing cmd_fail, got: %v", execFailStdout)
 		},
 	)
 }
@@ -394,6 +408,10 @@ func executeVisualDiagnosticHarness(
 	paletteBuilder.Register(IntentCategoryInfo, splash.SPLASH_Rendering_TerminalColorAnsi16_Cyan, splash.SPLASH_Rendering_TerminalTrueColor(52, 152, 219))
 	paletteBuilder.Register(IntentDefault, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightBlack, splash.SPLASH_Rendering_TerminalTrueColor(127, 140, 141))
 	paletteBuilder.Register(IntentMeta, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightBlack, splash.SPLASH_Rendering_TerminalTrueColor(127, 140, 141))
+	paletteBuilder.Register(IntentExecSuccess, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightGreen, splash.SPLASH_Rendering_TerminalTrueColor(46, 204, 113))
+	paletteBuilder.Register(IntentExecSkipped, splash.SPLASH_Rendering_TerminalColorAnsi16_Yellow, splash.SPLASH_Rendering_TerminalTrueColor(241, 196, 15))
+	paletteBuilder.Register(IntentExecFailed, splash.SPLASH_Rendering_TerminalColorAnsi16_BrightRed, splash.SPLASH_Rendering_TerminalTrueColor(231, 76, 60))
+	paletteBuilder.Register(IntentExecCache, splash.SPLASH_Rendering_TerminalColorAnsi16_Cyan, splash.SPLASH_Rendering_TerminalTrueColor(52, 152, 219))
 
 	palette := paletteBuilder.Build()
 
@@ -439,9 +457,12 @@ func executeVisualDiagnosticHarness(
 	}
 
 	// 6. Bootstrap the Interpreter
-	specPath, err := helmLSpecPathResolve()
+	specPath, releaseSpec, err := helmLSpecPathResolve()
 	if err != nil {
 		t.Fatalf("helm test setup failed (resolve spec): %v", err)
+	}
+	if releaseSpec != nil {
+		defer releaseSpec()
 	}
 	casesDir, err := helmTestsCasesDirResolve()
 	if err != nil {

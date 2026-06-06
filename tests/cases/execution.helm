@@ -30,7 +30,7 @@ target conditions_target(MODE) {
 target failing_node() {
     help = "A node designed to fail"
     artifacts { volatile = true }
-    run "echo cmd_fail"
+    run "sh -c 'echo cmd_fail; false'"
 }
 
 target blocked_node() {

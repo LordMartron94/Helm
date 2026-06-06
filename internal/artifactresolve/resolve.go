@@ -4,11 +4,44 @@ import (
 	"fmt"
 	"helm/internal/expand"
 	"helm/internal/ir"
+	"helm/internal/workspacepath"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 )
+
+func artifactInterpolationContext(
+	globalVars map[string]string,
+	parameters map[string]string,
+) expand.InterpolationContext {
+	scalars := expand.InterpolationContextMergeScalars(nil, globalVars)
+	scalars = expand.InterpolationContextMergeScalars(scalars, parameters)
+	return expand.InterpolationContext{Scalars: scalars}
+}
+
+func ArtifactResolveItems(
+	helmBaseDir string,
+	items []ir.HelmArtifactInput,
+	globalVars map[string]string,
+	parameters map[string]string,
+	requireExistingFiles bool,
+) ([]string, error) {
+	return ArtifactResolveItemsContext(
+		helmBaseDir,
+		items,
+		artifactInterpolationContext(globalVars, parameters),
+		requireExistingFiles,
+	)
+}
+
+func ArtifactResolveItemsContext(
+	helmBaseDir string,
+	items []ir.HelmArtifactInput,
+	ctx expand.InterpolationContext,
+	requireExistingFiles bool,
+) ([]string, error) {
+	return artifactResolvePathsContext(helmBaseDir, items, ctx, requireExistingFiles)
+}
 
 func ArtifactResolveInputPaths(
 	helmBaseDir string,
@@ -19,10 +52,67 @@ func ArtifactResolveInputPaths(
 	if artifacts == nil {
 		return nil, nil
 	}
+	return artifactResolvePaths(
+		helmBaseDir,
+		artifacts.Inputs,
+		globalVars,
+		parameters,
+		true,
+	)
+}
 
+func ArtifactResolveInputPathsContext(
+	helmBaseDir string,
+	artifacts *ir.HelmArtifacts,
+	ctx expand.InterpolationContext,
+) ([]string, error) {
+	if artifacts == nil {
+		return nil, nil
+	}
+	return artifactResolvePathsContext(helmBaseDir, artifacts.Inputs, ctx, true)
+}
+
+func ArtifactResolveOutputPaths(
+	helmBaseDir string,
+	outputs []ir.HelmArtifactInput,
+	globalVars map[string]string,
+	parameters map[string]string,
+) ([]string, error) {
+	return artifactResolvePaths(helmBaseDir, outputs, globalVars, parameters, false)
+}
+
+func ArtifactResolveOutputPathsContext(
+	helmBaseDir string,
+	outputs []ir.HelmArtifactInput,
+	ctx expand.InterpolationContext,
+) ([]string, error) {
+	return artifactResolvePathsContext(helmBaseDir, outputs, ctx, false)
+}
+
+func artifactResolvePaths(
+	helmBaseDir string,
+	items []ir.HelmArtifactInput,
+	globalVars map[string]string,
+	parameters map[string]string,
+	requireExistingFiles bool,
+) ([]string, error) {
+	return artifactResolvePathsContext(
+		helmBaseDir,
+		items,
+		artifactInterpolationContext(globalVars, parameters),
+		requireExistingFiles,
+	)
+}
+
+func artifactResolvePathsContext(
+	helmBaseDir string,
+	items []ir.HelmArtifactInput,
+	ctx expand.InterpolationContext,
+	requireExistingFiles bool,
+) ([]string, error) {
 	pathSet := map[string]struct{}{}
-	for _, input := range artifacts.Inputs {
-		paths, err := artifactResolveInputItem(helmBaseDir, input, globalVars, parameters)
+	for _, item := range items {
+		paths, err := artifactResolveItemContext(helmBaseDir, item, ctx, requireExistingFiles)
 		if err != nil {
 			return nil, err
 		}
@@ -30,53 +120,98 @@ func ArtifactResolveInputPaths(
 			pathSet[path] = struct{}{}
 		}
 	}
-
 	return artifactSortedPaths(pathSet), nil
 }
 
-func ArtifactResolveOutputPaths(
+func artifactResolveItemContext(
 	helmBaseDir string,
-	outputs []string,
-	globalVars map[string]string,
-	parameters map[string]string,
+	item ir.HelmArtifactInput,
+	ctx expand.InterpolationContext,
+	requireExistingFiles bool,
 ) ([]string, error) {
-	pathSet := map[string]struct{}{}
-	for _, literal := range outputs {
-		resolved := expand.ExpandInterpolateLiteral(literal, globalVars, parameters)
-		if resolved == "" {
-			continue
+	switch item.Kind {
+	case ir.ArtifactInputLetRef:
+		if item.LetName == "" {
+			return nil, fmt.Errorf("let artifact reference is missing a name")
 		}
-		pathSet[artifactAnchorPath(helmBaseDir, resolved)] = struct{}{}
-	}
-
-	return artifactSortedPaths(pathSet), nil
-}
-
-func artifactResolveInputItem(
-	helmBaseDir string,
-	input ir.HelmArtifactInput,
-	globalVars map[string]string,
-	parameters map[string]string,
-) ([]string, error) {
-	switch input.Kind {
+		paths, ok := ctx.PathLists[item.LetName]
+		if !ok {
+			return nil, fmt.Errorf("let binding '%s' is not resolved", item.LetName)
+		}
+		return append([]string(nil), paths...), nil
 	case ir.ArtifactInputString:
-		path := expand.ExpandInterpolateLiteral(input.Literal, globalVars, parameters)
+		path := expand.InterpolationContextExpandLiteral(ctx, item.Literal)
 		if path == "" {
 			return nil, nil
 		}
-		path = artifactAnchorPath(helmBaseDir, path)
-		if err := artifactEnsureFile(path); err != nil {
-			return nil, err
+		if paths, ok := expand.PathsFromShellParameterList(path); ok {
+			return artifactResolveAnchoredPaths(helmBaseDir, paths, requireExistingFiles)
 		}
-		return []string{path}, nil
+		absPath := artifactAnchorPath(helmBaseDir, path)
+		if requireExistingFiles {
+			if err := artifactEnsureFile(absPath); err != nil {
+				return nil, err
+			}
+		}
+		rel, ok := workspacepath.WorkspaceRelative(helmBaseDir, absPath)
+		if !ok {
+			return nil, fmt.Errorf("artifact path '%s' is outside workspace", path)
+		}
+		return []string{rel}, nil
 	case ir.ArtifactInputGlob:
-		if input.Glob == nil {
-			return nil, fmt.Errorf("glob artifact input is missing glob configuration")
+		if item.Glob == nil {
+			return nil, fmt.Errorf("glob artifact item is missing glob configuration")
 		}
-		return ArtifactWalkGlob(helmBaseDir, input.Glob)
+		glob := ArtifactGlobWithInterpolatedBaseContext(item.Glob, ctx)
+		return ArtifactWalkGlob(helmBaseDir, glob)
 	default:
-		return nil, fmt.Errorf("unknown artifact input kind")
+		return nil, fmt.Errorf("unknown artifact item kind")
 	}
+}
+
+func ArtifactGlobWithInterpolatedBase(
+	glob *ir.HelmGlob,
+	globalVars map[string]string,
+	parameters map[string]string,
+) *ir.HelmGlob {
+	return ArtifactGlobWithInterpolatedBaseContext(
+		glob,
+		artifactInterpolationContext(globalVars, parameters),
+	)
+}
+
+func ArtifactGlobWithInterpolatedBaseContext(
+	glob *ir.HelmGlob,
+	ctx expand.InterpolationContext,
+) *ir.HelmGlob {
+	if glob == nil {
+		return nil
+	}
+	copy := *glob
+	copy.BaseDirectory = expand.InterpolationContextExpandLiteral(ctx, glob.BaseDirectory)
+	copy.Includes = expandInterpolateGlobPatternsContext(glob.Includes, ctx)
+	copy.Excludes = expandInterpolateGlobPatternsContext(glob.Excludes, ctx)
+	copy.Types = expand.InterpolationContextExpandLiteral(ctx, glob.Types)
+	return &copy
+}
+
+func expandInterpolateGlobPatternsContext(
+	patterns []string,
+	ctx expand.InterpolationContext,
+) []string {
+	if len(patterns) == 0 {
+		return nil
+	}
+	out := make([]string, len(patterns))
+	for i, pattern := range patterns {
+		out[i] = expand.InterpolationContextExpandLiteral(ctx, pattern)
+	}
+	return out
+}
+
+// ArtifactAnchorPath resolves a workspace-relative path against the helm file directory.
+func ArtifactAnchorPath(helmBaseDir, path string) string {
+	return workspacepath.WorkspaceAnchor(helmBaseDir, path)
 }
 
 func artifactAnchorPath(helmBaseDir, path string) string {
@@ -84,6 +219,28 @@ func artifactAnchorPath(helmBaseDir, path string) string {
 		return path
 	}
 	return filepath.Join(helmBaseDir, path)
+}
+
+func artifactResolveAnchoredPaths(
+	helmBaseDir string,
+	paths []string,
+	requireExistingFiles bool,
+) ([]string, error) {
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		absPath := artifactAnchorPath(helmBaseDir, path)
+		if requireExistingFiles {
+			if err := artifactEnsureFile(absPath); err != nil {
+				return nil, err
+			}
+		}
+		rel, ok := workspacepath.WorkspaceRelative(helmBaseDir, absPath)
+		if !ok {
+			return nil, fmt.Errorf("artifact path '%s' is outside workspace", path)
+		}
+		out = append(out, rel)
+	}
+	return out, nil
 }
 
 func artifactEnsureFile(path string) error {
@@ -104,15 +261,4 @@ func artifactSortedPaths(pathSet map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func artifactPathMatchesExclude(relPath string, exclude string) bool {
-	if exclude == "" {
-		return false
-	}
-	matched, err := filepath.Match(exclude, relPath)
-	if err != nil {
-		return strings.Contains(relPath, exclude)
-	}
-	return matched
 }

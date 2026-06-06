@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"foundation/location"
 	"foundation/system"
+	"helm/internal/entityexecutor"
 	"helm/internal/ir"
 	"helm/internal/targetexecutor"
 	"helm/shared"
@@ -41,6 +42,24 @@ type HelmInterpreterInterpretationResult struct {
 
 func HelmInterpreterInterpretationResultSourcePath(result HelmInterpreterInterpretationResult) string {
 	return result.filePath
+}
+
+// HelmInterpreterInterpretationResultFromIR builds a result from merged workspace IR.
+func HelmInterpreterInterpretationResultFromIR(
+	interpreter *HelmInterpreter,
+	filePath string,
+	builtIR ir.HelmIR,
+) HelmInterpreterInterpretationResult {
+	return HelmInterpreterInterpretationResult{
+		filePath:        filePath,
+		compiledSymbols: interpreter.compiledSymbols,
+		BuiltIR:         builtIR,
+	}
+}
+
+// HelmInterpreterCompiledSymbols exposes compiled symbols for diagnostics.
+func HelmInterpreterCompiledSymbols(interpreter *HelmInterpreter) *semantics.CompiledSymbolTable {
+	return interpreter.compiledSymbols
 }
 
 func HelmInterpreterInterpretationResultDumpParseTrace(result HelmInterpreterInterpretationResult) {
@@ -120,10 +139,24 @@ func HelmInterpreterDumpGrammar(
 	fmt.Fprint(os.Stdout, pkgDump)
 }
 
+// HelmInterpretOptions configures workspace-aware interpretation of a single file.
+type HelmInterpretOptions struct {
+	InheritedGlobals map[string]ir.HelmGlobalVariable
+}
+
 func HelmInterpreterInterpretFile(
 	interpreter *HelmInterpreter,
 	file string,
 	ctx *signal.SignalContext,
+) HelmInterpreterInterpretationResult {
+	return HelmInterpreterInterpretFileWithOptions(interpreter, file, ctx, HelmInterpretOptions{})
+}
+
+func HelmInterpreterInterpretFileWithOptions(
+	interpreter *HelmInterpreter,
+	file string,
+	ctx *signal.SignalContext,
+	opts HelmInterpretOptions,
 ) HelmInterpreterInterpretationResult {
 	signal.SignalContextPushSpan(ctx, shared.MainSpanPhase)
 
@@ -184,7 +217,7 @@ func HelmInterpreterInterpretFile(
 		return result
 	}
 
-	compiledIR := ir.IRFromSyntax(file, sourceText, rootNode, ctx)
+	compiledIR := ir.IRFromSyntax(file, sourceText, rootNode, ctx, opts.InheritedGlobals)
 	result.BuiltIR = compiledIR
 
 	if !compiledIR.Succeeded {
@@ -213,6 +246,25 @@ func HelmInterpreterExecuteTarget(
 	execOpts.SignalContext = ctx
 	if !execOpts.DisableArtifactCache && execOpts.CacheRoot == "" && result.filePath != "" {
 		execOpts.CacheRoot = filepath.Join(filepath.Dir(result.filePath), ".helm", "cache")
+	}
+
+	entityOpts := entityexecutor.EntityExecutorOptions{
+		CacheRoot: execOpts.CacheRoot,
+		TargetHookRunner: func(targetName string) error {
+			return targetexecutor.TargetExecutorRunGraph(
+				result.BuiltIR,
+				targetName,
+				nil,
+				execOpts,
+			)
+		},
+	}
+	if entityErr := entityexecutor.EntityExecutorEnsureForTarget(
+		result.BuiltIR,
+		entryTarget,
+		entityOpts,
+	); entityErr != nil {
+		return entityErr
 	}
 
 	return targetexecutor.TargetExecutorRunGraph(result.BuiltIR, entryTarget, invocations, execOpts)

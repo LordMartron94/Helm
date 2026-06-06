@@ -14,6 +14,11 @@ var supportedGlobKwargs = map[string]struct{}{
 	"types":           {},
 }
 
+var mergeableGlobKwargs = map[string]struct{}{
+	"include": {},
+	"exclude": {},
+}
+
 func newHelmGlob(baseDirectory string) *HelmGlob {
 	return &HelmGlob{
 		BaseDirectory:  baseDirectory,
@@ -26,7 +31,7 @@ func newHelmGlob(baseDirectory string) *HelmGlob {
 func evaluateGlob(
 	builder *irBuilder,
 	globNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
-	globalVariables map[string]string,
+	scope resolveScope,
 ) (*HelmGlob, bool) {
 	argsNode := globNode.FindFirstKind(artifacts.NodeGlobArguments)
 	if argsNode == nil {
@@ -50,7 +55,7 @@ func evaluateGlob(
 		return nil, false
 	}
 
-	baseDirectory, ok := resolveGlobBaseDirectory(builder, baseDirNode, globalVariables)
+	baseDirectory, ok := resolveGlobBaseDirectory(builder, baseDirNode, scope)
 	if !ok {
 		return nil, false
 	}
@@ -63,19 +68,23 @@ func evaluateGlob(
 			continue
 		}
 
-		nameNode := child.FindFirstKind(artifacts.NodeGlobKwargIdentifier)
-		kwargName := extractContentFromSingleTokenNode(builder, nameNode)
-
-		if _, seen := seenKwargs[kwargName]; seen {
-			emitSemanticError(
-				builder,
-				nameNode,
-				ERROR_DUPLICATE_GLOB_KWARG,
-				fmt.Sprintf("glob() keyword argument '%s' is specified more than once", kwargName),
-			)
-			return nil, false
+		kwargName, nameNode := globKwargNameFromNode(builder, child)
+		if nameNode == nil && kwargName == "" {
+			continue
 		}
-		seenKwargs[kwargName] = struct{}{}
+
+		if _, mergeable := mergeableGlobKwargs[kwargName]; !mergeable {
+			if _, seen := seenKwargs[kwargName]; seen {
+				emitSemanticError(
+					builder,
+					nameNode,
+					ERROR_DUPLICATE_GLOB_KWARG,
+					fmt.Sprintf("glob() keyword argument '%s' is specified more than once", kwargName),
+				)
+				return nil, false
+			}
+			seenKwargs[kwargName] = struct{}{}
+		}
 
 		if _, supported := supportedGlobKwargs[kwargName]; !supported {
 			emitSemanticError(
@@ -87,7 +96,7 @@ func evaluateGlob(
 			return nil, false
 		}
 
-		if !applyGlobKwarg(builder, child, nameNode, kwargName, globalVariables, result) {
+		if !applyGlobKwarg(builder, child, nameNode, kwargName, scope, result) {
 			return nil, false
 		}
 	}
@@ -100,33 +109,33 @@ func applyGlobKwarg(
 	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	nameNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	kwargName string,
-	globalVariables map[string]string,
+	scope resolveScope,
 	result *HelmGlob,
 ) bool {
 	switch kwargName {
 	case "include", "exclude", "types":
-		value, ok := extractGlobStringKwargValue(builder, kwargNode, nameNode, kwargName, globalVariables)
+		value, ok := extractGlobStringKwargValue(builder, kwargNode, nameNode, kwargName, scope)
 		if !ok {
 			return false
 		}
 		switch kwargName {
 		case "include":
-			result.Include = value
+			result.Includes = append(result.Includes, value)
 		case "exclude":
-			result.Exclude = value
+			result.Excludes = append(result.Excludes, value)
 		case "types":
 			result.Types = value
 		}
 		return true
 	case "follow_symlinks":
-		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, globalVariables)
+		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, scope)
 		if !ok {
 			return false
 		}
 		result.FollowSymlinks = parsed
 		return true
 	case "recursive":
-		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, globalVariables)
+		parsed, ok := extractGlobBoolKwargValue(builder, kwargNode, nameNode, kwargName, scope)
 		if !ok {
 			return false
 		}
@@ -142,9 +151,9 @@ func extractGlobStringKwargValue(
 	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	nameNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	kwargName string,
-	globalVariables map[string]string,
+	scope resolveScope,
 ) (string, bool) {
-	if kwargNode.FindDirectChildKind(artifacts.NodeBoolean) != nil {
+	if kwargNode.FindFirstKind(artifacts.NodeBoolean) != nil {
 		emitSemanticError(
 			builder,
 			nameNode,
@@ -154,7 +163,7 @@ func extractGlobStringKwargValue(
 		return "", false
 	}
 
-	strNode := kwargNode.FindDirectChildKind(artifacts.NodeStringLiteral)
+	strNode := kwargNode.FindFirstKind(artifacts.NodeStringLiteral)
 	if strNode == nil {
 		emitSemanticError(
 			builder,
@@ -165,7 +174,6 @@ func extractGlobStringKwargValue(
 		return "", false
 	}
 
-	scope := resolveScopeForGlobals(globalVariables)
 	return extractStringFromStringNode(builder, strNode, scope), true
 }
 
@@ -174,15 +182,14 @@ func extractGlobBoolKwargValue(
 	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	nameNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	kwargName string,
-	globalVariables map[string]string,
+	scope resolveScope,
 ) (bool, bool) {
-	if boolNode := kwargNode.FindDirectChildKind(artifacts.NodeBoolean); boolNode != nil {
+	if boolNode := kwargNode.FindFirstKind(artifacts.NodeBoolean); boolNode != nil {
 		return extractBooleanNode(builder, boolNode), true
 	}
 
-	strNode := kwargNode.FindDirectChildKind(artifacts.NodeStringLiteral)
+	strNode := kwargNode.FindFirstKind(artifacts.NodeStringLiteral)
 	if strNode != nil {
-		scope := resolveScopeForGlobals(globalVariables)
 		value := extractStringFromStringNode(builder, strNode, scope)
 		return parseGlobBoolStringKwarg(builder, nameNode, kwargName, value)
 	}
@@ -221,12 +228,16 @@ func parseGlobBoolStringKwarg(
 func resolveGlobBaseDirectory(
 	builder *irBuilder,
 	baseDirNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
-	globalVariables map[string]string,
+	scope resolveScope,
 ) (string, bool) {
 	if varNode := baseDirNode.FindFirstKind(artifacts.NodeVariableReference); varNode != nil {
 		varName := extractContentFromSingleTokenNode(builder, varNode)
-		if val, exists := globalVariables[varName]; exists {
-			return val, true
+		if text, ok := resolveScopeVariableAsLiteral(scope, varName); ok {
+			return text, true
+		}
+		if globalVariableIsArtifactArray(scope, varName) {
+			emitVariableNotScalar(builder, varNode, varName, "glob() base directory")
+			return "", false
 		}
 		emitSemanticError(
 			builder,
@@ -238,7 +249,6 @@ func resolveGlobBaseDirectory(
 	}
 
 	if strNode := baseDirNode.FindFirstKind(artifacts.NodeStringLiteral); strNode != nil {
-		scope := resolveScopeForGlobals(globalVariables)
 		return extractStringFromStringNode(builder, strNode, scope), true
 	}
 
@@ -249,4 +259,20 @@ func resolveGlobBaseDirectory(
 		"glob() base directory must be a variable reference or string literal",
 	)
 	return "", false
+}
+
+func globKwargNameFromNode(
+	builder *irBuilder,
+	kwargNode *syntaxa.SyntaxaLSTNode[artifacts.Node],
+) (string, *syntaxa.SyntaxaLSTNode[artifacts.Node]) {
+	if kwargNode.FindFirstKind(artifacts.NodeGlobIncludeKwarg) != nil {
+		return "include", kwargNode
+	}
+
+	nameNode := kwargNode.FindFirstKind(artifacts.NodeGlobKwargIdentifier)
+	if nameNode == nil {
+		return "", nil
+	}
+
+	return extractContentFromSingleTokenNode(builder, nameNode), kwargNode
 }

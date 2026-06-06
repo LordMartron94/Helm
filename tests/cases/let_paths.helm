@@ -1,0 +1,39 @@
+SOURCE_FILES = [
+    "fixtures/one.c",
+    "fixtures/two.c"
+]
+
+target link_objects(SOURCE_FILES, OBJ_DIR, OUT_NAME, OUT_DIR) {
+    help = "workspace-relative let + argv link demo"
+    let OBJECT_FILES = map_ext(
+        join_prefix(SOURCE_FILES, "${OBJ_DIR}/${OUT_NAME}_obj"),
+        ".c",
+        ".o"
+    )
+    artifacts {
+        volatile = true
+        inputs = OBJECT_FILES
+        outputs = [ "${OUT_DIR}/${OUT_NAME}" ]
+    }
+    run [
+        "scripts/link_objects.sh",
+        "${OUT_DIR}/${OUT_NAME}",
+        param OBJECT_FILES
+    ]
+}
+
+target let_entry() {
+    help = "entry for let path demo"
+    artifacts { volatile = true }
+    depends_on [
+        link_objects {
+            params {
+                SOURCE_FILES = SOURCE_FILES
+                OBJ_DIR = "build/obj"
+                OUT_NAME = "demo"
+                OUT_DIR = "build/bin"
+            }
+        }
+    ]
+    run "echo let_entry_done"
+}

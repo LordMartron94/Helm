@@ -3,21 +3,14 @@ package targetexecutor
 import (
 	"fmt"
 	"helm/internal/ir"
-	"structarch"
 )
 
 func TargetExecutorExecutionChain(builtIR ir.HelmIR, entryTarget string) ([][]string, error) {
-	canonical, ok := ir.IRResolveTargetName(builtIR.Targets, entryTarget)
-	if !ok {
-		return nil, fmt.Errorf("target '%s' does not exist in IR", entryTarget)
-	}
-
-	graph := map[string][]string{}
-	if err := targetExecutorInsertDependencies(builtIR, canonical, graph); err != nil {
+	plan, err := TargetExecutorBuildExecutionPlan(builtIR, entryTarget, nil)
+	if err != nil {
 		return nil, err
 	}
-
-	return structarch.STRUCTARCH_DAG_Resolve(graph)
+	return plan.Phases, nil
 }
 
 func targetExecutorInsertDependencies(

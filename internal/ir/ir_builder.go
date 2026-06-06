@@ -16,9 +16,17 @@ type irBuilder struct {
 
 	hasEmittedError bool
 
-	seenAliases     map[string]struct{}
-	globalVariables map[string]string
-	targets         map[string]HelmTarget
+	seenAliases      map[string]struct{}
+	inheritedGlobals map[string]HelmGlobalVariable
+	globalVariables  map[string]HelmGlobalVariable
+	targets          map[string]HelmTarget
+
+	workspaceDeclared bool
+	workspaceGlobals  map[string]HelmGlobalVariable
+	workspaceExcludes []string
+	entities          map[string]HelmEntity
+	interfaces        map[string]HelmInterfaceDecl
+	adapters          map[string]HelmAdapterDecl
 }
 
 func emitSemanticError(
@@ -43,4 +51,21 @@ func emitSemanticError(
 		Emit()
 
 	builder.hasEmittedError = true
+}
+
+func (builder *irBuilder) effectiveGlobals() map[string]HelmGlobalVariable {
+	if len(builder.inheritedGlobals) == 0 {
+		return builder.globalVariables
+	}
+	merged := make(
+		map[string]HelmGlobalVariable,
+		len(builder.inheritedGlobals)+len(builder.globalVariables),
+	)
+	for key, value := range builder.inheritedGlobals {
+		merged[key] = value
+	}
+	for key, value := range builder.globalVariables {
+		merged[key] = value
+	}
+	return merged
 }

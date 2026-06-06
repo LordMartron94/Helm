@@ -1,16 +1,18 @@
 package shared
 
 const (
-	StdoutPayloadKey   string = "stdout"
-	StderrPayloadKey   string = "stderr"
-	ExitCodePayloadKey string = "exit_code"
-	CommandPayloadKey  string = "command"
-	TargetPayloadKey   string = "target"
+	StdoutPayloadKey         string = "stdout"
+	StderrPayloadKey         string = "stderr"
+	ExitCodePayloadKey       string = "exit_code"
+	CommandPayloadKey        string = "command"
+	TargetPayloadKey         string = "target"
+	MatrixInstancePayloadKey string = "matrix_instance"
 
-	ReasonPayloadKey             string = "reason"
-	StateFingerprintPayloadKey   string = "state_fingerprint"
-	OutputFingerprintPayloadKey  string = "output_fingerprint"
-	CacheHitReason               string = "cache_hit"
+	ReasonPayloadKey            string = "reason"
+	StateFingerprintPayloadKey  string = "state_fingerprint"
+	OutputFingerprintPayloadKey string = "output_fingerprint"
+	DurationNSPayloadKey        string = "duration_ns"
+	CacheHitReason              string = "cache_hit"
 
 	SignalExecOK       string = "EXEC_OK"
 	SignalExecFail     string = "EXEC_FAIL"

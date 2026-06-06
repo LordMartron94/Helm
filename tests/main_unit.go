@@ -38,11 +38,14 @@ func init() {
 func runHelmOperation(_ struct{}, execCtx shield.SHIELD_Testing_ExecutionContext) []shield.SHIELD_Testing_ScenarioRunResult {
 	var results []shield.SHIELD_Testing_ScenarioRunResult
 
-	specPath, specErr := helmLSpecPathResolve()
+	specPath, releaseSpec, specErr := helmLSpecPathResolve()
 	casesDir, casesErr := helmTestsCasesDirResolve()
 
 	if specErr != nil {
 		panic(fmt.Sprintf("helm test setup failed (resolve spec): %v", specErr))
+	}
+	if releaseSpec != nil {
+		defer releaseSpec()
 	}
 	if casesErr != nil {
 		panic(fmt.Sprintf("helm test setup failed (resolve cases dir): %v", casesErr))
@@ -162,6 +165,8 @@ func buildSyntaxGuards() []shield.SHIELD_Testing_Guard[syntaxScenarioInput, synt
 		{"guard_syntax_newline", "newline.helm"},
 		{"guard_syntax_comments", "comments.helm"},
 		{"guard_syntax_variables", "variables.helm"},
+		{"guard_syntax_multiline_string", "multiline_string.helm"},
+		{"guard_syntax_empty_string", "empty_string.helm"},
 		{"guard_syntax_targets", "targets.helm"},
 	}
 
@@ -540,7 +545,7 @@ type validPathsScenarioInput struct {
 	fileName string
 }
 type validPathsScenarioOutput struct {
-	extractedOutputs []string
+	extractedOutputs []ir.HelmArtifactInput
 	parseError       error
 }
 
@@ -570,12 +575,12 @@ func runValidPathsScenario(
 					expectedPath1 := filepath.Join("build_output", "bin", "executable")
 					expectedPath2 := filepath.Join("static", "index.html")
 
-					if out.extractedOutputs[0] != expectedPath1 {
-						return false, fmt.Sprintf("path 1 mismatch: expected %q, got %q", expectedPath1, out.extractedOutputs[0])
+					if out.extractedOutputs[0].Literal != expectedPath1 {
+						return false, fmt.Sprintf("path 1 mismatch: expected %q, got %q", expectedPath1, out.extractedOutputs[0].Literal)
 					}
 
-					if out.extractedOutputs[1] != expectedPath2 {
-						return false, fmt.Sprintf("path 2 mismatch: expected %q, got %q", expectedPath2, out.extractedOutputs[1])
+					if out.extractedOutputs[1].Literal != expectedPath2 {
+						return false, fmt.Sprintf("path 2 mismatch: expected %q, got %q", expectedPath2, out.extractedOutputs[1].Literal)
 					}
 
 					return true, ""
@@ -656,11 +661,11 @@ func runValidGlobsScenario(
 					if glob0.BaseDirectory != "libs" {
 						return false, fmt.Sprintf("input 0 base dir: expected %q, got %q", "libs", glob0.BaseDirectory)
 					}
-					if glob0.Include != "**/*.go" {
-						return false, fmt.Sprintf("input 0 include: expected %q, got %q", "**/*.go", glob0.Include)
+					if len(glob0.Includes) != 1 || glob0.Includes[0] != "**/*.go" {
+						return false, fmt.Sprintf("input 0 includes: expected [%q], got %v", "**/*.go", glob0.Includes)
 					}
-					if glob0.Exclude != "" {
-						return false, fmt.Sprintf("input 0 exclude: expected empty, got %q", glob0.Exclude)
+					if len(glob0.Excludes) != 0 {
+						return false, fmt.Sprintf("input 0 excludes: expected empty, got %v", glob0.Excludes)
 					}
 					if glob0.FollowSymlinks {
 						return false, "input 0 follow_symlinks: expected default false"
@@ -682,11 +687,11 @@ func runValidGlobsScenario(
 					if glob1.BaseDirectory != "." {
 						return false, fmt.Sprintf("input 1 base dir: expected %q, got %q", ".", glob1.BaseDirectory)
 					}
-					if glob1.Exclude != "*_test.go" {
-						return false, fmt.Sprintf("input 1 exclude: expected %q, got %q", "*_test.go", glob1.Exclude)
+					if len(glob1.Excludes) != 1 || glob1.Excludes[0] != "*_test.go" {
+						return false, fmt.Sprintf("input 1 excludes: expected [%q], got %v", "*_test.go", glob1.Excludes)
 					}
-					if glob1.Include != "" {
-						return false, fmt.Sprintf("input 1 include: expected empty, got %q", glob1.Include)
+					if len(glob1.Includes) != 0 {
+						return false, fmt.Sprintf("input 1 includes: expected empty, got %v", glob1.Includes)
 					}
 					if glob1.FollowSymlinks || !glob1.Recursive || glob1.Types != "files" {
 						return false, "input 1: expected default follow_symlinks=false, recursive=true, types=files"
@@ -1005,7 +1010,7 @@ func runTargetExecutionScenario(
 			}
 
 			invocations := map[string]targetexecutor.TargetInvocation{
-				input.entryTarget: {Parameters: input.parameters},
+				input.entryTarget: targetexecutor.TargetInvocationWithScalars(input.parameters),
 			}
 
 			// 4. Execute the pipeline
@@ -1198,7 +1203,7 @@ func containsString(slice []string, target string) bool {
 
 // ------------------------------------------------------------------ PATH RESOLUTION
 
-func helmLSpecPathResolve() (string, error) {
+func helmLSpecPathResolve() (string, func(), error) {
 	return helm.ResolveHelmLSpecPath()
 }
 

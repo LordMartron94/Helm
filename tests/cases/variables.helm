@@ -4,3 +4,8 @@ BUILD_DIR = "build"
 CACHE_DIR = "${BUILD_DIR}/cache"
 TEST_DIR  = "libs/test"
 
+ARRAY = [
+	"dsfsdff",
+	"dfsf"
+]
+

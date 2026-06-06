@@ -23,7 +23,27 @@ target test(NAME) {
 }
 
 target test() {
-	
+	interactive = true
+}
+
+target generate() {
+    help = "Generates all Go modules independently"
+    
+    matrix MOD in [
+        "libs/lingua",
+        "libs/syntaxa",
+    ]
+
+    artifacts {
+        inputs = [ 
+            glob("${MOD}", include="*.go") 
+        ]
+        outputs = [ 
+            glob("${MOD}", include="*_gen.go") 
+        ]
+    }
+
+    run "cd ${MOD} && go generate ."
 }
 
 target test(NAME, AGE?) {
@@ -38,6 +58,7 @@ target test(NAME, AGE?) {
             CACHE_DIR,
             ""
         ]
+
         volatile = true
     }
 
