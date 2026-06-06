@@ -1,2 +1,4 @@
 .helm/
 bin/
+
+*.sublime-workspace
