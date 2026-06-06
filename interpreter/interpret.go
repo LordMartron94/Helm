@@ -77,7 +77,7 @@ type HelmInterpreter struct {
 }
 
 func HelmInterpreterTryCreate(helmSpecFile string) (*HelmInterpreter, error) {
-	allocator := memforge.DynamicLinearAllocatorCreateFunction(uint64(10*memcore.KiloByte), memforge.DynamicLinearAllocatorGrowthTemplateDoubleOrNeededWithMaxPanic(uint64(1*memcore.GigaByte)))
+	allocator := memforge.DynamicLinearAllocatorCreateFunction(uint64(10*memcore.KiloByte), memforge.DynamicLinearAllocatorGrowthTemplateDoubleOrNeededWithMaxPanic(uint64(1*memcore.GigaByte)), "helm interpreter")
 
 	parser, compiledSymbols, err := bootstrap.CompileParserFromSpecWithCompiledSymbols[artifacts.Node](
 		helmSpecFile,

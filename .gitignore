@@ -2,3 +2,5 @@
 bin/
 
 *.sublime-workspace
+
+deps

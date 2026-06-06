@@ -4,18 +4,18 @@
 //
 // Override version at link time via the build targets (VERSION below) or:
 //   run build GOOS=linux GOARCH=amd64 OUT=bin/helm-custom VERSION=1.2.3
+//
+// Layout: auto-detected by scripts/build_helm.sh (standalone checkout or monorepo tools/helm).
 
-VERSION = "2.1.2"
-REPO_ROOT = "../.."
+VERSION = "2.1.3"
 BIN_DIR = "bin"
-GO_TOOL_CACHE = "tools/helm/.helm/cache/go"
 LOCAL_DEST = "/home/user/.local/bin/helm"
 
 target build(GOOS, GOARCH, OUT) {
-	help = "Cross-compile helm CLI (GOOS, GOARCH, output path under tools/helm/)"
+	help = "Cross-compile helm CLI (GOOS, GOARCH, output path under this checkout)"
 	aliases = ["compile"]
 
-	workdir = "${REPO_ROOT}"
+	workdir = "."
 
 	artifacts {
 		volatile = true
@@ -27,8 +27,7 @@ target build(GOOS, GOARCH, OUT) {
 		CGO_ENABLED = "0"
 	}
 
-	run "mkdir -p ${GO_TOOL_CACHE}/tmp ${GO_TOOL_CACHE}/gocache"
-	run "sh -c 'export GOTMPDIR=\"$PWD/${GO_TOOL_CACHE}/tmp\"; export GOCACHE=\"$PWD/${GO_TOOL_CACHE}/gocache\"; go build -ldflags \"-X helm/internal/version.Version=${VERSION} -X helm/internal/version.Commit=embedded\" -o tools/helm/${OUT} ./tools/helm/cmd/helm'"
+	run "scripts/build_helm.sh ${VERSION} ${OUT}"
 }
 
 target build_linux_amd64() {

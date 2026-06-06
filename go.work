@@ -1,0 +1,21 @@
+go 1.25
+
+use (
+	./deps/autarch
+	./deps/echo
+	./deps/essence
+	./deps/foundation
+	./deps/langspec
+	./deps/lexarch
+	./deps/lingua
+	./deps/memarch
+	./deps/memcore
+	./deps/memforge
+	./deps/memstruct
+	./deps/persistence
+	./deps/signal
+	./deps/splash
+	./deps/structarch
+	./deps/syntaxa
+	.
+)

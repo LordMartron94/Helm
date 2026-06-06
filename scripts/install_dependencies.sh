@@ -7,6 +7,7 @@ set -euo pipefail
 REQUIRED_REPOS=(
 	"Autarch"
 	"Echo"
+	"Essence"
 	"Foundation"
 	"Langspec"
 	"Lexarch"
