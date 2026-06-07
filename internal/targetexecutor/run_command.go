@@ -106,7 +106,7 @@ func targetExecutorResolveTargetRunSteps(
 			if step.When == nil {
 				continue
 			}
-			if !TargetExecutorEvaluateCondition(*step.When, resolved) {
+			if !TargetExecutorEvaluateCondition(*step.When, interpCtx) {
 				continue
 			}
 			for _, runCommand := range step.When.Runs {

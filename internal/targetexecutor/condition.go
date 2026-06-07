@@ -1,13 +1,19 @@
 package targetexecutor
 
-import "helm/internal/ir"
+import (
+	"helm/internal/expand"
+	"helm/internal/ir"
+)
 
 func TargetExecutorEvaluateCondition(
 	condition ir.HelmCondition,
-	resolved TargetResolvedParameters,
+	interpCtx expand.InterpolationContext,
 ) bool {
-	defined := targetExecutorResolvedParameterDefined(resolved, condition.Parameter)
-	value := resolved.Scalars[condition.Parameter]
+	defined := targetExecutorConditionVariableDefined(interpCtx, condition.Parameter)
+	value := expand.InterpolationContextExpandLiteral(
+		interpCtx,
+		interpCtx.Scalars[condition.Parameter],
+	)
 
 	switch condition.ConditionType {
 	case ir.ConditionDefined:
@@ -23,14 +29,14 @@ func TargetExecutorEvaluateCondition(
 	}
 }
 
-func targetExecutorResolvedParameterDefined(
-	resolved TargetResolvedParameters,
-	paramName string,
+func targetExecutorConditionVariableDefined(
+	interpCtx expand.InterpolationContext,
+	name string,
 ) bool {
-	if value, ok := resolved.Scalars[paramName]; ok && value != "" {
+	if value, ok := interpCtx.Scalars[name]; ok && value != "" {
 		return true
 	}
-	if paths, ok := resolved.PathLists[paramName]; ok && len(paths) > 0 {
+	if paths, ok := interpCtx.PathLists[name]; ok && len(paths) > 0 {
 		return true
 	}
 	return false

@@ -94,6 +94,74 @@ func TestTargetExecutorResolveWhenArgvRun(t *testing.T) {
 	}
 }
 
+func TestTargetExecutorResolveWhenGlobalArgvRun(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFixture := func(name, content string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		return path
+	}
+
+	first := writeFixture("a.c", "a")
+	second := writeFixture("b.c", "b")
+
+	globals := map[string]ir.HelmGlobalVariable{
+		"FILES": {
+			Kind: ir.HelmGlobalVarArtifactArray,
+			ArtifactItems: []ir.HelmArtifactInput{
+				{Kind: ir.ArtifactInputString, Literal: first},
+				{Kind: ir.ArtifactInputString, Literal: second},
+			},
+		},
+	}
+
+	target := ir.HelmTarget{
+		Name: "link_when_global",
+		Steps: []ir.HelmTargetStep{
+			{
+				Kind: ir.TargetStepWhen,
+				When: &ir.HelmCondition{
+					ConditionType: ir.ConditionDefined,
+					Parameter:     "FILES",
+					Runs: []ir.HelmRunCommand{
+						{Argv: []ir.HelmRunArgvElement{{Literal: "tools/link-global.sh"}}},
+					},
+				},
+			},
+		},
+	}
+
+	resolved := TargetResolvedParametersEmpty()
+	interpCtx, err := TargetExecutorInterpolationGlobals(dir, globals, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	steps, err := targetExecutorResolveTargetRunSteps(
+		dir,
+		target,
+		nil,
+		globals,
+		nil,
+		interpCtx,
+		resolved,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("steps = %#v", steps)
+	}
+
+	if len(steps[0].Argv) != 1 || steps[0].Argv[0] != "tools/link-global.sh" {
+		t.Fatalf("argv = %#v", steps[0].Argv)
+	}
+}
+
 func TestTargetExecutorResolveWhenSkipsArgvWhenConditionFalse(t *testing.T) {
 	t.Parallel()
 

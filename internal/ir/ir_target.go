@@ -751,20 +751,18 @@ func handleTargetConditional(
 	paramName := extractContentFromSingleTokenNode(builder, paramNode)
 	condition.Parameter = paramName
 
-	paramExists := false
-	for _, p := range currentTarget.Parameters {
-		if p.Name == paramName {
-			paramExists = true
-			break
-		}
-	}
+	_, globalExists := scope.globals[paramName]
+	paramExists := resolveScopeHasParameter(scope, paramName)
 
-	if !paramExists {
+	if !globalExists && !paramExists {
 		emitSemanticError(
 			builder,
 			paramNode,
 			ERROR_UNDECLARED_PARAMETER,
-			fmt.Sprintf("condition references undeclared parameter '%s'", paramName),
+			fmt.Sprintf(
+				"condition references undeclared name '%s' (not a global or target parameter)",
+				paramName,
+			),
 		)
 	}
 

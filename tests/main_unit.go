@@ -298,7 +298,7 @@ var badSemanticsExpectations = []helmSemanticErrorExpectation{
 	{messageContains: "target 'build' has already been declared"},
 	{messageContains: "missing_target"},
 	{messageContains: "use of undeclared variable 'UNDEFINED_VAR'"},
-	{messageContains: "condition references undeclared parameter 'UNKNOWN_PARAM'"},
+	{messageContains: "condition references undeclared name 'UNKNOWN_PARAM' (not a global or target parameter)"},
 	{messageContains: "unknown keyword argument 'unknown'"},
 }
 

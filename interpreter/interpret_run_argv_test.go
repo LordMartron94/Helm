@@ -157,3 +157,60 @@ target link_when(SOURCE_FILES) {
 		t.Fatalf("param splice: %#v", run.Argv[1])
 	}
 }
+
+func TestWhenGlobalConditionExtraction(t *testing.T) {
+	t.Parallel()
+
+	specPath, releaseSpec, err := helm.ResolveHelmLSpecPath()
+	if err != nil {
+		t.Fatalf("resolve spec: %v", err)
+	}
+	defer releaseSpec()
+
+	helmInterp, err := HelmInterpreterTryCreate(specPath)
+	if err != nil {
+		t.Fatalf("create interpreter: %v", err)
+	}
+	defer HelmInterpreterDestroy(helmInterp)
+
+	dir := t.TempDir()
+	helmPath := filepath.Join(dir, "when_global.helm")
+	content := `VERSION = "2.1.5"
+
+target publish() {
+    help = "publish when version global is set"
+    artifacts { volatile = true }
+
+    when defined(VERSION) {
+        run "echo ${VERSION}"
+    }
+}
+`
+	if err := os.WriteFile(helmPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write helm: %v", err)
+	}
+
+	dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+		{Label: "ERROR", Weight: 20},
+	})
+	ctx := signal.SignalContextCreate(dispatcher)
+
+	result := HelmInterpreterInterpretFile(helmInterp, helmPath, ctx)
+	if result.Error != nil {
+		t.Fatalf("interpret: %v", result.Error)
+	}
+	if !result.BuiltIR.Succeeded {
+		t.Fatal("expected IR build to succeed")
+	}
+
+	target, ok := result.BuiltIR.Targets["publish"]
+	if !ok {
+		t.Fatal("missing publish target")
+	}
+	if len(target.Steps) != 1 || target.Steps[0].Kind != ir.TargetStepWhen {
+		t.Fatalf("steps: %#v", target.Steps)
+	}
+	if target.Steps[0].When == nil || target.Steps[0].When.Parameter != "VERSION" {
+		t.Fatalf("when condition: %#v", target.Steps[0].When)
+	}
+}
