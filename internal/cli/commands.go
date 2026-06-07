@@ -396,11 +396,11 @@ func commandRun(session *Session, stdin io.Reader, stdout io.Writer, args []stri
 	commandRunFinalizeLog(session, runLog)
 
 	if runErr != nil {
-		commandRunFlushTerminal(session, presentation, runState, true)
+		commandRunFlushTerminal(session, presentation, true)
 		return runErr
 	}
 
-	commandRunFlushTerminal(session, presentation, runState, false)
+	commandRunFlushTerminal(session, presentation, false)
 
 	if presentation == DiagnosticPresentationSilent {
 		return nil
@@ -424,16 +424,20 @@ func commandRunFinalizeLog(session *Session, runLog *RunLog) {
 func commandRunFlushTerminal(
 	session *Session,
 	presentation DiagnosticPresentation,
-	runState *targetexecutor.TargetExecutorRunState,
 	failed bool,
 ) {
 	if session == nil || session.Renderer == nil {
 		return
 	}
-	if presentation == DiagnosticPresentationSilent {
-		if failed && (runState == nil || !runState.EntryReached) {
-			session.Renderer.FlushErrorsOnly()
+	if failed {
+		if presentation == DiagnosticPresentationFull {
+			session.FlushDiagnostics()
+			return
 		}
+		session.Renderer.FlushFailureDiagnostics()
+		return
+	}
+	if presentation == DiagnosticPresentationSilent {
 		return
 	}
 	session.FlushDiagnostics()

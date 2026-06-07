@@ -21,6 +21,19 @@ func TestHelmExecutionOutputDetailHookFailOnlyOmitsSuccessOutput(t *testing.T) {
 	}
 }
 
+func TestHelmExecutionOutputDetailHookFailOnlyRendersFailureMessage(t *testing.T) {
+	renderer, intents := helmTestTerminalRenderer(t)
+	hook := HelmExecutionOutputDetailHookFailOnly(intents)
+
+	sig := helmTestBuildExecFailSignal("signal: segmentation fault (core dumped)")
+	hook(renderer, sig, intents.Meta)
+
+	output := splash.SPLASH_Rendering_TerminalRendererRender(renderer)
+	if !strings.Contains(output, "segmentation fault") {
+		t.Fatalf("expected failure message in render, got: %s", output)
+	}
+}
+
 func TestHelmExecutionOutputDetailHookFailOnlyIncludesFailureOutput(t *testing.T) {
 	renderer, intents := helmTestTerminalRenderer(t)
 	hook := HelmExecutionOutputDetailHookFailOnly(intents)
@@ -60,6 +73,22 @@ func helmTestTerminalRenderer(t *testing.T) (*splash.SPLASH_Rendering_TerminalRe
 		Meta:    3,
 	}
 	return renderer, intents
+}
+
+func helmTestBuildExecFailSignal(message string) signal.Signal {
+	manifest := signal.DiagnosticCategoryManifest{
+		{Label: "INFO", Weight: 0},
+		{Label: "ERROR", Weight: 10},
+	}
+	ctx := signal.SignalContextCreate(signal.SignalDispatcherCreate(manifest))
+	return signal.SignalContextBuild(ctx, SignalExecFail, "ERROR").
+		Payload(PhasePayloadKey, TargetExecutionPhase).
+		Payload(TargetPayloadKey, "run_tests").
+		Payload(CommandPayloadKey, "build/bin/testbed").
+		Payload(MessagePayloadKey, message).
+		Payload(ExitCodePayloadKey, -1).
+		Payload(DurationNSPayloadKey, int64(141_000_000)).
+		Build()
 }
 
 func helmTestBuildExecSignal(id string, stdout string, stderr string) signal.Signal {

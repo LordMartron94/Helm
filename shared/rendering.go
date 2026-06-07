@@ -345,6 +345,13 @@ func helmExecutionOutputDetailHook(
 			)
 		}
 
+		if id == SignalExecFail {
+			message, _ := signal.SignalPayloadGetAs[string](&sig, MessagePayloadKey)
+			if message != "" {
+				helmRenderOutputBlock(renderer, "error", message, intents.Meta, intents.Failed)
+			}
+		}
+
 		shouldRenderOutput := !omitStdoutStderrUnlessFailed || id == SignalExecFail
 		if shouldRenderOutput {
 			stdout, _ := signal.SignalPayloadGetAs[string](&sig, StdoutPayloadKey)

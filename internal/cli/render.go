@@ -220,10 +220,29 @@ func (dr *DiagnosticRenderer) Flush() {
 }
 
 func (dr *DiagnosticRenderer) FlushErrorsOnly() {
-	if dr.errorRenderer == nil || dr.output == nil {
+	dr.FlushFailureDiagnostics()
+}
+
+// FlushFailureDiagnostics writes execution failures to the terminal even when presentation
+// is quiet or silent. Errors and warnings always render; a failure summary is included
+// when at least one target step failed.
+func (dr *DiagnosticRenderer) FlushFailureDiagnostics() {
+	if dr.output == nil {
 		return
 	}
-	_, _ = io.WriteString(dr.output, rendering.SignalRendererRender(dr.errorRenderer))
+	if dr.errorRenderer != nil {
+		_, _ = io.WriteString(dr.output, rendering.SignalRendererRender(dr.errorRenderer))
+	}
+	if dr.summaryRenderer != nil && dr.execTally != nil && dr.execTally.Failed > 0 {
+		_, _ = io.WriteString(
+			dr.output,
+			shared.HelmRenderExecutionSummary(dr.summaryRenderer, *dr.execTally, dr.execIntents),
+		)
+		*dr.execTally = shared.HelmExecutionTally{}
+	}
+	if dr.renderer != nil {
+		_ = rendering.SignalRendererRender(dr.renderer)
+	}
 }
 
 // FlushTo writes the full diagnostic render (including summary) to w regardless of presentation mode.
