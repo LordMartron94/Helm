@@ -30,13 +30,15 @@ func EntityExportExecutionGraph(builtIR ir.HelmIR, roots []ir.HelmLabel) (*Entit
 		return nil, err
 	}
 
+	usagePropagation := EntityBuildUsagePropagation(builtIR, roots)
+
 	export := &EntityExecutionGraphExport{
 		Entities: make(map[string]EntityGraphExportEntry),
 	}
 
 	keys := EntitySortedKeys(plan)
 	for _, entityKey := range keys {
-		entry, exportErr := entityExportGraphEntry(builtIR, entityKey)
+		entry, exportErr := entityExportGraphEntry(builtIR, entityKey, usagePropagation)
 		if exportErr != nil {
 			return nil, exportErr
 		}
@@ -45,7 +47,11 @@ func EntityExportExecutionGraph(builtIR ir.HelmIR, roots []ir.HelmLabel) (*Entit
 	return export, nil
 }
 
-func entityExportGraphEntry(builtIR ir.HelmIR, entityKey string) (EntityGraphExportEntry, error) {
+func entityExportGraphEntry(
+	builtIR ir.HelmIR,
+	entityKey string,
+	usagePropagation EntityUsagePropagation,
+) (EntityGraphExportEntry, error) {
 	entity := builtIR.Entities[entityKey]
 	absDir, err := filepath.Abs(builtIR.SourceDirectory)
 	if err != nil {
@@ -67,7 +73,12 @@ func entityExportGraphEntry(builtIR ir.HelmIR, entityKey string) (EntityGraphExp
 		entry.DependsOn = append(entry.DependsOn, ir.HelmLabelCanonical(dep))
 	}
 
-	plan, expandErr := EntityExpandAdapter(builtIR.SourceDirectory, builtIR, entityKey)
+	var usage EntityPropertyBag
+	if usagePropagation != nil {
+		usage = usagePropagation[entityKey]
+	}
+
+	plan, expandErr := EntityExpandAdapter(builtIR.SourceDirectory, builtIR, entityKey, usage)
 	if expandErr != nil {
 		return EntityGraphExportEntry{}, expandErr
 	}

@@ -7,7 +7,7 @@
 //
 // Layout: auto-detected by scripts/build_helm.sh (standalone checkout or monorepo tools/helm).
 
-VERSION = "2.1.6"
+VERSION = "2.1.7"
 BIN_DIR = "bin"
 LOCAL_DEST = "/home/user/.local/bin/helm"
 
@@ -165,6 +165,17 @@ target deploy(SOURCE, DEST) {
 	}
 
 	run "install -m 0755 ${SOURCE} ${DEST}"
+}
+
+target regenerate_lingua_bindings() {
+	help = "Regenerate Lingua Helm bindings (go_bindings.go, Sublime syntax, tmPreferences)"
+	aliases = ["gen_lingua", "gen_bindings"]
+
+	artifacts {
+		volatile = true
+	}
+
+	run "scripts/regenerate_lingua_bindings.sh"
 }
 
 target deploy_local() {

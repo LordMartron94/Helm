@@ -269,7 +269,7 @@ func TestHelm2VertexSiegeSplashLinkEnv(t *testing.T) {
 		t.Fatalf("adapter phases = %#v", adapter.Phases)
 	}
 
-	plan, err := entityexecutor.EntityExpandAdapter(merged.SourceDirectory, merged, "//libs/splash:splash")
+	plan, err := entityexecutor.EntityExpandAdapter(merged.SourceDirectory, merged, "//libs/splash:splash", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestHelm2VertexSiegeEchoInterfaceNotSelfLinked(t *testing.T) {
 		t.Fatalf("echo compile hooks = %#v", hooks)
 	}
 
-	echoPlan, err := entityexecutor.EntityExpandAdapter(merged.SourceDirectory, merged, "//libs/echo:echo")
+	echoPlan, err := entityexecutor.EntityExpandAdapter(merged.SourceDirectory, merged, "//libs/echo:echo", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func TestHelm2VertexSiegeEchoInterfaceNotSelfLinked(t *testing.T) {
 		t.Fatalf("echo shared-library link must include -shared from LIBRARY_COMPILER_FLAGS: %#v", echoLink)
 	}
 
-	testbedPlan, err := entityexecutor.EntityExpandAdapter(merged.SourceDirectory, merged, "//testbed:testbed")
+	testbedPlan, err := entityexecutor.EntityExpandAdapter(merged.SourceDirectory, merged, "//testbed:testbed", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,6 +363,73 @@ func TestHelm2VertexSiegeEchoInterfaceNotSelfLinked(t *testing.T) {
 	}
 	if !strings.Contains(testbedArgv, "-Wl,-rpath,$ORIGIN/../lib") {
 		t.Fatalf("testbed link must get workspace rpath from c_executable adapter: %#v", testbedLink)
+	}
+}
+
+func TestHelm2VertexSiegeTestbedUsagePropagatesToEcho(t *testing.T) {
+	specPath, releaseSpec, err := helm.ResolveHelmLSpecPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseSpec()
+
+	interp, err := HelmInterpreterTryCreate(specPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer HelmInterpreterDestroy(interp)
+
+	manifestPath := filepath.Join("..", "..", "..", "vertex-siege", "Helmfile")
+	if _, err := os.Stat(manifestPath); err != nil {
+		t.Skip("vertex-siege Helmfile not available:", err)
+	}
+
+	dispatcher := signal.SignalDispatcherCreate(signal.DiagnosticCategoryManifest{
+		{Label: "ERROR", Weight: 20},
+	})
+	ctx := signal.SignalContextCreate(dispatcher)
+
+	merged, err := HelmInterpreterLoadWorkspace(interp, manifestPath, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testbed, ok := merged.Entities["//testbed:testbed"]
+	if !ok {
+		t.Fatal("missing testbed entity")
+	}
+	if len(testbed.UsageBag["CPPFLAGS"]) == 0 {
+		t.Fatalf("testbed usage bag = %#v", testbed.UsageBag)
+	}
+
+	propagation := entityexecutor.EntityBuildUsagePropagation(
+		merged,
+		[]ir.HelmLabel{{Path: "testbed", Name: "testbed"}},
+	)
+	echoUsage := propagation["//libs/echo:echo"]["CPPFLAGS"]
+	if len(echoUsage) == 0 || !strings.Contains(strings.Join(echoUsage, " "), "ECHO_MAX_SYSTEM_LABEL_LENGTH=15") {
+		t.Fatalf("echo usage = %#v", echoUsage)
+	}
+
+	echoPlan, err := entityexecutor.EntityExpandAdapter(
+		merged.SourceDirectory,
+		merged,
+		"//libs/echo:echo",
+		propagation["//libs/echo:echo"],
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(echoPlan.Steps) == 0 {
+		t.Fatal("expected echo compile steps")
+	}
+
+	compileArgv := strings.Join(echoPlan.Steps[0].Argv, " ")
+	if !strings.Contains(compileArgv, "-DECHO_MAX_SYSTEM_LABEL_LENGTH=15") {
+		t.Fatalf("echo compile argv missing usage define: %q", compileArgv)
+	}
+	if strings.Contains(compileArgv, "-I.") && strings.Contains(compileArgv, "testbed") {
+		t.Fatalf("testbed-local include leaked into echo: %q", compileArgv)
 	}
 }
 

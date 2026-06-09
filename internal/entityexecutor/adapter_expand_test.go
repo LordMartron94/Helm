@@ -82,7 +82,7 @@ func TestEntityExpandAdapterUsesAdapterRunTemplates(t *testing.T) {
 		},
 	}
 
-	plan, err := EntityExpandAdapter("/ws", builtIR, "//lib:lib")
+	plan, err := EntityExpandAdapter("/ws", builtIR, "//lib:lib", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestEntityExpandAdapterGlobSourceFiles(t *testing.T) {
 		},
 	}
 
-	plan, err := EntityExpandAdapter(dir, builtIR, "//libs/splash:splash")
+	plan, err := EntityExpandAdapter(dir, builtIR, "//libs/splash:splash", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +307,7 @@ func TestEntityInterfaceNotAppliedToOwnAdapter(t *testing.T) {
 		},
 	}
 
-	echoPlan, err := EntityExpandAdapter("/ws", builtIR, "//libs/echo:echo")
+	echoPlan, err := EntityExpandAdapter("/ws", builtIR, "//libs/echo:echo", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestEntityInterfaceNotAppliedToOwnAdapter(t *testing.T) {
 		}
 	}
 
-	testbedPlan, err := EntityExpandAdapter("/ws", builtIR, "//testbed:testbed")
+	testbedPlan, err := EntityExpandAdapter("/ws", builtIR, "//testbed:testbed", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

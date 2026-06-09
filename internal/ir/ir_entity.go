@@ -135,6 +135,7 @@ func handleEntityDeclaration(
 		Name:         entityName,
 		Label:        label,
 		InterfaceBag: make(map[string]HelmStringListExpr),
+		UsageBag:     make(map[string]HelmStringListExpr),
 		Parameters:   make(map[string]HelmParameterValue),
 		SourceFile:   entitySourceFile(builder),
 	}
@@ -224,6 +225,8 @@ func handleEntityBody(
 			}
 		case artifacts.NodeEntityInterface:
 			extractEntityInterfaceBag(builder, child, scope, entity)
+		case artifacts.NodeEntityUsage:
+			extractEntityUsageBag(builder, child, scope, entity)
 		}
 	}
 }
@@ -268,16 +271,35 @@ func extractEntityInterfaceBag(
 	scope resolveScope,
 	entity *HelmEntity,
 ) {
+	extractEntityPropertyBag(builder, node, scope, entity.InterfaceBag, artifacts.NodeEntityInterfaceKey)
+}
+
+func extractEntityUsageBag(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+	entity *HelmEntity,
+) {
+	extractEntityPropertyBag(builder, node, scope, entity.UsageBag, artifacts.NodeEntityUsageKey)
+}
+
+func extractEntityPropertyBag(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+	bag map[string]HelmStringListExpr,
+	keyNodeKind artifacts.Node,
+) {
 	var pendingKey string
 	_ = node.WalkPre(func(cur *syntaxa.SyntaxaLSTNode[artifacts.Node]) (bool, bool) {
 		switch cur.Kind() {
-		case artifacts.NodeEntityInterfaceKey:
+		case keyNodeKind:
 			pendingKey = extractContentFromSingleTokenNode(builder, cur)
 		case artifacts.NodeStringLiteral, artifacts.NodeStringListArray:
 			if pendingKey == "" {
 				return false, false
 			}
-			entity.InterfaceBag[pendingKey] = extractStringListFromNode(builder, cur, scope, false)
+			bag[pendingKey] = extractStringListFromNode(builder, cur, scope, false)
 			pendingKey = ""
 		}
 		return false, false

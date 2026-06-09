@@ -19,6 +19,7 @@ func EntityCacheFingerprint(
 	entityKey string,
 	outPath string,
 	sourcePaths []string,
+	usagePropagation EntityUsagePropagation,
 ) (uint64, error) {
 	entity, ok := builtIR.Entities[entityKey]
 	if !ok {
@@ -33,6 +34,13 @@ func EntityCacheFingerprint(
 		merged := EntityFlattenBags(builtIR, entity.Deps, key)
 		if len(merged) > 0 {
 			bag["dep:"+key] = merged
+		}
+	}
+	if usagePropagation != nil {
+		if usage := usagePropagation[entityKey]; len(usage) > 0 {
+			for key, fragments := range usage {
+				bag["usage:"+key] = append([]string(nil), fragments...)
+			}
 		}
 	}
 
@@ -51,7 +59,11 @@ func EntityCacheFingerprint(
 
 	for _, dep := range entity.Deps {
 		depKey := ir.HelmLabelCanonical(dep)
-		depPlan, expandErr := EntityExpandAdapter(builtIR.SourceDirectory, builtIR, depKey)
+		var depUsage EntityPropertyBag
+		if usagePropagation != nil {
+			depUsage = usagePropagation[depKey]
+		}
+		depPlan, expandErr := EntityExpandAdapter(builtIR.SourceDirectory, builtIR, depKey, depUsage)
 		if expandErr != nil {
 			return 0, expandErr
 		}

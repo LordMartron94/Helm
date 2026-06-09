@@ -76,6 +76,8 @@ func EntityExecutorRunGraph(
 		return err
 	}
 
+	usagePropagation := EntityBuildUsagePropagation(builtIR, roots)
+
 	handler := opts.RunHandler
 	if handler == nil {
 		handler = EntityExecutorDefaultRunHandler
@@ -93,7 +95,7 @@ func EntityExecutorRunGraph(
 
 	for _, phase := range plan.Phases {
 		for _, entityKey := range phase {
-			if err := entityExecutorRunOne(builtIR, entityKey, handler, runOpts); err != nil {
+			if err := entityExecutorRunOne(builtIR, entityKey, usagePropagation, handler, runOpts); err != nil {
 				return err
 			}
 		}
@@ -104,10 +106,16 @@ func EntityExecutorRunGraph(
 func entityExecutorRunOne(
 	builtIR ir.HelmIR,
 	entityKey string,
+	usagePropagation EntityUsagePropagation,
 	handler EntityRunHandler,
 	opts EntityExecutorOptions,
 ) error {
-	plan, err := EntityExpandAdapter(builtIR.SourceDirectory, builtIR, entityKey)
+	var usage EntityPropertyBag
+	if usagePropagation != nil {
+		usage = usagePropagation[entityKey]
+	}
+
+	plan, err := EntityExpandAdapter(builtIR.SourceDirectory, builtIR, entityKey, usage)
 	if err != nil {
 		return err
 	}
@@ -128,7 +136,7 @@ func entityExecutorRunOne(
 	}
 
 	if !opts.DisableCache && primaryOutputAbs != "" {
-		stateFingerprint, fpErr := EntityCacheFingerprint(builtIR, entityKey, primaryOutput, plan.SourcePaths)
+		stateFingerprint, fpErr := EntityCacheFingerprint(builtIR, entityKey, primaryOutput, plan.SourcePaths, usagePropagation)
 		if fpErr == nil {
 			if hit, gateErr := entityCacheGate(opts.ownedCacheStore, entityKey, stateFingerprint, primaryOutputAbs); gateErr == nil && hit {
 				return nil
@@ -153,7 +161,7 @@ func entityExecutorRunOne(
 	}
 
 	if !opts.DisableCache && primaryOutputAbs != "" {
-		stateFingerprint, fpErr := EntityCacheFingerprint(builtIR, entityKey, primaryOutput, plan.SourcePaths)
+		stateFingerprint, fpErr := EntityCacheFingerprint(builtIR, entityKey, primaryOutput, plan.SourcePaths, usagePropagation)
 		if fpErr == nil {
 			return entityCacheRecord(opts.ownedCacheStore, entityKey, stateFingerprint, primaryOutputAbs)
 		}

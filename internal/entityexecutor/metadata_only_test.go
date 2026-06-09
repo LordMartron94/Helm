@@ -24,7 +24,7 @@ func TestEntityExpandAdapterMetadataOnlyProducesNoSteps(t *testing.T) {
 		},
 	}
 
-	plan, err := EntityExpandAdapter(dir, builtIR, "//libs/nexus:nexus")
+	plan, err := EntityExpandAdapter(dir, builtIR, "//libs/nexus:nexus", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestEntityCacheFingerprintMetadataOnlyDependency(t *testing.T) {
 		},
 	}
 
-	_, err := EntityCacheFingerprint(builtIR, "//libs/splash:splash", "build/lib/libsplash.so", []string{"src/a.c"})
+	_, err := EntityCacheFingerprint(builtIR, "//libs/splash:splash", "build/lib/libsplash.so", []string{"src/a.c"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

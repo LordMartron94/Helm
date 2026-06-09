@@ -54,6 +54,7 @@ type HelmEntity struct {
 	Parameters   map[string]HelmParameterValue
 	Deps         []HelmLabel
 	InterfaceBag map[string]HelmStringListExpr
+	UsageBag     map[string]HelmStringListExpr
 	SourceFile   string
 }
 

@@ -27,10 +27,13 @@ type EntityAdapterPlan struct {
 }
 
 // EntityExpandAdapter resolves adapter templates into concrete spawn steps.
+// usage holds compile-time requirements propagated from consumer entities in
+// the active build closure; nil when none apply.
 func EntityExpandAdapter(
 	helmBaseDir string,
 	builtIR ir.HelmIR,
 	entityKey string,
+	usage EntityPropertyBag,
 ) (EntityAdapterPlan, error) {
 	entity, ok := builtIR.Entities[entityKey]
 	if !ok {
@@ -50,6 +53,7 @@ func EntityExpandAdapter(
 	if err != nil {
 		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, err)
 	}
+	resolved = EntityApplyUsageToResolved(resolved, usage)
 
 	fileGlobals := ir.IRGlobalsForFile(builtIR, entity.SourceFile)
 	scalarGlobals := ir.InterpolationGlobalsFromHelmGlobals(fileGlobals)
