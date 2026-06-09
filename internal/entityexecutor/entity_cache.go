@@ -21,64 +21,14 @@ func EntityCacheFingerprint(
 	sourcePaths []string,
 	usagePropagation EntityUsagePropagation,
 ) (uint64, error) {
-	entity, ok := builtIR.Entities[entityKey]
-	if !ok {
-		return 0, fmt.Errorf("entity '%s' not found", entityKey)
-	}
-
-	bag := EntityPropertyBag{}
-	for key := range entity.InterfaceBag {
-		bag[key] = entityBagFragments(entity, key)
-	}
-	for _, key := range []string{"CPPFLAGS", "LDFLAGS"} {
-		merged := EntityFlattenBags(builtIR, entity.Deps, key)
-		if len(merged) > 0 {
-			bag["dep:"+key] = merged
-		}
-	}
-	if usagePropagation != nil {
-		if usage := usagePropagation[entityKey]; len(usage) > 0 {
-			for key, fragments := range usage {
-				bag["usage:"+key] = append([]string(nil), fragments...)
-			}
-		}
-	}
-
 	var buffer bytes.Buffer
-	buffer.WriteString(entityKey)
-	buffer.WriteByte(0)
-	buffer.WriteString(fmt.Sprintf("%d", EntityBagFingerprint(bag)))
-	buffer.WriteByte(0)
-	buffer.WriteString(entity.AdapterName)
-	buffer.WriteByte(0)
+	if err := entityCacheWriteBaseState(&buffer, builtIR, entityKey, usagePropagation); err != nil {
+		return 0, err
+	}
 
 	inputPaths := EntityCacheInputPaths(builtIR, entityKey, sourcePaths)
 	if err := cache.EntityCacheWriteInputPaths(builtIR.SourceDirectory, &buffer, inputPaths); err != nil {
 		return 0, err
-	}
-
-	for _, dep := range entity.Deps {
-		depKey := ir.HelmLabelCanonical(dep)
-		var depUsage EntityPropertyBag
-		if usagePropagation != nil {
-			depUsage = usagePropagation[depKey]
-		}
-		depPlan, expandErr := EntityExpandAdapter(builtIR.SourceDirectory, builtIR, depKey, depUsage)
-		if expandErr != nil {
-			return 0, expandErr
-		}
-		depOutput := entityAdapterPrimaryOutputPath(depPlan)
-		if depOutput == "" {
-			continue
-		}
-		depOutputFP, fpErr := entityCacheOutputFingerprint(
-			filepath.Join(builtIR.SourceDirectory, filepath.FromSlash(depOutput)),
-		)
-		if fpErr != nil {
-			continue
-		}
-		buffer.WriteString(depKey)
-		binary.Write(&buffer, binary.LittleEndian, depOutputFP)
 	}
 
 	buffer.WriteString(outPath)
@@ -141,56 +91,6 @@ func entityCacheOutputFingerprint(outputPath string) (uint64, error) {
 	fmt.Fprintf(hash, "%d|%d", info.Size(), info.ModTime().UnixNano())
 	sum := hash.Sum(nil)
 	return binary.BigEndian.Uint64(sum[:8]), nil
-}
-
-func entityCacheGate(
-	cacheStore *cache.EntityCacheStore,
-	entityKey string,
-	stateFingerprint uint64,
-	outputPath string,
-) (bool, error) {
-	if cacheStore == nil {
-		return false, nil
-	}
-
-	record, found, err := cache.EntityCacheStoreGet(cacheStore, entityKey)
-	if err != nil {
-		return false, err
-	}
-	if !found || record.StateFingerprint != stateFingerprint {
-		return false, nil
-	}
-
-	outputFingerprint, statErr := entityCacheOutputFingerprint(outputPath)
-	if statErr != nil {
-		return false, nil
-	}
-	if record.OutputFingerprint != outputFingerprint {
-		return false, nil
-	}
-	return true, nil
-}
-
-func entityCacheRecord(
-	cacheStore *cache.EntityCacheStore,
-	entityKey string,
-	stateFingerprint uint64,
-	outputPath string,
-) error {
-	if cacheStore == nil {
-		return nil
-	}
-
-	outputFingerprint, err := entityCacheOutputFingerprint(outputPath)
-	if err != nil {
-		return err
-	}
-
-	return cache.EntityCacheStorePut(cacheStore, cache.EntityCacheRecord{
-		EntityKey:         entityKey,
-		StateFingerprint:  stateFingerprint,
-		OutputFingerprint: outputFingerprint,
-	})
 }
 
 func entityCacheAbsOutputPath(workspaceRoot, relPath string) string {

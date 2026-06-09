@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"helm/internal/artifactresolve"
 	"helm/internal/expand"
@@ -97,6 +98,16 @@ func DynamicManifestDiscoveredPathsContext(
 		return nil, err
 	}
 
+	return DynamicManifestDiscoveredPathsFromManifestPaths(helmBaseDir, manifestPaths)
+}
+
+// DynamicManifestDiscoveredPathsFromManifestPaths reads workspace-relative manifest
+// paths and returns deduplicated workspace-relative paths listed inside them.
+// Missing manifest files are skipped (bootstrap); other read errors propagate.
+func DynamicManifestDiscoveredPathsFromManifestPaths(
+	helmBaseDir string,
+	manifestPaths []string,
+) ([]string, error) {
 	seen := make(map[string]struct{})
 	var discovered []string
 
@@ -104,6 +115,9 @@ func DynamicManifestDiscoveredPathsContext(
 		absManifest := workspacepath.WorkspaceAnchor(helmBaseDir, manifestPath)
 		lines, err := cacheReadManifestLines(absManifest)
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
 			return nil, err
 		}
 		for _, line := range lines {

@@ -120,9 +120,6 @@ func entityExecutorRunOne(
 		return err
 	}
 
-	primaryOutput := entityAdapterPrimaryOutputPath(plan)
-	primaryOutputAbs := entityCacheAbsOutputPath(builtIR.SourceDirectory, primaryOutput)
-
 	if opts.TargetHookRunner != nil {
 		hooks, hookErr := EntityAdapterTargetHooks(builtIR, entityKey)
 		if hookErr != nil {
@@ -135,20 +132,28 @@ func entityExecutorRunOne(
 		}
 	}
 
-	if !opts.DisableCache && primaryOutputAbs != "" {
-		stateFingerprint, fpErr := EntityCacheFingerprint(builtIR, entityKey, primaryOutput, plan.SourcePaths, usagePropagation)
-		if fpErr == nil {
-			if hit, gateErr := entityCacheGate(opts.ownedCacheStore, entityKey, stateFingerprint, primaryOutputAbs); gateErr == nil && hit {
-				return nil
-			}
-		}
-	}
-
 	workDir := builtIR.SourceDirectory
 	for stepIndex, step := range plan.Steps {
 		if err := entityAdapterMkdirPaths(step.OutputPaths); err != nil {
 			return err
 		}
+
+		if !opts.DisableCache {
+			skip, skipErr := entityStepCacheShouldSkip(
+				builtIR,
+				entityKey,
+				step,
+				usagePropagation,
+				opts.ownedCacheStore,
+			)
+			if skipErr != nil {
+				return skipErr
+			}
+			if skip {
+				continue
+			}
+		}
+
 		if err := handler(EntityRunRequest{
 			EntityName: entityKey,
 			StepIndex:  stepIndex,
@@ -158,14 +163,20 @@ func entityExecutorRunOne(
 		}); err != nil {
 			return err
 		}
-	}
 
-	if !opts.DisableCache && primaryOutputAbs != "" {
-		stateFingerprint, fpErr := EntityCacheFingerprint(builtIR, entityKey, primaryOutput, plan.SourcePaths, usagePropagation)
-		if fpErr == nil {
-			return entityCacheRecord(opts.ownedCacheStore, entityKey, stateFingerprint, primaryOutputAbs)
+		if !opts.DisableCache {
+			if recordErr := entityStepCacheRecord(
+				builtIR,
+				entityKey,
+				step,
+				usagePropagation,
+				opts.ownedCacheStore,
+			); recordErr != nil {
+				return recordErr
+			}
 		}
 	}
+
 	return nil
 }
 
