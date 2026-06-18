@@ -25,7 +25,7 @@ func classifyParamValueArrayKind(
 			return true, false
 		case artifacts.NodeGlob:
 			kind = paramValueArrayArtifactItems
-		case artifacts.NodeStringLiteral, artifacts.NodeStringListCollectCall:
+		case artifacts.NodeStringLiteral, artifacts.NodeStringListCollectCall, artifacts.NodeStringListCollectClosureCall:
 			if kind != paramValueArrayDependencyList && kind != paramValueArrayArtifactItems {
 				kind = paramValueArrayStringList
 			}
@@ -106,7 +106,15 @@ func extractStringListFromParamValueArray(
 				ParamName: paramName,
 			})
 		case artifacts.NodeStringListCollectCall:
-			collect := extractCollectCall(builder, cur, scope)
+			collect := extractCollectCall(builder, cur, scope, false)
+			if collect != nil {
+				out = append(out, HelmStringListElement{
+					Kind:    StringListCollect,
+					Collect: collect,
+				})
+			}
+		case artifacts.NodeStringListCollectClosureCall:
+			collect := extractCollectCall(builder, cur, scope, true)
 			if collect != nil {
 				out = append(out, HelmStringListElement{
 					Kind:    StringListCollect,

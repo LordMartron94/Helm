@@ -352,6 +352,9 @@ func entityEvaluateCollect(
 	entity ir.HelmEntity,
 	collect ir.HelmCollectExpr,
 ) ([]string, error) {
+	if collect.Closure {
+		return EntityFlattenBagsClosure(builtIR, entity.Deps, collect.ExportKey), nil
+	}
 	return EntityFlattenBags(builtIR, entity.Deps, collect.ExportKey), nil
 }
 

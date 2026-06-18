@@ -86,7 +86,24 @@ func extractStringListFromArrayNode(
 				)
 				continue
 			}
-			collect := extractCollectCall(builder, child, scope)
+			collect := extractCollectCall(builder, child, scope, false)
+			if collect != nil {
+				out = append(out, HelmStringListElement{
+					Kind:    StringListCollect,
+					Collect: collect,
+				})
+			}
+		case artifacts.NodeStringListCollectClosureCall:
+			if !allowParamAndCollect {
+				emitSemanticError(
+					builder,
+					child,
+					ERROR_INVALID_EXPORT_VALUE,
+					"collect_closure() is not allowed here",
+				)
+				continue
+			}
+			collect := extractCollectCall(builder, child, scope, true)
 			if collect != nil {
 				out = append(out, HelmStringListElement{
 					Kind:    StringListCollect,
@@ -112,14 +129,20 @@ func extractCollectCall(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	scope resolveScope,
+	closure bool,
 ) *HelmCollectExpr {
+	callName := "collect()"
+	if closure {
+		callName = "collect_closure()"
+	}
+
 	argsNode := node.FindDirectChildKind(artifacts.NodeStringListCollectArgs)
 	if argsNode == nil {
 		emitSemanticError(
 			builder,
 			node,
 			ERROR_INVALID_COLLECT_CALL,
-			"collect() requires (dependencies_param, export_key)",
+			callName+" requires (dependencies_param, export_key)",
 		)
 		return nil
 	}
@@ -131,7 +154,7 @@ func extractCollectCall(
 			builder,
 			depsParamNode,
 			ERROR_UNDECLARED_COLLECT_PARAM,
-			fmt.Sprintf("collect() references undeclared parameter '%s'", depsParam),
+			fmt.Sprintf("%s references undeclared parameter '%s'", callName, depsParam),
 		)
 		return nil
 	}
@@ -142,7 +165,7 @@ func extractCollectCall(
 			builder,
 			argsNode,
 			ERROR_INVALID_COLLECT_CALL,
-			"collect() requires a string literal export key",
+			callName+" requires a string literal export key",
 		)
 		return nil
 	}
@@ -150,5 +173,6 @@ func extractCollectCall(
 	return &HelmCollectExpr{
 		DependenciesParam: depsParam,
 		ExportKey:         extractStringFromStringNode(builder, keyNode, scope),
+		Closure:           closure,
 	}
 }

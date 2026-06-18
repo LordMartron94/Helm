@@ -150,6 +150,10 @@ func evaluateStringListCollect(
 	pathListParams map[string][]string,
 	ctx InterpolationContext,
 ) ([]string, error) {
+	if collect.Closure {
+		return nil, fmt.Errorf("collect_closure() requires entity workspace mode")
+	}
+
 	value, ok := paramValues[collect.DependenciesParam]
 	if !ok || value.Kind != ir.HelmParameterDependencyList {
 		return nil, fmt.Errorf(

@@ -6,29 +6,26 @@ import (
 	"helm/internal/ir"
 )
 
-// TestEntityPropertyBagParitySplash documents v1→v2 bag key mapping for vertex-siege.
-func TestEntityPropertyBagParitySplash(t *testing.T) {
+func TestEntityPropertyBagReadsInterfaceKeys(t *testing.T) {
 	entity := ir.HelmEntity{
 		InterfaceBag: map[string]ir.HelmStringListExpr{
-			"CPPFLAGS": {{Kind: ir.StringListLiteral, Literal: "-Ilibs/splash/src"}},
-			"LDFLAGS":  {{Kind: ir.StringListLiteral, Literal: "-lsplash"}},
+			"INCLUDE_PATHS": {{Kind: ir.StringListLiteral, Literal: "-Ilibs/splash/src"}},
+			"LINK_LIBS":     {{Kind: ir.StringListLiteral, Literal: "-lsplash"}},
 		},
 	}
 
-	cpp := entityBagFragments(entity, "CPPFLAGS")
-	if len(cpp) != 1 || cpp[0] != "-Ilibs/splash/src" {
-		t.Fatalf("CPPFLAGS = %#v", cpp)
+	includePaths := entityBagFragments(entity, "INCLUDE_PATHS")
+	if len(includePaths) != 1 || includePaths[0] != "-Ilibs/splash/src" {
+		t.Fatalf("INCLUDE_PATHS = %#v", includePaths)
 	}
 
-	// v1.7 export key alias
-	v1Includes := entityBagFragments(entity, "C_INCLUDES")
-	if len(v1Includes) != 0 {
-		t.Fatalf("unexpected C_INCLUDES without alias setup: %#v", v1Includes)
+	linkLibs := entityBagFragments(entity, "LINK_LIBS")
+	if len(linkLibs) != 1 || linkLibs[0] != "-lsplash" {
+		t.Fatalf("LINK_LIBS = %#v", linkLibs)
 	}
 
-	entity.InterfaceBag["C_INCLUDES"] = entity.InterfaceBag["CPPFLAGS"]
-	alias := entityBagFragments(entity, "C_INCLUDES")
-	if len(alias) != 1 || alias[0] != "-Ilibs/splash/src" {
-		t.Fatalf("C_INCLUDES alias = %#v", alias)
+	missing := entityBagFragments(entity, "UNKNOWN_KEY")
+	if len(missing) != 0 {
+		t.Fatalf("UNKNOWN_KEY = %#v", missing)
 	}
 }

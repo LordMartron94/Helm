@@ -295,10 +295,14 @@ func entityCacheWriteBaseState(
 	for key := range entity.InterfaceBag {
 		bag[key] = entityBagFragments(entity, key)
 	}
-	for _, key := range []string{"CPPFLAGS", "LDFLAGS"} {
+	for key := range entity.InterfaceBag {
 		merged := EntityFlattenBags(builtIR, entity.Deps, key)
 		if len(merged) > 0 {
 			bag["dep:"+key] = merged
+		}
+		closureMerged := EntityFlattenBagsClosure(builtIR, entity.Deps, key)
+		if len(closureMerged) > 0 {
+			bag["dep-closure:"+key] = closureMerged
 		}
 	}
 	if usagePropagation != nil {

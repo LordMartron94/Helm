@@ -88,7 +88,12 @@ func extractRunArgvFromArrayNode(
 			}
 			elements = append(elements, HelmRunArgvElement{ParamName: paramName})
 		case artifacts.NodeStringListCollectCall:
-			collect := extractCollectCall(builder, child, scope)
+			collect := extractCollectCall(builder, child, scope, false)
+			if collect != nil {
+				elements = append(elements, HelmRunArgvElement{Collect: collect})
+			}
+		case artifacts.NodeStringListCollectClosureCall:
+			collect := extractCollectCall(builder, child, scope, true)
 			if collect != nil {
 				elements = append(elements, HelmRunArgvElement{Collect: collect})
 			}

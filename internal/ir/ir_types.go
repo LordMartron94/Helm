@@ -101,6 +101,9 @@ type HelmStringListElement struct {
 type HelmCollectExpr struct {
 	DependenciesParam string
 	ExportKey         string
+	// Closure selects transitive dependency closure in reverse topological order.
+	// When false, only direct dependencies are merged in declaration order.
+	Closure bool
 }
 
 // HelmStringListExpr evaluates to a flat list of strings (e.g. linker flags).

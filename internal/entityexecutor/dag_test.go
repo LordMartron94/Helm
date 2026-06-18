@@ -37,17 +37,17 @@ func TestEntityBuildExecutionPlanOrdersDependencies(t *testing.T) {
 	}
 }
 
-func TestEntityFlattenBagsMergesCPPFLAGS(t *testing.T) {
+func TestEntityFlattenBagsMergesDirectDependencies(t *testing.T) {
 	builtIR := ir.HelmIR{
 		Entities: map[string]ir.HelmEntity{
 			"//libs/math:math": {
 				InterfaceBag: map[string]ir.HelmStringListExpr{
-					"CPPFLAGS": {{Kind: ir.StringListLiteral, Literal: "-Imath"}},
+					"INCLUDE_PATHS": {{Kind: ir.StringListLiteral, Literal: "-Imath"}},
 				},
 			},
 		},
 	}
-	flat := EntityFlattenBags(builtIR, []ir.HelmLabel{{Path: "libs/math", Name: "math"}}, "CPPFLAGS")
+	flat := EntityFlattenBags(builtIR, []ir.HelmLabel{{Path: "libs/math", Name: "math"}}, "INCLUDE_PATHS")
 	if len(flat) != 1 || flat[0] != "-Imath" {
 		t.Fatalf("flat = %#v", flat)
 	}

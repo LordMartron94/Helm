@@ -11,50 +11,51 @@ import (
 // EntityPropertyBag is a flattened key → string fragments map (no types).
 type EntityPropertyBag map[string][]string
 
-// EntityFlattenBags merges property bags from dependency entities in deterministic order.
+// EntityFlattenBags merges property-bag fragments from direct dependencies in declaration order.
 func EntityFlattenBags(
 	builtIR ir.HelmIR,
 	deps []ir.HelmLabel,
 	key string,
 ) []string {
 	var merged []string
-	seen := make(map[string]struct{})
 
-	depKeys := make([]string, len(deps))
-	for i, dep := range deps {
-		depKeys[i] = ir.HelmLabelCanonical(dep)
-	}
-	sort.Strings(depKeys)
-
-	for _, depKey := range depKeys {
+	for _, dep := range deps {
+		depKey := ir.HelmLabelCanonical(dep)
 		entity, ok := builtIR.Entities[depKey]
 		if !ok {
 			continue
 		}
-		fragments := entityBagFragments(entity, key)
-		for _, fragment := range fragments {
-			if _, exists := seen[fragment]; exists {
-				continue
-			}
-			seen[fragment] = struct{}{}
-			merged = append(merged, fragment)
+		merged = append(merged, entityBagFragments(entity, key)...)
+	}
+	return merged
+}
+
+// EntityFlattenBagsClosure merges property-bag fragments from the transitive dependency
+// closure in reverse topological order (dependents before dependencies).
+func EntityFlattenBagsClosure(
+	builtIR ir.HelmIR,
+	deps []ir.HelmLabel,
+	key string,
+) []string {
+	plan, err := EntityBuildExecutionPlan(builtIR, deps)
+	if err != nil || plan == nil || len(plan.Order) == 0 {
+		return EntityFlattenBags(builtIR, deps, key)
+	}
+
+	var merged []string
+	for i := len(plan.Order) - 1; i >= 0; i-- {
+		entity, ok := builtIR.Entities[plan.Order[i]]
+		if !ok {
+			continue
 		}
+		merged = append(merged, entityBagFragments(entity, key)...)
 	}
 	return merged
 }
 
 func entityBagFragments(entity ir.HelmEntity, key string) []string {
 	expr, ok := entity.InterfaceBag[key]
-	if !ok {
-		// v1 parity aliases
-		switch key {
-		case "CPPFLAGS":
-			expr = entity.InterfaceBag["C_INCLUDES"]
-		case "LDFLAGS":
-			expr = entity.InterfaceBag["LD_FLAGS"]
-		}
-	}
-	if len(expr) == 0 {
+	if !ok || len(expr) == 0 {
 		return nil
 	}
 
