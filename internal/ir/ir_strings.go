@@ -16,6 +16,9 @@ type resolveScope struct {
 	letBindings       []string
 	permissiveParams  bool
 	permissiveGlobals bool
+	// deferGlobalInterpolation keeps ${GLOBAL} placeholders in adapter templates so
+	// configuration profiles can override workspace globals at entity expansion time.
+	deferGlobalInterpolation bool
 }
 
 func resolveScopeForGlobals(globals map[string]HelmGlobalVariable) resolveScope {
@@ -62,6 +65,7 @@ func resolveScopeForAdapter(
 	scope := resolveScopeForTargetWithMatrix(base.globals, adapterParams, matrixVariable)
 	scope.permissiveParams = true
 	scope.permissiveGlobals = true
+	scope.deferGlobalInterpolation = true
 	return scope
 }
 
@@ -112,6 +116,9 @@ func resolveScopeParameterPlaceholder(scope resolveScope, name string) (string, 
 // target and matrix variables become runtime placeholders.
 func resolveScopeVariableAsLiteral(scope resolveScope, name string) (string, bool) {
 	if text, ok := resolveGlobalString(scope, name); ok {
+		if scope.deferGlobalInterpolation {
+			return "${" + name + "}", true
+		}
 		return text, true
 	}
 	if placeholder, ok := resolveScopeParameterPlaceholder(scope, name); ok {
@@ -210,6 +217,10 @@ func handleStringInterpolation(
 
 	if variable, exists := scope.globals[targetVariableIdentifier]; exists {
 		if variable.Kind == HelmGlobalVarString {
+			if scope.deferGlobalInterpolation {
+				sb.WriteString("${" + targetVariableIdentifier + "}")
+				return
+			}
 			sb.WriteString(variable.StringValue)
 			return
 		}

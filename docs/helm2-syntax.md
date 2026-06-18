@@ -31,6 +31,38 @@ workspace {
 }
 ```
 
+## Configuration profiles
+
+Root-level `configuration` blocks declare named global override profiles (paths, toolchain scripts, compiler flags). Entry targets select the active profile with `configuration = "name"`.
+
+Entities use their default `use` / `deps` for every workspace profile unless they declare an explicit `configuration <name> { ... }` override (e.g. platform-specific `CPPFLAGS`). Top-level `use` / `deps` populate an implicit `default` entity variant.
+
+```helm
+ANDROID_OBJ_DIR = "build/android/obj"
+
+configuration android {
+    globals {
+        OBJ_DIR = ANDROID_OBJ_DIR
+        LIB_DIR = ANDROID_LIB_DIR
+    }
+}
+
+entity nexus {
+    use c_static_library { params { ... } }
+    interface { CPPFLAGS = [ "-Ilibs/nexus" ] }
+    deps = [ "//external/stb:stb" ]
+}
+
+target build_testbed_android() {
+    help = "Build testbed for Android"
+    configuration = "android"
+    depends_on [ "//testbed:testbed" ]
+    run "build/android/aarch64/bin/testbed"
+}
+```
+
+Entity labels may include an `@configuration` suffix (`//libs/nexus:nexus@android`). Target `depends_on` entity edges accept `{ configuration = "android" }` options. The execution graph keys instances as `//path:name@configuration`.
+
 ## Entity (artifact producer)
 
 ```helm
@@ -68,7 +100,7 @@ Compiled entities cannot declare `run` or `artifacts`.
 
 ## Labels
 
-Cross-file references use `//path/to/dir:name` or `//path/to/dir` (default name = directory basename).
+Cross-file references use `//path/to/dir:name` or `//path/to/dir` (default name = directory basename). Append `@configuration` to select a configured instance (`//libs/nexus:nexus@android`).
 
 ```helm
 depends_on [ "//libs/splash:splash" ]

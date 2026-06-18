@@ -67,6 +67,7 @@ type targetParseState struct {
 	envDeclared         bool
 	exportDeclared      bool
 	dependsDeclared     bool
+	configurationDeclared bool
 	interactiveDeclared bool
 	hiddenDeclared      bool
 	dynamicDeclared     bool
@@ -126,6 +127,8 @@ func handleTargetBody(
 			handleTargetConditional(builder, contentNode, scope, currentTarget)
 		case artifacts.NodeTargetDepends:
 			handleTargetDependsOn(builder, contentNode, scope, currentTarget, state)
+		case artifacts.NodeTargetConfiguration:
+			handleTargetConfiguration(builder, contentNode, scope, currentTarget, state)
 		case artifacts.NodeInteractiveStatement:
 			handleTargetInteractive(builder, contentNode, currentTarget, state)
 		case artifacts.NodeHiddenStatement:
@@ -161,6 +164,32 @@ func handleTargetBody(
 			fmt.Sprintf("artifacts block for target '%s' is missing and required", currentTarget.Name),
 		)
 	}
+}
+
+func handleTargetConfiguration(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+	currentTarget *HelmTarget,
+	state *targetParseState,
+) {
+	if state.configurationDeclared {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_DUPLICATE_TARGET_CONFIGURATION,
+			fmt.Sprintf("configuration for target '%s' already declared", currentTarget.Name),
+		)
+		return
+	}
+	state.configurationDeclared = true
+
+	stringNode := node.FindFirstKind(artifacts.NodeStringLiteral)
+	if stringNode == nil {
+		emitSemanticError(builder, node, ERROR_INVALID_VARIABLE_VALUE, "configuration requires a string literal")
+		return
+	}
+	currentTarget.ConfigurationName = extractStringFromStringNode(builder, stringNode, scope)
 }
 
 func handleTargetHidden(
@@ -296,23 +325,15 @@ func handleTargetDependsOn(
 
 	labelDepNodes := node.FindAllKind(artifacts.NodeEntityLabelDependency)
 	for _, labelDepNode := range labelDepNodes {
-		labelRef := labelDepNode.FindFirstKind(artifacts.NodeLabelRef)
-		if labelRef == nil {
-			continue
-		}
-		stringNode := labelRef.FindFirstKind(artifacts.NodeStringLiteral)
-		if stringNode == nil {
-			continue
-		}
-		text := extractStringFromStringNode(builder, stringNode, scope)
-		label, ok := helmLabelFromStringLiteral(builder, text)
+		dep, ok := extractEntityLabelDependency(builder, labelDepNode, scope)
 		if !ok {
-			emitSemanticError(builder, labelRef, ERROR_INVALID_LABEL, fmt.Sprintf("invalid entity label %q", text))
 			continue
 		}
+		label := dep.Label
 		currentTarget.DependsOn = append(currentTarget.DependsOn, HelmTargetDependency{
-			EntityLabel: &label,
-			SourceNode:  labelRef,
+			EntityLabel:         &label,
+			EntityConfiguration: dep.Configuration,
+			SourceNode:          labelDepNode,
 		})
 	}
 

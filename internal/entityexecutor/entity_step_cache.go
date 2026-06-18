@@ -283,12 +283,22 @@ func entityStepCacheRecord(
 func entityCacheWriteBaseState(
 	buffer *bytes.Buffer,
 	builtIR ir.HelmIR,
-	entityKey string,
+	instanceKey string,
 	usagePropagation EntityUsagePropagation,
 ) error {
-	entity, ok := builtIR.Entities[entityKey]
-	if !ok {
-		return fmt.Errorf("entity '%s' not found", entityKey)
+	entity, inst, err := entityLookupForInstanceKey(builtIR, instanceKey)
+	if err != nil {
+		return err
+	}
+
+	deps, depErr := ir.HelmEntityDepsForConfiguration(entity, inst.Configuration)
+	if depErr != nil {
+		return depErr
+	}
+
+	adapterName, adapterErr := ir.HelmEntityAdapterNameFor(entity, inst.Configuration)
+	if adapterErr != nil {
+		return adapterErr
 	}
 
 	bag := EntityPropertyBag{}
@@ -296,32 +306,33 @@ func entityCacheWriteBaseState(
 		bag[key] = entityBagFragments(entity, key)
 	}
 	for key := range entity.InterfaceBag {
-		merged := EntityFlattenBags(builtIR, entity.Deps, key)
+		merged := EntityFlattenBags(builtIR, deps, inst.Configuration, key)
 		if len(merged) > 0 {
 			bag["dep:"+key] = merged
 		}
-		closureMerged := EntityFlattenBagsClosure(builtIR, entity.Deps, key)
+		closureMerged := EntityFlattenBagsClosure(builtIR, deps, inst.Configuration, key)
 		if len(closureMerged) > 0 {
 			bag["dep-closure:"+key] = closureMerged
 		}
 	}
 	if usagePropagation != nil {
-		if usage := usagePropagation[entityKey]; len(usage) > 0 {
+		if usage := usagePropagation[instanceKey]; len(usage) > 0 {
 			for key, fragments := range usage {
 				bag["usage:"+key] = append([]string(nil), fragments...)
 			}
 		}
 	}
 
-	buffer.WriteString(entityKey)
+	buffer.WriteString(instanceKey)
 	buffer.WriteByte(0)
 	buffer.WriteString(fmt.Sprintf("%d", EntityBagFingerprint(bag)))
 	buffer.WriteByte(0)
-	buffer.WriteString(entity.AdapterName)
+	buffer.WriteString(adapterName)
 	buffer.WriteByte(0)
 
-	for _, dep := range entity.Deps {
-		depKey := ir.HelmLabelCanonical(dep)
+	for _, dep := range deps {
+		depInst := ir.HelmEntityDepResolveInstance(dep, inst.Configuration)
+		depKey := entityInstanceKey(depInst)
 		var depUsage EntityPropertyBag
 		if usagePropagation != nil {
 			depUsage = usagePropagation[depKey]

@@ -13,6 +13,7 @@ func entityExpandAdapterPhases(
 	entityKey string,
 	entity ir.HelmEntity,
 	adapter ir.HelmAdapterDecl,
+	configuration string,
 	resolved EntityResolvedParameters,
 	interpCtx expand.InterpolationContext,
 	fileGlobals map[string]ir.HelmGlobalVariable,
@@ -30,7 +31,7 @@ func entityExpandAdapterPhases(
 	phaseOutputs := make(map[string][]string)
 
 	for _, phase := range phases {
-		linkEnv, envErr := entityResolveEnv(builtIR, entity, adapter.Parameters, phase.Env, interpCtx, resolved)
+		linkEnv, envErr := entityResolveEnv(builtIR, entity, configuration, adapter.Parameters, phase.Env, interpCtx, resolved)
 		if envErr != nil {
 			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, envErr)
 		}
@@ -70,6 +71,7 @@ func entityExpandAdapterPhases(
 						helmBaseDir,
 						builtIR,
 						entity,
+						configuration,
 						adapter.Parameters,
 						runTemplate.Argv,
 						legCtx,
@@ -94,6 +96,7 @@ func entityExpandAdapterPhases(
 				helmBaseDir,
 				builtIR,
 				entity,
+				configuration,
 				adapter.Parameters,
 				runTemplate.Argv,
 				interpCtx,

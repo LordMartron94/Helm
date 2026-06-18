@@ -4,48 +4,57 @@ import (
 	"helm/internal/ir"
 )
 
-// EntityUsagePropagation maps entity keys to merged usage requirements from
+// EntityUsagePropagation maps entity instance keys to merged usage requirements from
 // consumers in the active build closure (transitive from roots).
 type EntityUsagePropagation map[string]EntityPropertyBag
 
 // EntityBuildUsagePropagation computes usage bags applied when building each
-// dependency entity. Usage declared on a consumer flows down its dep edges;
+// dependency entity instance. Usage declared on a consumer flows down its dep edges;
 // it never applies to the declaring entity's own adapter expansion.
 func EntityBuildUsagePropagation(
 	builtIR ir.HelmIR,
-	roots []ir.HelmLabel,
+	roots []EntityInstance,
 ) EntityUsagePropagation {
-	needed := entityClosure(builtIR, roots)
+	needed := entityInstanceClosure(builtIR, roots)
 	if len(needed) == 0 {
 		return nil
 	}
 
 	out := make(EntityUsagePropagation)
 
-	var walk func(entityKey string, accumulated EntityPropertyBag)
-	walk = func(entityKey string, accumulated EntityPropertyBag) {
-		if _, ok := needed[entityKey]; !ok {
+	var walk func(instanceKey string, accumulated EntityPropertyBag)
+	walk = func(instanceKey string, accumulated EntityPropertyBag) {
+		if _, ok := needed[instanceKey]; !ok {
 			return
 		}
 
 		if len(accumulated) > 0 {
-			if existing, ok := out[entityKey]; ok {
-				out[entityKey] = entityPropertyBagMerge(existing, accumulated)
+			if existing, ok := out[instanceKey]; ok {
+				out[instanceKey] = entityPropertyBagMerge(existing, accumulated)
 			} else {
-				out[entityKey] = entityPropertyBagCopy(accumulated)
+				out[instanceKey] = entityPropertyBagCopy(accumulated)
 			}
 		}
 
-		entity := builtIR.Entities[entityKey]
+		inst, err := entityInstanceFromKey(instanceKey)
+		if err != nil {
+			return
+		}
+		entity := builtIR.Entities[entityInstanceBaseKey(inst)]
 		childAccum := entityPropertyBagMerge(accumulated, entityUsagePropertyBag(entity))
 
-		for _, dep := range entity.Deps {
-			walk(ir.HelmLabelCanonical(dep), childAccum)
+		deps, depErr := ir.HelmEntityDepsForConfiguration(entity, inst.Configuration)
+		if depErr != nil {
+			return
+		}
+		for _, dep := range deps {
+			depInst := ir.HelmEntityDepResolveInstance(dep, inst.Configuration)
+			walk(entityInstanceKey(depInst), childAccum)
 		}
 	}
 
 	for _, root := range roots {
-		walk(ir.HelmLabelCanonical(root), EntityPropertyBag{})
+		walk(entityInstanceKey(root), EntityPropertyBag{})
 	}
 
 	if len(out) == 0 {

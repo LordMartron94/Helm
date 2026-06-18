@@ -4,7 +4,17 @@ package ir
 // Workspace globals inject into discovered files only; file-local globals are per-file.
 // Legacy single-file IR falls back to GlobalVariables when FileGlobals is unset.
 func IRGlobalsForFile(builtIR HelmIR, sourceFile string) map[string]HelmGlobalVariable {
-	if builtIR.Workspace == nil && len(builtIR.FileGlobals) == 0 {
+	return IRGlobalsForFileConfiguration(builtIR, sourceFile, "")
+}
+
+// IRGlobalsForFileConfiguration merges workspace globals, optional configuration globals,
+// and file-local globals for entity adapter expansion.
+func IRGlobalsForFileConfiguration(
+	builtIR HelmIR,
+	sourceFile string,
+	configurationName string,
+) map[string]HelmGlobalVariable {
+	if builtIR.Workspace == nil && len(builtIR.FileGlobals) == 0 && len(builtIR.Configurations) == 0 {
 		return builtIR.GlobalVariables
 	}
 
@@ -14,6 +24,15 @@ func IRGlobalsForFile(builtIR HelmIR, sourceFile string) map[string]HelmGlobalVa
 			merged[key] = value
 		}
 	}
+
+	if configurationName != "" && configurationName != HelmConfigurationDefaultName {
+		if decl, ok := builtIR.Configurations[configurationName]; ok {
+			for key, value := range decl.Globals {
+				merged[key] = value
+			}
+		}
+	}
+
 	if builtIR.FileGlobals != nil {
 		if fileGlobals, ok := builtIR.FileGlobals[sourceFile]; ok {
 			for key, value := range fileGlobals {

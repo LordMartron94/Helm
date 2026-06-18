@@ -25,7 +25,7 @@ func TestEntityBuildExecutionPlanOrdersDependencies(t *testing.T) {
 		},
 	}
 
-	plan, err := EntityBuildExecutionPlan(builtIR, []ir.HelmLabel{{Path: "libs/splash", Name: "splash"}})
+	plan, err := EntityBuildExecutionPlan(builtIR, EntityLegacyRootsFromLabels([]ir.HelmLabel{{Path: "libs/splash", Name: "splash"}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,12 @@ func TestEntityFlattenBagsMergesDirectDependencies(t *testing.T) {
 			},
 		},
 	}
-	flat := EntityFlattenBags(builtIR, []ir.HelmLabel{{Path: "libs/math", Name: "math"}}, "INCLUDE_PATHS")
+	flat := EntityFlattenBags(
+		builtIR,
+		ir.HelmEntityDepsFromLabels([]ir.HelmLabel{{Path: "libs/math", Name: "math"}}),
+		ir.HelmConfigurationDefaultName,
+		"INCLUDE_PATHS",
+	)
 	if len(flat) != 1 || flat[0] != "-Imath" {
 		t.Fatalf("flat = %#v", flat)
 	}

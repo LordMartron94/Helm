@@ -20,13 +20,14 @@ type TargetExecutionGraphExport struct {
 
 // EntityGraphExportEntry re-exports entity graph shape for JSON output.
 type EntityGraphExportEntry struct {
-	Label       string              `json:"label"`
-	Adapter     string              `json:"adapter"`
-	Directory   string              `json:"directory"`
-	RunArgvs    [][]string          `json:"run_argvs,omitempty"`
-	DependsOn   []string            `json:"depends_on,omitempty"`
-	PropertyBag map[string][]string `json:"property_bag,omitempty"`
-	OutputPath  string              `json:"output_path,omitempty"`
+	Label         string              `json:"label"`
+	Configuration string              `json:"configuration,omitempty"`
+	Adapter       string              `json:"adapter"`
+	Directory     string              `json:"directory"`
+	RunArgvs      [][]string          `json:"run_argvs,omitempty"`
+	DependsOn     []string            `json:"depends_on,omitempty"`
+	PropertyBag   map[string][]string `json:"property_bag,omitempty"`
+	OutputPath    string              `json:"output_path,omitempty"`
 }
 
 // TargetExecutionGraphExportBundle holds one resolved graph per entry target.
@@ -85,7 +86,7 @@ func TargetExecutorExportExecutionGraph(
 	if builtIR.Mode == ir.HelmModeWorkspace && len(builtIR.Entities) > 0 {
 		roots := entityexecutor.EntityRootsFromTargetDeps(builtIR, canonicalEntry)
 		if len(roots) == 0 {
-			roots = entityexecutor.EntityCollectAllRoots(builtIR)
+			roots = entityexecutor.EntityCollectAllInstances(builtIR)
 		}
 		entityExport, entityErr := entityexecutor.EntityExportExecutionGraph(builtIR, roots)
 		if entityErr != nil {
@@ -93,7 +94,16 @@ func TargetExecutorExportExecutionGraph(
 		}
 		export.Entities = make(map[string]EntityGraphExportEntry, len(entityExport.Entities))
 		for key, entry := range entityExport.Entities {
-			export.Entities[key] = EntityGraphExportEntry(entry)
+			export.Entities[key] = EntityGraphExportEntry{
+				Label:         entry.Label,
+				Configuration: entry.Configuration,
+				Adapter:       entry.Adapter,
+				Directory:     entry.Directory,
+				RunArgvs:      entry.RunArgvs,
+				DependsOn:     entry.DependsOn,
+				PropertyBag:   entry.PropertyBag,
+				OutputPath:    entry.OutputPath,
+			}
 		}
 	}
 

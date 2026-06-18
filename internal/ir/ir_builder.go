@@ -24,6 +24,7 @@ type irBuilder struct {
 	workspaceDeclared bool
 	workspaceGlobals  map[string]HelmGlobalVariable
 	workspaceExcludes []string
+	configurations    map[string]HelmConfigurationDecl
 	entities          map[string]HelmEntity
 	interfaces        map[string]HelmInterfaceDecl
 	adapters          map[string]HelmAdapterDecl

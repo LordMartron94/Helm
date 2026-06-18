@@ -24,10 +24,11 @@ func TestEntityFlattenBagsPreservesDeclarationOrder(t *testing.T) {
 
 	flat := EntityFlattenBags(
 		builtIR,
-		[]ir.HelmLabel{
+		ir.HelmEntityDepsFromLabels([]ir.HelmLabel{
 			{Path: "libs/echo", Name: "echo"},
 			{Path: "libs/loom", Name: "loom"},
-		},
+		}),
+		ir.HelmConfigurationDefaultName,
 		"LINK_LIBS",
 	)
 	if len(flat) != 2 || flat[0] != "-lecho" || flat[1] != "-lloom" {
@@ -63,10 +64,11 @@ func TestEntityFlattenBagsClosureOrdersDependentsBeforeDependencies(t *testing.T
 
 	flat := EntityFlattenBagsClosure(
 		builtIR,
-		[]ir.HelmLabel{
+		ir.HelmEntityDepsFromLabels([]ir.HelmLabel{
 			{Path: "libs/echo", Name: "echo"},
 			{Path: "libs/loom", Name: "loom"},
-		},
+		}),
+		ir.HelmConfigurationDefaultName,
 		"LINK_LIBS",
 	)
 	if len(flat) != 3 {

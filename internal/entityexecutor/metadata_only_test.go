@@ -53,7 +53,7 @@ func TestEntityExportGraphMetadataOnlyEntity(t *testing.T) {
 		},
 	}
 
-	export, err := EntityExportExecutionGraph(builtIR, []ir.HelmLabel{{Path: "libs/nexus", Name: "nexus"}})
+	export, err := EntityExportExecutionGraphFromLabels(builtIR, []ir.HelmLabel{{Path: "libs/nexus", Name: "nexus"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestEntityExportGraphMetadataOnlyEntity(t *testing.T) {
 		t.Fatalf("HEADERS = %#v", entry.PropertyBag["HEADERS"])
 	}
 
-	raw, err := EntityExportExecutionGraphJSON(builtIR, []ir.HelmLabel{{Path: "libs/nexus", Name: "nexus"}})
+	raw, err := EntityExportExecutionGraphJSONFromLabels(builtIR, []ir.HelmLabel{{Path: "libs/nexus", Name: "nexus"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,8 @@ func TestEntityFlattenBagsCollectsFromMetadataOnlyDependency(t *testing.T) {
 
 	flat := EntityFlattenBags(
 		builtIR,
-		builtIR.Entities["//apps/demo:demo"].Deps,
+		ir.HelmEntityDepsFromLabels(builtIR.Entities["//apps/demo:demo"].Deps),
+		ir.HelmConfigurationDefaultName,
 		"CPPFLAGS",
 	)
 	if len(flat) != 1 || flat[0] != "-Ilibs/nexus/include" {
@@ -135,7 +136,7 @@ func TestEntityExecutorRunGraphSkipsMetadataOnlySpawn(t *testing.T) {
 	spawnCount := 0
 	err := EntityExecutorRunGraph(
 		builtIR,
-		[]ir.HelmLabel{{Path: "libs/nexus", Name: "nexus"}},
+		EntityLegacyRootsFromLabels([]ir.HelmLabel{{Path: "libs/nexus", Name: "nexus"}}),
 		EntityExecutorOptions{
 			RunHandler: func(req EntityRunRequest) error {
 				spawnCount++
@@ -168,7 +169,7 @@ func TestEntityBuildExecutionPlanIncludesMetadataOnlyEntity(t *testing.T) {
 		},
 	}
 
-	plan, err := EntityBuildExecutionPlan(builtIR, []ir.HelmLabel{{Path: "libs/splash", Name: "splash"}})
+	plan, err := EntityBuildExecutionPlan(builtIR, EntityLegacyRootsFromLabels([]ir.HelmLabel{{Path: "libs/splash", Name: "splash"}}))
 	if err != nil {
 		t.Fatal(err)
 	}

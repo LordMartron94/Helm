@@ -45,18 +45,29 @@ func EntityCacheInputPaths(
 	var paths []string
 	entityAppendUniquePaths(&paths, seen, sourcePaths)
 
-	entity, ok := builtIR.Entities[entityKey]
-	if !ok {
+	entity, inst, lookupErr := entityLookupForInstanceKey(builtIR, entityKey)
+	if lookupErr != nil {
 		return paths
 	}
 
-	for _, dep := range entity.Deps {
-		depKey := ir.HelmLabelCanonical(dep)
-		depEntity, depOK := builtIR.Entities[depKey]
+	deps, depErr := ir.HelmEntityDepsForConfiguration(entity, inst.Configuration)
+	if depErr != nil {
+		return paths
+	}
+
+	for _, dep := range deps {
+		depInst := ir.HelmEntityDepResolveInstance(dep, inst.Configuration)
+		_ = entityInstanceKey(depInst)
+		depEntity, depOK := builtIR.Entities[entityInstanceBaseKey(depInst)]
 		if !depOK {
 			continue
 		}
-		resolved, resolveErr := EntityResolveParameters(builtIR.SourceDirectory, builtIR, depEntity)
+		resolved, resolveErr := EntityResolveParameters(
+			builtIR.SourceDirectory,
+			builtIR,
+			depEntity,
+			depInst.Configuration,
+		)
 		if resolveErr != nil {
 			continue
 		}

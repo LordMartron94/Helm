@@ -404,7 +404,7 @@ func TestHelm2VertexSiegeTestbedUsagePropagatesToEcho(t *testing.T) {
 
 	propagation := entityexecutor.EntityBuildUsagePropagation(
 		merged,
-		[]ir.HelmLabel{{Path: "testbed", Name: "testbed"}},
+		entityexecutor.EntityLegacyRootsFromLabels([]ir.HelmLabel{{Path: "testbed", Name: "testbed"}}),
 	)
 	echoUsage := propagation["//libs/echo:echo"]["CPPFLAGS"]
 	if len(echoUsage) == 0 || !strings.Contains(strings.Join(echoUsage, " "), "ECHO_MAX_SYSTEM_LABEL_LENGTH=15") {
@@ -738,7 +738,7 @@ target smoke() {
 		t.Fatalf("adapter name = %q, want empty", entity.AdapterName)
 	}
 
-	export, err := entityexecutor.EntityExportExecutionGraph(
+	export, err := entityexecutor.EntityExportExecutionGraphFromLabels(
 		merged,
 		[]ir.HelmLabel{{Path: "libs/nexus", Name: "nexus"}},
 	)

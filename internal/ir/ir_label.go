@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// HelmLabelParse parses a label string (//path or //path:name).
+// HelmLabelParse parses a label string (//path, //path:name, or with @configuration).
 func HelmLabelParse(text string) (HelmLabel, error) {
 	text = strings.TrimSpace(text)
 	if !strings.HasPrefix(text, "//") {
@@ -16,11 +16,24 @@ func HelmLabelParse(text string) (HelmLabel, error) {
 		return HelmLabel{}, fmt.Errorf("label path is empty")
 	}
 
+	configuration := ""
+	at := strings.LastIndex(rest, "@")
+	if at >= 0 {
+		configuration = rest[at+1:]
+		if configuration == "" {
+			return HelmLabel{}, fmt.Errorf("invalid label %q: empty configuration suffix", text)
+		}
+		rest = rest[:at]
+		if rest == "" {
+			return HelmLabel{}, fmt.Errorf("invalid label %q", text)
+		}
+	}
+
 	colon := strings.LastIndex(rest, ":")
 	if colon < 0 {
 		parts := strings.Split(rest, "/")
 		name := parts[len(parts)-1]
-		return HelmLabel{Path: rest, Name: name}, nil
+		return HelmLabel{Path: rest, Name: name, Configuration: configuration}, nil
 	}
 
 	path := rest[:colon]
@@ -28,7 +41,7 @@ func HelmLabelParse(text string) (HelmLabel, error) {
 	if path == "" || name == "" {
 		return HelmLabel{}, fmt.Errorf("invalid label %q", text)
 	}
-	return HelmLabel{Path: path, Name: name}, nil
+	return HelmLabel{Path: path, Name: name, Configuration: configuration}, nil
 }
 
 func helmLabelFromStringLiteral(builder *irBuilder, literal string) (HelmLabel, bool) {

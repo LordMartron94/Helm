@@ -32,41 +32,47 @@ type EntityAdapterPlan struct {
 func EntityExpandAdapter(
 	helmBaseDir string,
 	builtIR ir.HelmIR,
-	entityKey string,
+	instanceKey string,
 	usage EntityPropertyBag,
 ) (EntityAdapterPlan, error) {
-	entity, ok := builtIR.Entities[entityKey]
-	if !ok {
-		return EntityAdapterPlan{}, fmt.Errorf("entity '%s' not found", entityKey)
+	entity, inst, err := entityLookupForInstanceKey(builtIR, instanceKey)
+	if err != nil {
+		return EntityAdapterPlan{}, err
 	}
 
 	if ir.HelmEntityIsMetadataOnly(entity) {
-		return EntityAdapterPlan{EntityKey: entityKey}, nil
+		return EntityAdapterPlan{EntityKey: instanceKey}, nil
 	}
 
-	adapter, ok := builtIR.Adapters[entity.AdapterName]
+	adapterName, adapterErr := ir.HelmEntityAdapterNameFor(entity, inst.Configuration)
+	if adapterErr != nil {
+		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, adapterErr)
+	}
+
+	adapter, ok := builtIR.Adapters[adapterName]
 	if !ok {
-		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': unknown adapter '%s'", entityKey, entity.AdapterName)
+		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': unknown adapter '%s'", instanceKey, adapterName)
 	}
 
-	resolved, err := EntityResolveParameters(helmBaseDir, builtIR, entity)
+	resolved, err := EntityResolveParameters(helmBaseDir, builtIR, entity, inst.Configuration)
 	if err != nil {
-		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, err)
+		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, err)
 	}
 	resolved = EntityApplyUsageToResolved(resolved, usage)
 
-	fileGlobals := ir.IRGlobalsForFile(builtIR, entity.SourceFile)
+	fileGlobals := ir.IRGlobalsForFileConfiguration(builtIR, entity.SourceFile, inst.Configuration)
 	scalarGlobals := ir.InterpolationGlobalsFromHelmGlobals(fileGlobals)
 	interpCtx := resolved.InterpolationContext(scalarGlobals)
-	paramValues := entityAdapterParameterValues(builtIR, entity)
+	paramValues := entityAdapterParameterValues(builtIR, entity, inst.Configuration)
 
 	if ir.HelmAdapterDeclUsesPhases(adapter) {
 		return entityExpandAdapterPhases(
 			helmBaseDir,
 			builtIR,
-			entityKey,
+			instanceKey,
 			entity,
 			adapter,
+			inst.Configuration,
 			resolved,
 			interpCtx,
 			fileGlobals,
@@ -75,7 +81,7 @@ func EntityExpandAdapter(
 	}
 
 	plan := EntityAdapterPlan{
-		EntityKey:   entityKey,
+		EntityKey:   instanceKey,
 		SourcePaths: entityResolvedSourcePaths(resolved),
 	}
 
@@ -90,7 +96,7 @@ func EntityExpandAdapter(
 			interpCtx,
 		)
 		if matrixErr != nil {
-			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, matrixErr)
+			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, matrixErr)
 		}
 
 		for _, instance := range instances {
@@ -106,7 +112,7 @@ func EntityExpandAdapter(
 				legCtx,
 			)
 			if outputErr != nil {
-				return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, outputErr)
+				return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, outputErr)
 			}
 			matrixOutputs = append(matrixOutputs, legOutputs...)
 
@@ -115,6 +121,7 @@ func EntityExpandAdapter(
 					helmBaseDir,
 					builtIR,
 					entity,
+					inst.Configuration,
 					adapter.Parameters,
 					runTemplate.Argv,
 					legCtx,
@@ -123,7 +130,7 @@ func EntityExpandAdapter(
 					fileGlobals,
 				)
 				if argvErr != nil {
-					return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, argvErr)
+					return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, argvErr)
 				}
 				plan.Steps = append(plan.Steps, EntityAdapterStep{
 					Argv:        argv,
@@ -133,9 +140,9 @@ func EntityExpandAdapter(
 		}
 	}
 
-	linkEnv, envErr := entityResolveEnv(builtIR, entity, adapter.Parameters, adapter.Env, interpCtx, resolved)
+	linkEnv, envErr := entityResolveEnv(builtIR, entity, inst.Configuration, adapter.Parameters, adapter.Env, interpCtx, resolved)
 	if envErr != nil {
-		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, envErr)
+		return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, envErr)
 	}
 
 	legacyPhaseOutputs := entityLegacyPhaseOutputs(matrixOutputs)
@@ -144,6 +151,7 @@ func EntityExpandAdapter(
 			helmBaseDir,
 			builtIR,
 			entity,
+			inst.Configuration,
 			adapter.Parameters,
 			runTemplate.Argv,
 			interpCtx,
@@ -152,13 +160,13 @@ func EntityExpandAdapter(
 			fileGlobals,
 		)
 		if argvErr != nil {
-			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, argvErr)
+			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, argvErr)
 		}
 		step := EntityAdapterStep{Argv: argv, Env: linkEnv}
 		if len(adapter.Outputs) > 0 {
 			primaryOutputs, outputErr := entityExpandOutputPaths(helmBaseDir, adapter.Outputs, interpCtx)
 			if outputErr != nil {
-				return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, outputErr)
+				return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, outputErr)
 			}
 			step.OutputPaths = primaryOutputs
 			if plan.PrimaryOutput == "" && len(primaryOutputs) > 0 {
@@ -171,7 +179,7 @@ func EntityExpandAdapter(
 	if plan.PrimaryOutput == "" && len(adapter.Outputs) > 0 {
 		primaryOutputs, outputErr := entityExpandOutputPaths(helmBaseDir, adapter.Outputs, interpCtx)
 		if outputErr != nil {
-			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, outputErr)
+			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, outputErr)
 		}
 		if len(primaryOutputs) > 0 {
 			plan.PrimaryOutput = primaryOutputs[0]
@@ -212,6 +220,7 @@ func entityResolveRunArgv(
 	helmBaseDir string,
 	builtIR ir.HelmIR,
 	entity ir.HelmEntity,
+	configuration string,
 	adapterParams []ir.HelmTargetParameter,
 	template []ir.HelmRunArgvElement,
 	interpCtx expand.InterpolationContext,
@@ -227,7 +236,7 @@ func entityResolveRunArgv(
 	for _, element := range template {
 		switch {
 		case element.Collect != nil:
-			fragment, err := entityEvaluateCollect(builtIR, entity, *element.Collect)
+			fragment, err := entityEvaluateCollect(builtIR, entity, configuration, *element.Collect)
 			if err != nil {
 				return nil, err
 			}
@@ -350,17 +359,23 @@ func entityGlobalStringListFragments(
 func entityEvaluateCollect(
 	builtIR ir.HelmIR,
 	entity ir.HelmEntity,
+	configuration string,
 	collect ir.HelmCollectExpr,
 ) ([]string, error) {
-	if collect.Closure {
-		return EntityFlattenBagsClosure(builtIR, entity.Deps, collect.ExportKey), nil
+	deps, err := ir.HelmEntityDepsForConfiguration(entity, configuration)
+	if err != nil {
+		return nil, err
 	}
-	return EntityFlattenBags(builtIR, entity.Deps, collect.ExportKey), nil
+	if collect.Closure {
+		return EntityFlattenBagsClosure(builtIR, deps, configuration, collect.ExportKey), nil
+	}
+	return EntityFlattenBags(builtIR, deps, configuration, collect.ExportKey), nil
 }
 
 func entityResolveEnv(
 	builtIR ir.HelmIR,
 	entity ir.HelmEntity,
+	configuration string,
 	adapterParams []ir.HelmTargetParameter,
 	envDecl map[string]ir.HelmStringListExpr,
 	interpCtx expand.InterpolationContext,
@@ -375,6 +390,7 @@ func entityResolveEnv(
 		fragments, err := entityEvaluateStringListExpr(
 			builtIR,
 			entity,
+			configuration,
 			adapterParams,
 			expr,
 			interpCtx,

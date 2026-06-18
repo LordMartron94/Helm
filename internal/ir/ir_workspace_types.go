@@ -31,9 +31,11 @@ type HelmWorkspace struct {
 }
 
 // HelmLabel identifies an entity across the workspace (//path or //path:name).
+// Configuration holds an optional @configuration suffix parsed from label literals.
 type HelmLabel struct {
-	Path string
-	Name string
+	Path          string
+	Name          string
+	Configuration string
 }
 
 func HelmLabelCanonical(label HelmLabel) string {
@@ -47,15 +49,16 @@ func HelmLabelCanonical(label HelmLabel) string {
 // an adapter; metadata-only entities (kind interface or header_only) propagate
 // property bags without build steps.
 type HelmEntity struct {
-	Name         string
-	Label        HelmLabel
-	Kind         string
-	AdapterName  string
-	Parameters   map[string]HelmParameterValue
-	Deps         []HelmLabel
-	InterfaceBag map[string]HelmStringListExpr
-	UsageBag     map[string]HelmStringListExpr
-	SourceFile   string
+	Name           string
+	Label          HelmLabel
+	Kind           string
+	AdapterName    string
+	Parameters     map[string]HelmParameterValue
+	Deps           []HelmLabel
+	Configurations map[string]HelmEntityConfiguration
+	InterfaceBag   map[string]HelmStringListExpr
+	UsageBag       map[string]HelmStringListExpr
+	SourceFile     string
 }
 
 // HelmInterfaceDecl names property-bag keys for an adapter family (no types).

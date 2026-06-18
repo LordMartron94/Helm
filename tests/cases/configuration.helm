@@ -1,0 +1,96 @@
+OBJ_DIR = "build/obj"
+LIB_DIR = "build/lib"
+ANDROID_OBJ_DIR = "build/android/obj"
+ANDROID_LIB_DIR = "build/android/lib"
+LIBRARY_COMPILER_FLAGS = "-O2"
+ANDROID_LIBRARY_COMPILER_FLAGS = "--target=aarch64-linux-android"
+
+workspace {
+    globals {
+        OBJ_DIR = OBJ_DIR
+        LIB_DIR = LIB_DIR
+        LIBRARY_COMPILER_FLAGS = LIBRARY_COMPILER_FLAGS
+    }
+}
+
+configuration android {
+    globals {
+        OBJ_DIR = ANDROID_OBJ_DIR
+        LIB_DIR = ANDROID_LIB_DIR
+        LIBRARY_COMPILER_FLAGS = ANDROID_LIBRARY_COMPILER_FLAGS
+    }
+}
+
+adapter c_static_library(SOURCE_FILES, OUT_NAME, COMPILER_FLAGS, OBJ_DIR, LIB_DIR) {
+    outputs = [ "${LIB_DIR}/lib${OUT_NAME}.a" ]
+    run [ "ar", "rcs", "${LIB_DIR}/lib${OUT_NAME}.a" ]
+}
+
+adapter android_c_static_library(SOURCE_FILES, OUT_NAME, COMPILER_FLAGS, OBJ_DIR, LIB_DIR) {
+    outputs = [ "${LIB_DIR}/lib${OUT_NAME}.a" ]
+    run [ "ar", "rcs", "${LIB_DIR}/lib${OUT_NAME}.a" ]
+}
+
+entity math {
+    configuration default {
+        use c_static_library {
+            params {
+                OUT_NAME = "math"
+                COMPILER_FLAGS = LIBRARY_COMPILER_FLAGS
+                OBJ_DIR = OBJ_DIR
+                LIB_DIR = LIB_DIR
+            }
+        }
+    }
+    configuration android {
+        use android_c_static_library {
+            params {
+                OUT_NAME = "math"
+                COMPILER_FLAGS = LIBRARY_COMPILER_FLAGS
+                OBJ_DIR = OBJ_DIR
+                LIB_DIR = LIB_DIR
+            }
+        }
+    }
+    interface {
+        LDFLAGS = [ "-lmath" ]
+    }
+}
+
+entity app {
+    configuration default {
+        use c_static_library {
+            params {
+                OUT_NAME = "app"
+                COMPILER_FLAGS = LIBRARY_COMPILER_FLAGS
+                OBJ_DIR = OBJ_DIR
+                LIB_DIR = LIB_DIR
+            }
+        }
+        deps = [ "//math:math" ]
+    }
+    configuration android {
+        use android_c_static_library {
+            params {
+                OUT_NAME = "app"
+                COMPILER_FLAGS = LIBRARY_COMPILER_FLAGS
+                OBJ_DIR = OBJ_DIR
+                LIB_DIR = LIB_DIR
+            }
+        }
+        deps = [ "//math:math" { configuration = "android" } ]
+    }
+}
+
+target build_android() {
+    help = "Build android configuration"
+    configuration = "android"
+    depends_on [ "//app:app" ]
+    run "true"
+}
+
+target build_default() {
+    help = "Build default configuration"
+    depends_on [ "//app:app" ]
+    run "true"
+}

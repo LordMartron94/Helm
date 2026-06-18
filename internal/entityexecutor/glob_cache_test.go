@@ -57,7 +57,7 @@ func TestEntityCacheInputPathsFromGlobbedSourceFiles(t *testing.T) {
 		},
 	}
 
-	resolved, err := EntityResolveParameters(dir, builtIR, builtIR.Entities["//libs/echo:echo"])
+	resolved, err := EntityResolveParameters(dir, builtIR, builtIR.Entities["//libs/echo:echo"], ir.HelmConfigurationDefaultName)
 	if err != nil {
 		t.Fatal(err)
 	}

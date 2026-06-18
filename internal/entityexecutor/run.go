@@ -68,7 +68,7 @@ func entityEnvPairs(env map[string]string) []string {
 // EntityExecutorRunGraph builds and runs all entities required by roots.
 func EntityExecutorRunGraph(
 	builtIR ir.HelmIR,
-	roots []ir.HelmLabel,
+	roots []EntityInstance,
 	opts EntityExecutorOptions,
 ) error {
 	plan, err := EntityBuildExecutionPlan(builtIR, roots)

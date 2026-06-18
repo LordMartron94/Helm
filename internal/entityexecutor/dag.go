@@ -13,23 +13,35 @@ type EntityExecutionPlan struct {
 	Order  []string
 }
 
-// EntityBuildExecutionPlan topologically sorts entities by deps labels.
-func EntityBuildExecutionPlan(builtIR ir.HelmIR, roots []ir.HelmLabel) (*EntityExecutionPlan, error) {
-	needed := entityClosure(builtIR, roots)
+// EntityBuildExecutionPlan topologically sorts configured entity instances by deps.
+func EntityBuildExecutionPlan(builtIR ir.HelmIR, roots []EntityInstance) (*EntityExecutionPlan, error) {
+	needed := entityInstanceClosure(builtIR, roots)
 	if len(needed) == 0 {
 		return &EntityExecutionPlan{}, nil
 	}
 
 	graph := make(map[string][]string, len(needed))
-	for key := range needed {
-		graph[key] = []string{}
-		entity := builtIR.Entities[key]
-		for _, dep := range entity.Deps {
-			depKey := ir.HelmLabelCanonical(dep)
+	for instanceKey := range needed {
+		graph[instanceKey] = []string{}
+		inst, err := entityInstanceFromKey(instanceKey)
+		if err != nil {
+			continue
+		}
+		entity, ok := builtIR.Entities[entityInstanceBaseKey(inst)]
+		if !ok {
+			continue
+		}
+		deps, depErr := ir.HelmEntityDepsForConfiguration(entity, inst.Configuration)
+		if depErr != nil {
+			continue
+		}
+		for _, dep := range deps {
+			depInst := ir.HelmEntityDepResolveInstance(dep, inst.Configuration)
+			depKey := entityInstanceKey(depInst)
 			if _, ok := needed[depKey]; !ok {
 				continue
 			}
-			graph[key] = append(graph[key], depKey)
+			graph[instanceKey] = append(graph[instanceKey], depKey)
 		}
 	}
 
@@ -48,21 +60,25 @@ func EntityBuildExecutionPlan(builtIR ir.HelmIR, roots []ir.HelmLabel) (*EntityE
 	}, nil
 }
 
-func entityClosure(builtIR ir.HelmIR, roots []ir.HelmLabel) map[string]struct{} {
+func entityInstanceClosure(builtIR ir.HelmIR, roots []EntityInstance) map[string]struct{} {
 	needed := make(map[string]struct{})
-	var walk func(label ir.HelmLabel)
-	walk = func(label ir.HelmLabel) {
-		key := ir.HelmLabelCanonical(label)
+	var walk func(inst EntityInstance)
+	walk = func(inst EntityInstance) {
+		key := entityInstanceKey(inst)
 		if _, seen := needed[key]; seen {
 			return
 		}
-		entity, ok := builtIR.Entities[key]
+		entity, ok := builtIR.Entities[entityInstanceBaseKey(inst)]
 		if !ok {
 			return
 		}
 		needed[key] = struct{}{}
-		for _, dep := range entity.Deps {
-			walk(dep)
+		deps, err := ir.HelmEntityDepsForConfiguration(entity, inst.Configuration)
+		if err != nil {
+			return
+		}
+		for _, dep := range deps {
+			walk(ir.HelmEntityDepResolveInstance(dep, inst.Configuration))
 		}
 	}
 	for _, root := range roots {
@@ -71,28 +87,57 @@ func entityClosure(builtIR ir.HelmIR, roots []ir.HelmLabel) map[string]struct{} 
 	return needed
 }
 
-// EntityRootsFromTargetDeps collects entity labels referenced by a target's depends_on edges.
-func EntityRootsFromTargetDeps(builtIR ir.HelmIR, targetName string) []ir.HelmLabel {
+// EntityRootsFromTargetDeps collects configured entity instances referenced by a target.
+func EntityRootsFromTargetDeps(builtIR ir.HelmIR, targetName string) []EntityInstance {
 	canonical, ok := ir.IRResolveTargetName(builtIR.Targets, targetName)
 	if !ok {
 		return nil
 	}
 	target := builtIR.Targets[canonical]
-	var roots []ir.HelmLabel
+	entryConfiguration := ir.HelmTargetEntryConfiguration(builtIR, targetName)
+
+	var roots []EntityInstance
 	for _, dep := range target.DependsOn {
-		if dep.EntityLabel != nil {
-			roots = append(roots, *dep.EntityLabel)
+		if dep.EntityLabel == nil {
+			continue
 		}
+		entityDep := ir.HelmEntityDep{
+			Label:         *dep.EntityLabel,
+			Configuration: dep.EntityConfiguration,
+		}
+		roots = append(roots, ir.HelmEntityDepResolveInstance(entityDep, entryConfiguration))
 	}
 	return roots
 }
 
-// EntitySortedKeys returns deterministic entity keys from a plan.
+// EntitySortedKeys returns deterministic entity instance keys from a plan.
 func EntitySortedKeys(plan *EntityExecutionPlan) []string {
 	if plan == nil {
 		return nil
 	}
 	out := append([]string(nil), plan.Order...)
 	sort.Strings(out)
+	return out
+}
+
+// EntityInstanceClosureFromRoots returns all instance keys reachable from roots.
+func EntityInstanceClosureFromRoots(builtIR ir.HelmIR, roots []EntityInstance) map[string]struct{} {
+	return entityInstanceClosure(builtIR, roots)
+}
+
+// EntityLegacyRootsFromLabels converts label-only roots to default-configuration instances.
+func EntityLegacyRootsFromLabels(labels []ir.HelmLabel) []EntityInstance {
+	if len(labels) == 0 {
+		return nil
+	}
+	out := make([]EntityInstance, len(labels))
+	for i, label := range labels {
+		configuration := label.Configuration
+		if configuration == "" {
+			configuration = ir.HelmConfigurationDefaultName
+		}
+		label.Configuration = ""
+		out[i] = EntityInstance{Label: label, Configuration: configuration}
+	}
 	return out
 }

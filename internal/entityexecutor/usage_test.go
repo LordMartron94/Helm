@@ -31,7 +31,7 @@ func TestEntityBuildUsagePropagationTransitive(t *testing.T) {
 
 	propagation := EntityBuildUsagePropagation(
 		builtIR,
-		[]ir.HelmLabel{{Path: "testbed", Name: "testbed"}},
+		EntityLegacyRootsFromLabels([]ir.HelmLabel{{Path: "testbed", Name: "testbed"}}),
 	)
 
 	if _, ok := propagation["//testbed:testbed"]; ok {

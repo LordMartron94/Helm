@@ -16,3 +16,8 @@ func EntityCollectAllRoots(builtIR ir.HelmIR) []ir.HelmLabel {
 	}
 	return roots
 }
+
+// EntityCollectAllInstances returns default-configuration instances for every entity.
+func EntityCollectAllInstances(builtIR ir.HelmIR) []EntityInstance {
+	return EntityLegacyRootsFromLabels(EntityCollectAllRoots(builtIR))
+}

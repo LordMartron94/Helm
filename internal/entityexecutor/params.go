@@ -42,14 +42,15 @@ func EntityResolveParameters(
 	workspaceRoot string,
 	builtIR ir.HelmIR,
 	entity ir.HelmEntity,
+	configuration string,
 ) (EntityResolvedParameters, error) {
-	values := entityAdapterParameterValues(builtIR, entity)
+	values := entityAdapterParameterValues(builtIR, entity, configuration)
 	if len(values) == 0 {
 		return EntityResolvedParametersEmpty(), nil
 	}
 
 	declarationBase := EntityDeclarationBaseDir(workspaceRoot, entity)
-	fileGlobals := ir.IRGlobalsForFile(builtIR, entity.SourceFile)
+	fileGlobals := ir.IRGlobalsForFileConfiguration(builtIR, entity.SourceFile, configuration)
 	scalarGlobals := ir.InterpolationGlobalsFromHelmGlobals(fileGlobals)
 	resolved := EntityResolvedParameters{
 		Scalars:     make(map[string]string, len(values)),
@@ -107,6 +108,7 @@ func EntityResolveParameters(
 			fragments, err := entityEvaluateStringListExpr(
 				builtIR,
 				entity,
+				configuration,
 				nil,
 				value.StringList,
 				interpCtx(),
@@ -138,9 +140,14 @@ func EntityResolveParameters(
 func entityAdapterParameterValues(
 	builtIR ir.HelmIR,
 	entity ir.HelmEntity,
+	configuration string,
 ) map[string]ir.HelmParameterValue {
-	values := make(map[string]ir.HelmParameterValue, len(entity.Parameters))
-	for key, value := range entity.Parameters {
+	params, err := ir.HelmEntityParametersFor(entity, configuration)
+	if err != nil {
+		return nil
+	}
+	values := make(map[string]ir.HelmParameterValue, len(params))
+	for key, value := range params {
 		values[key] = value
 	}
 	return values
@@ -230,6 +237,7 @@ func entityResolveParameterPaths(
 func entityEvaluateStringListExpr(
 	builtIR ir.HelmIR,
 	entity ir.HelmEntity,
+	configuration string,
 	adapterParams []ir.HelmTargetParameter,
 	expr ir.HelmStringListExpr,
 	interpCtx expand.InterpolationContext,
@@ -244,7 +252,7 @@ func entityEvaluateStringListExpr(
 				out = append(out, text)
 			}
 		case ir.StringListParamRef:
-			fileGlobals := ir.IRGlobalsForFile(builtIR, entity.SourceFile)
+			fileGlobals := ir.IRGlobalsForFileConfiguration(builtIR, entity.SourceFile, configuration)
 			fragment, err := entityResolveParamFragment(
 				element.ParamName,
 				adapterParams,
@@ -261,7 +269,7 @@ func entityEvaluateStringListExpr(
 			if element.Collect == nil {
 				return nil, fmt.Errorf("collect element is missing call data")
 			}
-			fragment, err := entityEvaluateCollect(builtIR, entity, *element.Collect)
+			fragment, err := entityEvaluateCollect(builtIR, entity, configuration, *element.Collect)
 			if err != nil {
 				return nil, err
 			}

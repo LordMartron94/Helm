@@ -42,6 +42,7 @@ func HelmInterpreterLoadWorkspace(
 		Entities:         make(map[string]ir.HelmEntity),
 		Interfaces:       make(map[string]ir.HelmInterfaceDecl),
 		Adapters:         make(map[string]ir.HelmAdapterDecl),
+		Configurations:   make(map[string]ir.HelmConfigurationDecl),
 	}
 
 	if err := workspaceMergePartIR(&merged, rootResult.BuiltIR, rootDir, rootAbs); err != nil {
@@ -136,6 +137,13 @@ func workspaceMergePartIR(merged *ir.HelmIR, part ir.HelmIR, rootDir, filePath s
 			return fmt.Errorf("duplicate adapter %q across workspace files", name)
 		}
 		merged.Adapters[name] = decl
+	}
+
+	for name, decl := range part.Configurations {
+		if _, exists := merged.Configurations[name]; exists {
+			return fmt.Errorf("duplicate configuration %q across workspace files", name)
+		}
+		merged.Configurations[name] = decl
 	}
 
 	if part.Workspace != nil {

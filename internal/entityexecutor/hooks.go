@@ -8,19 +8,24 @@ import (
 )
 
 // EntityAdapterTargetHooks returns workspace targets that must run before entity steps.
-func EntityAdapterTargetHooks(builtIR ir.HelmIR, entityKey string) ([]string, error) {
-	entity, ok := builtIR.Entities[entityKey]
-	if !ok {
-		return nil, fmt.Errorf("entity '%s' not found", entityKey)
+func EntityAdapterTargetHooks(builtIR ir.HelmIR, instanceKey string) ([]string, error) {
+	entity, inst, err := entityLookupForInstanceKey(builtIR, instanceKey)
+	if err != nil {
+		return nil, err
 	}
 
 	if ir.HelmEntityIsMetadataOnly(entity) {
 		return nil, nil
 	}
 
-	adapter, ok := builtIR.Adapters[entity.AdapterName]
+	adapterName, adapterErr := ir.HelmEntityAdapterNameFor(entity, inst.Configuration)
+	if adapterErr != nil {
+		return nil, fmt.Errorf("entity '%s': %w", instanceKey, adapterErr)
+	}
+
+	adapter, ok := builtIR.Adapters[adapterName]
 	if !ok {
-		return nil, fmt.Errorf("entity '%s': unknown adapter '%s'", entityKey, entity.AdapterName)
+		return nil, fmt.Errorf("entity '%s': unknown adapter '%s'", instanceKey, adapterName)
 	}
 
 	seen := make(map[string]struct{})

@@ -132,16 +132,18 @@ func handleEntityDeclaration(
 	}
 
 	entity := HelmEntity{
-		Name:         entityName,
-		Label:        label,
-		InterfaceBag: make(map[string]HelmStringListExpr),
-		UsageBag:     make(map[string]HelmStringListExpr),
-		Parameters:   make(map[string]HelmParameterValue),
-		SourceFile:   entitySourceFile(builder),
+		Name:           entityName,
+		Label:          label,
+		InterfaceBag:   make(map[string]HelmStringListExpr),
+		UsageBag:       make(map[string]HelmStringListExpr),
+		Parameters:     make(map[string]HelmParameterValue),
+		Configurations: make(map[string]HelmEntityConfiguration),
+		SourceFile:     entitySourceFile(builder),
 	}
 
 	body := node.FindDirectChildKind(artifacts.NodeEntityBody)
 	handleEntityBody(builder, body, &entity)
+	entityFinalizeLegacyFields(&entity)
 
 	if entity.Kind == "bin" && len(entity.InterfaceBag) > 0 {
 		emitSemanticError(
@@ -177,7 +179,7 @@ func handleEntityDeclaration(
 				),
 			)
 		}
-	} else if entity.AdapterName == "" {
+	} else if !entityHasCompiledConfiguration(entity) {
 		emitSemanticError(builder, nameNode, ERROR_ENTITY_MISSING_USE, fmt.Sprintf("entity '%s' must declare use <adapter>", entityName))
 	}
 
@@ -199,6 +201,10 @@ func handleEntityBody(
 	}
 	scope := resolveScopeForGlobals(builder.effectiveGlobals())
 
+	defaultVariant := HelmEntityConfiguration{
+		Parameters: make(map[string]HelmParameterValue),
+	}
+
 	for _, child := range node.ChildrenUnsafe() {
 		switch child.Kind() {
 		case artifacts.NodeEntityKind:
@@ -207,38 +213,81 @@ func handleEntityBody(
 				entity.Kind = extractStringFromStringNode(builder, stringNode, scope)
 			}
 		case artifacts.NodeEntityUse:
-			handleEntityUse(builder, child, scope, entity)
+			handleEntityConfigurationUse(builder, child, scope, &defaultVariant)
 		case artifacts.NodeEntityDeps:
-			labelNodes := child.FindAllKind(artifacts.NodeLabelRef)
-			for _, labelNode := range labelNodes {
-				stringNode := labelNode.FindFirstKind(artifacts.NodeStringLiteral)
-				if stringNode == nil {
-					continue
-				}
-				text := extractStringFromStringNode(builder, stringNode, scope)
-				label, ok := helmLabelFromStringLiteral(builder, text)
-				if !ok {
-					emitSemanticError(builder, labelNode, ERROR_INVALID_LABEL, fmt.Sprintf("invalid entity label %q", text))
-					continue
-				}
-				entity.Deps = append(entity.Deps, label)
-			}
+			defaultVariant.Deps = extractEntityDepsFromNode(builder, child, scope)
 		case artifacts.NodeEntityInterface:
 			extractEntityInterfaceBag(builder, child, scope, entity)
 		case artifacts.NodeEntityUsage:
 			extractEntityUsageBag(builder, child, scope, entity)
+		case artifacts.NodeEntityConfiguration:
+			handleEntityConfigurationBlock(builder, child, scope, entity)
+		}
+	}
+
+	if defaultVariant.AdapterName != "" || len(defaultVariant.Deps) > 0 || len(defaultVariant.Parameters) > 0 {
+		if _, exists := entity.Configurations[HelmConfigurationDefaultName]; exists {
+			emitSemanticError(
+				builder,
+				node,
+				ERROR_ENTITY_DUPLICATE_CONFIGURATION,
+				fmt.Sprintf("entity '%s' configuration '%s' already declared", entity.Name, HelmConfigurationDefaultName),
+			)
+		} else {
+			entity.Configurations[HelmConfigurationDefaultName] = defaultVariant
 		}
 	}
 }
 
-func handleEntityUse(
+func handleEntityConfigurationBlock(
 	builder *irBuilder,
 	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
 	scope resolveScope,
 	entity *HelmEntity,
 ) {
+	nameNode := node.FindDirectChildKind(artifacts.NodeEntityConfigurationName)
+	configurationName := extractContentFromSingleTokenNode(builder, nameNode)
+	if configurationName == "" {
+		emitSemanticError(builder, node, ERROR_ENTITY_UNKNOWN_CONFIGURATION, "entity configuration requires a name")
+		return
+	}
+
+	variant := HelmEntityConfiguration{
+		Parameters: make(map[string]HelmParameterValue),
+	}
+
+	body := node.FindDirectChildKind(artifacts.NodeEntityConfigurationBody)
+	if body != nil {
+		for _, child := range body.ChildrenUnsafe() {
+			switch child.Kind() {
+			case artifacts.NodeEntityUse:
+				handleEntityConfigurationUse(builder, child, scope, &variant)
+			case artifacts.NodeEntityDeps:
+				variant.Deps = extractEntityDepsFromNode(builder, child, scope)
+			}
+		}
+	}
+
+	if _, exists := entity.Configurations[configurationName]; exists {
+		emitSemanticError(
+			builder,
+			nameNode,
+			ERROR_ENTITY_DUPLICATE_CONFIGURATION,
+			fmt.Sprintf("entity '%s' configuration '%s' already declared", entity.Name, configurationName),
+		)
+		return
+	}
+	entity.Configurations[configurationName] = variant
+}
+
+func handleEntityConfigurationUse(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+	variant *HelmEntityConfiguration,
+) {
 	adapterNode := node.FindDirectChildKind(artifacts.NodeEntityAdapterName)
-	entity.AdapterName = extractContentFromSingleTokenNode(builder, adapterNode)
+	variant.AdapterName = extractContentFromSingleTokenNode(builder, adapterNode)
 
 	optionsNode := node.FindDirectChildKind(artifacts.NodeEntityUseOptions)
 	if optionsNode == nil {
@@ -248,7 +297,102 @@ func handleEntityUse(
 	if paramsNode == nil {
 		return
 	}
-	extractEntityAdapterParameters(builder, paramsNode, scope, entity)
+
+	dep := HelmTargetDependency{
+		TargetName: variant.AdapterName,
+		Parameters: variant.Parameters,
+	}
+	extractDependencyParameters(builder, paramsNode, scope, &dep)
+	variant.Parameters = dep.Parameters
+}
+
+func extractEntityDepsFromNode(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+) []HelmEntityDep {
+	labelDepNodes := node.FindAllKind(artifacts.NodeEntityLabelDependency)
+	if len(labelDepNodes) > 0 {
+		var deps []HelmEntityDep
+		for _, depNode := range labelDepNodes {
+			dep, ok := extractEntityLabelDependency(builder, depNode, scope)
+			if ok {
+				deps = append(deps, dep)
+			}
+		}
+		return deps
+	}
+
+	labelNodes := node.FindAllKind(artifacts.NodeLabelRef)
+	var deps []HelmEntityDep
+	for _, labelNode := range labelNodes {
+		stringNode := labelNode.FindFirstKind(artifacts.NodeStringLiteral)
+		if stringNode == nil {
+			continue
+		}
+		text := extractStringFromStringNode(builder, stringNode, scope)
+		label, ok := helmLabelFromStringLiteral(builder, text)
+		if !ok {
+			emitSemanticError(builder, labelNode, ERROR_INVALID_LABEL, fmt.Sprintf("invalid entity label %q", text))
+			continue
+		}
+		dep := HelmEntityDep{Label: label}
+		if label.Configuration != "" {
+			dep.Configuration = label.Configuration
+			label.Configuration = ""
+			dep.Label = label
+		}
+		deps = append(deps, dep)
+	}
+	return deps
+}
+
+func entityHasCompiledConfiguration(entity HelmEntity) bool {
+	if HelmEntityKindIsMetadataOnly(entity.Kind) {
+		return true
+	}
+	if len(entity.Configurations) == 0 {
+		return entity.AdapterName != ""
+	}
+	for _, variant := range entity.Configurations {
+		if variant.AdapterName != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func entityFinalizeLegacyFields(entity *HelmEntity) {
+	defaultVariant, ok := entity.Configurations[HelmConfigurationDefaultName]
+	if !ok && len(entity.Configurations) == 1 {
+		for _, variant := range entity.Configurations {
+			defaultVariant = variant
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return
+	}
+
+	entity.AdapterName = defaultVariant.AdapterName
+	entity.Parameters = defaultVariant.Parameters
+	entity.Deps = nil
+	for _, dep := range defaultVariant.Deps {
+		entity.Deps = append(entity.Deps, dep.Label)
+	}
+}
+
+func handleEntityUse(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+	entity *HelmEntity,
+) {
+	variant := HelmEntityConfiguration{Parameters: make(map[string]HelmParameterValue)}
+	handleEntityConfigurationUse(builder, node, scope, &variant)
+	entity.AdapterName = variant.AdapterName
+	entity.Parameters = variant.Parameters
 }
 
 func extractEntityAdapterParameters(

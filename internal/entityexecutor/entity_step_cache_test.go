@@ -189,7 +189,7 @@ func TestEntityExecutorRunGraphSkipsOnlyUnchangedMatrixLegs(t *testing.T) {
 	spawned := make(map[string]int)
 	err := EntityExecutorRunGraph(
 		builtIR,
-		[]ir.HelmLabel{{Path: "libs/echo", Name: "echo"}},
+		[]EntityInstance{{Label: ir.HelmLabel{Path: "libs/echo", Name: "echo"}, Configuration: ir.HelmConfigurationDefaultName}},
 		EntityExecutorOptions{
 			RunHandler: func(req EntityRunRequest) error {
 				if len(req.Argv) > 1 && filepath.Base(req.Argv[0]) == "compile_object.sh" {
@@ -218,7 +218,7 @@ func TestEntityExecutorRunGraphSkipsOnlyUnchangedMatrixLegs(t *testing.T) {
 	spawned = make(map[string]int)
 	err = EntityExecutorRunGraph(
 		builtIR,
-		[]ir.HelmLabel{{Path: "libs/echo", Name: "echo"}},
+		[]EntityInstance{{Label: ir.HelmLabel{Path: "libs/echo", Name: "echo"}, Configuration: ir.HelmConfigurationDefaultName}},
 		EntityExecutorOptions{
 			RunHandler: func(req EntityRunRequest) error {
 				if len(req.Argv) > 1 && filepath.Base(req.Argv[0]) == "compile_object.sh" {
@@ -257,7 +257,7 @@ func TestEntityExecutorRunGraphSkipsOnlyUnchangedMatrixLegs(t *testing.T) {
 	spawned = make(map[string]int)
 	err = EntityExecutorRunGraph(
 		builtIR,
-		[]ir.HelmLabel{{Path: "libs/echo", Name: "echo"}},
+		[]EntityInstance{{Label: ir.HelmLabel{Path: "libs/echo", Name: "echo"}, Configuration: ir.HelmConfigurationDefaultName}},
 		EntityExecutorOptions{
 			RunHandler: func(req EntityRunRequest) error {
 				if len(req.Argv) > 1 && filepath.Base(req.Argv[0]) == "compile_object.sh" {

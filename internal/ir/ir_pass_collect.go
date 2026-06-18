@@ -29,6 +29,7 @@ func IRFromSyntax(
 		entities:         make(map[string]HelmEntity),
 		interfaces:       make(map[string]HelmInterfaceDecl),
 		adapters:         make(map[string]HelmAdapterDecl),
+		configurations:   make(map[string]HelmConfigurationDecl),
 	}
 
 	elements := rootNode.ChildrenUnsafe()
@@ -48,6 +49,8 @@ func IRFromSyntax(
 			handleTargetDeclaration(builder, element)
 		case artifacts.NodeWorkspace:
 			handleWorkspaceDeclaration(builder, element)
+		case artifacts.NodeConfigurationDecl:
+			handleConfigurationDeclaration(builder, element)
 		case artifacts.NodeEntity:
 			handleEntityDeclaration(builder, element)
 		case artifacts.NodeInterfaceDecl:
@@ -80,6 +83,7 @@ func IRFromSyntax(
 		GlobalVariables: builder.globalVariables,
 		Targets:         builder.targets,
 		Workspace:       workspace,
+		Configurations:  builder.configurations,
 		Entities:        builder.entities,
 		Interfaces:      builder.interfaces,
 		Adapters:        builder.adapters,

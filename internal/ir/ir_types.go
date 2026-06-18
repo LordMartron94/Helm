@@ -148,9 +148,10 @@ type HelmIR struct {
 	GlobalVariables map[string]HelmGlobalVariable
 	// FileGlobals maps absolute helm file paths to file-local global variables.
 	FileGlobals map[string]map[string]HelmGlobalVariable
-	Targets     map[string]HelmTarget
-	Workspace   *HelmWorkspace
-	Entities    map[string]HelmEntity
+	Targets         map[string]HelmTarget
+	Workspace       *HelmWorkspace
+	Configurations  map[string]HelmConfigurationDecl
+	Entities        map[string]HelmEntity
 	Interfaces  map[string]HelmInterfaceDecl
 	Adapters    map[string]HelmAdapterDecl
 	Mode        HelmExecutionMode
@@ -169,6 +170,7 @@ type HelmTarget struct {
 
 	DependsOn           []HelmTargetDependency
 	DependsOnParamNames []string
+	ConfigurationName   string
 	Matrix              *HelmMatrix
 	LetBindings         []HelmPathBinding
 	Artifacts           *HelmArtifacts
@@ -232,12 +234,13 @@ type HelmParameterValue struct {
 // Parameters holds values from params { ... }. Each dependency target runs at most once
 // per graph execution, so all edges supplying params for the same dependency must agree.
 type HelmTargetDependency struct {
-	TargetName  string
-	EntityLabel *HelmLabel
-	Optional    bool
-	Confirm     bool
-	Parameters  map[string]HelmParameterValue
-	SourceNode  *syntaxa.SyntaxaLSTNode[artifacts.Node]
+	TargetName          string
+	EntityLabel         *HelmLabel
+	EntityConfiguration string
+	Optional            bool
+	Confirm             bool
+	Parameters          map[string]HelmParameterValue
+	SourceNode          *syntaxa.SyntaxaLSTNode[artifacts.Node]
 }
 
 func HelmTargetDependencyIsEntityLabel(dep HelmTargetDependency) bool {
