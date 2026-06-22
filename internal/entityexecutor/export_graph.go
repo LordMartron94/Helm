@@ -82,7 +82,7 @@ func entityExportGraphEntry(
 	}
 
 	for key := range entity.InterfaceBag {
-		entry.PropertyBag[key] = entityBagFragments(entity, key)
+		entry.PropertyBag[key] = entityBagFragments(builtIR.SourceDirectory, entity, key)
 	}
 
 	for _, dep := range deps {

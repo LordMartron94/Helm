@@ -274,9 +274,63 @@ func entityEvaluateStringListExpr(
 				return nil, err
 			}
 			out = append(out, fragment...)
+		case ir.StringListRel:
+			declarationBase := EntityDeclarationBaseDir(builtIR.SourceDirectory, entity)
+			if element.RelPath != "" {
+				out = append(out, EntityPathsToWorkspace(builtIR.SourceDirectory, declarationBase, []string{element.RelPath})...)
+			}
+		case ir.StringListFormatFlags:
+			if element.FormatFlags == nil {
+				return nil, fmt.Errorf("format_flags element is missing call data")
+			}
+			fragment, err := entityEvaluateFormatFlags(
+				builtIR,
+				entity,
+				configuration,
+				adapterParams,
+				*element.FormatFlags,
+				interpCtx,
+				resolved,
+			)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, fragment...)
 		default:
 			return nil, fmt.Errorf("unknown string-list element kind")
 		}
+	}
+	return out, nil
+}
+
+func entityEvaluateFormatFlags(
+	builtIR ir.HelmIR,
+	entity ir.HelmEntity,
+	configuration string,
+	adapterParams []ir.HelmTargetParameter,
+	formatFlags ir.HelmFormatFlagsExpr,
+	interpCtx expand.InterpolationContext,
+	resolved EntityResolvedParameters,
+) ([]string, error) {
+	inner, err := entityEvaluateStringListExpr(
+		builtIR,
+		entity,
+		configuration,
+		adapterParams,
+		ir.HelmStringListExpr{formatFlags.Inner},
+		interpCtx,
+		resolved,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(inner) == 0 {
+		return nil, nil
+	}
+	prefix := expand.InterpolationContextExpandLiteral(interpCtx, formatFlags.Prefix)
+	out := make([]string, 0, len(inner))
+	for _, path := range inner {
+		out = append(out, prefix+path)
 	}
 	return out, nil
 }

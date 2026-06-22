@@ -7,7 +7,7 @@
 //
 // Layout: auto-detected by scripts/build_helm.sh (standalone checkout or monorepo tools/helm).
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 BIN_DIR = "bin"
 LOCAL_DEST = "/home/user/.local/bin/helm"
 

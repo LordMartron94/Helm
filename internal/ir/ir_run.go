@@ -97,6 +97,11 @@ func extractRunArgvFromArrayNode(
 			if collect != nil {
 				elements = append(elements, HelmRunArgvElement{Collect: collect})
 			}
+		case artifacts.NodeStringListFormatFlagsCall:
+			formatFlags := extractFormatFlagsCall(builder, child, scope)
+			if formatFlags != nil {
+				elements = append(elements, HelmRunArgvElement{FormatFlags: formatFlags})
+			}
 		}
 	}
 

@@ -22,7 +22,7 @@ func EntityFlattenBags(
 		if !ok {
 			continue
 		}
-		merged = append(merged, entityBagFragments(entity, key)...)
+		merged = append(merged, entityBagFragments(builtIR.SourceDirectory, entity, key)...)
 	}
 	return merged
 }
@@ -55,22 +55,28 @@ func EntityFlattenBagsClosure(
 		if !ok {
 			continue
 		}
-		merged = append(merged, entityBagFragments(entity, key)...)
+		merged = append(merged, entityBagFragments(builtIR.SourceDirectory, entity, key)...)
 	}
 	return merged
 }
 
-func entityBagFragments(entity ir.HelmEntity, key string) []string {
+func entityBagFragments(workspaceRoot string, entity ir.HelmEntity, key string) []string {
 	expr, ok := entity.InterfaceBag[key]
 	if !ok || len(expr) == 0 {
 		return nil
 	}
 
+	declarationBase := EntityDeclarationBaseDir(workspaceRoot, entity)
 	var out []string
 	for _, element := range expr {
-		if element.Kind == ir.StringListLiteral {
+		switch element.Kind {
+		case ir.StringListLiteral:
 			if element.Literal != "" {
 				out = append(out, element.Literal)
+			}
+		case ir.StringListRel:
+			if element.RelPath != "" {
+				out = append(out, EntityPathsToWorkspace(workspaceRoot, declarationBase, []string{element.RelPath})...)
 			}
 		}
 	}

@@ -69,7 +69,8 @@ fi
 
 (
 	cd "${LINGUA_HELM}"
-	go run ./generate/gen.go
+	# Follow helm/doc.go directives in order: bindings bootstrap, then full toolchains.
+	go generate .
 )
 
 echo "Wrote ${ARTIFACTS}/go_bindings.go"

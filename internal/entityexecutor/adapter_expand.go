@@ -241,6 +241,20 @@ func entityResolveRunArgv(
 				return nil, err
 			}
 			argv = append(argv, fragment...)
+		case element.FormatFlags != nil:
+			fragment, err := entityEvaluateFormatFlags(
+				builtIR,
+				entity,
+				configuration,
+				adapterParams,
+				*element.FormatFlags,
+				interpCtx,
+				resolved,
+			)
+			if err != nil {
+				return nil, err
+			}
+			argv = append(argv, fragment...)
 		case element.PhaseOutputs != "":
 			outputs, ok := phaseOutputs[element.PhaseOutputs]
 			if !ok || len(outputs) == 0 {

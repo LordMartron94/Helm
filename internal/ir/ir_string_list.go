@@ -110,6 +110,31 @@ func extractStringListFromArrayNode(
 					Collect: collect,
 				})
 			}
+		case artifacts.NodeRel:
+			relPath := extractRelPath(builder, child, scope)
+			if relPath != "" {
+				out = append(out, HelmStringListElement{
+					Kind:    StringListRel,
+					RelPath: relPath,
+				})
+			}
+		case artifacts.NodeStringListFormatFlagsCall:
+			if !allowParamAndCollect {
+				emitSemanticError(
+					builder,
+					child,
+					ERROR_INVALID_EXPORT_VALUE,
+					"format_flags() is not allowed here",
+				)
+				continue
+			}
+			formatFlags := extractFormatFlagsCall(builder, child, scope)
+			if formatFlags != nil {
+				out = append(out, HelmStringListElement{
+					Kind:        StringListFormatFlags,
+					FormatFlags: formatFlags,
+				})
+			}
 		}
 	}
 
@@ -174,5 +199,77 @@ func extractCollectCall(
 		DependenciesParam: depsParam,
 		ExportKey:         extractStringFromStringNode(builder, keyNode, scope),
 		Closure:           closure,
+	}
+}
+
+func extractFormatFlagsCall(
+	builder *irBuilder,
+	node *syntaxa.SyntaxaLSTNode[artifacts.Node],
+	scope resolveScope,
+) *HelmFormatFlagsExpr {
+	argsNode := node.FindDirectChildKind(artifacts.NodeStringListFormatFlagsArgs)
+	if argsNode == nil {
+		emitSemanticError(
+			builder,
+			node,
+			ERROR_INVALID_COLLECT_CALL,
+			"format_flags() requires (prefix, inner)",
+		)
+		return nil
+	}
+
+	prefixNode := argsNode.FindFirstKind(artifacts.NodeStringLiteral)
+	if prefixNode == nil {
+		emitSemanticError(
+			builder,
+			argsNode,
+			ERROR_INVALID_COLLECT_CALL,
+			"format_flags() requires a string literal prefix",
+		)
+		return nil
+	}
+
+	var inner *HelmStringListElement
+	for _, child := range argsNode.ChildrenUnsafe() {
+		switch child.Kind() {
+		case artifacts.NodeStringListCollectCall:
+			collect := extractCollectCall(builder, child, scope, false)
+			if collect != nil {
+				inner = &HelmStringListElement{Kind: StringListCollect, Collect: collect}
+			}
+		case artifacts.NodeStringListCollectClosureCall:
+			collect := extractCollectCall(builder, child, scope, true)
+			if collect != nil {
+				inner = &HelmStringListElement{Kind: StringListCollect, Collect: collect}
+			}
+		case artifacts.NodeStringListParamRef:
+			nameNode := child.FindDirectChildKind(artifacts.NodeStringListParamName)
+			paramName := extractContentFromSingleTokenNode(builder, nameNode)
+			if !resolveScopeAllowsParamRef(scope, paramName) {
+				emitSemanticError(
+					builder,
+					nameNode,
+					ERROR_UNDECLARED_PARAMETER,
+					fmt.Sprintf("format_flags() references undeclared parameter '%s'", paramName),
+				)
+				return nil
+			}
+			inner = &HelmStringListElement{Kind: StringListParamRef, ParamName: paramName}
+		}
+	}
+
+	if inner == nil {
+		emitSemanticError(
+			builder,
+			argsNode,
+			ERROR_INVALID_COLLECT_CALL,
+			"format_flags() requires collect(), collect_closure(), or param as second argument",
+		)
+		return nil
+	}
+
+	return &HelmFormatFlagsExpr{
+		Prefix: extractStringFromStringNode(builder, prefixNode, scope),
+		Inner:  *inner,
 	}
 }

@@ -303,7 +303,7 @@ func entityCacheWriteBaseState(
 
 	bag := EntityPropertyBag{}
 	for key := range entity.InterfaceBag {
-		bag[key] = entityBagFragments(entity, key)
+		bag[key] = entityBagFragments(builtIR.SourceDirectory, entity, key)
 	}
 	for key := range entity.InterfaceBag {
 		merged := EntityFlattenBags(builtIR, deps, inst.Configuration, key)

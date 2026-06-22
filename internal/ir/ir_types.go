@@ -87,14 +87,24 @@ const (
 	StringListLiteral HelmStringListElementKind = iota
 	StringListParamRef
 	StringListCollect
+	StringListRel
+	StringListFormatFlags
 )
+
+// HelmFormatFlagsExpr prefixes each path produced by an inner string-list fragment.
+type HelmFormatFlagsExpr struct {
+	Prefix string
+	Inner  HelmStringListElement
+}
 
 // HelmStringListElement is one fragment in a string-list expression (env, export, parameters).
 type HelmStringListElement struct {
-	Kind      HelmStringListElementKind
-	Literal   string
-	ParamName string
-	Collect   *HelmCollectExpr
+	Kind        HelmStringListElementKind
+	Literal     string
+	ParamName   string
+	Collect     *HelmCollectExpr
+	RelPath     string
+	FormatFlags *HelmFormatFlagsExpr
 }
 
 // HelmCollectExpr aggregates export keys from dependency-list parameters.
@@ -110,13 +120,14 @@ type HelmCollectExpr struct {
 type HelmStringListExpr []HelmStringListElement
 
 // HelmRunArgvElement is one argv slot in a native run [ ... ] command.
-// Exactly one of Literal, ParamName, PhaseOutputs, AbsPath, or Collect is set.
+// Exactly one of Literal, ParamName, PhaseOutputs, AbsPath, Collect, or FormatFlags is set.
 type HelmRunArgvElement struct {
 	Literal      string
 	ParamName    string
 	PhaseOutputs string
 	AbsPath      string
 	Collect      *HelmCollectExpr
+	FormatFlags  *HelmFormatFlagsExpr
 }
 
 // HelmRunCommand is either a legacy string run (shlex-split at execution) or a native argv template.
