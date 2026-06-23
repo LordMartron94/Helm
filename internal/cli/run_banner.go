@@ -1,6 +1,19 @@
 package cli
 
+import (
+	"os"
+	"strings"
+)
+
+func helmQuietModeEnabled() bool {
+	value := strings.TrimSpace(os.Getenv("HELM_QUIET"))
+	return value == "1" || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
+}
+
 func shouldSuppressStartupBanner(session *Session, commandFields []string) bool {
+	if helmQuietModeEnabled() {
+		return true
+	}
 	return resolveRunPresentation(session, commandFields) == DiagnosticPresentationSilent
 }
 

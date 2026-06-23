@@ -93,9 +93,10 @@ func EntityExecutorRunGraph(
 		defer cache.EntityCacheStoreClose(runOpts.ownedCacheStore)
 	}
 
+	completedHooks := make(map[string]struct{})
 	for _, phase := range plan.Phases {
 		for _, entityKey := range phase {
-			if err := entityExecutorRunOne(builtIR, entityKey, usagePropagation, handler, runOpts); err != nil {
+			if err := entityExecutorRunOne(builtIR, entityKey, usagePropagation, handler, runOpts, completedHooks); err != nil {
 				return err
 			}
 		}
@@ -109,6 +110,7 @@ func entityExecutorRunOne(
 	usagePropagation EntityUsagePropagation,
 	handler EntityRunHandler,
 	opts EntityExecutorOptions,
+	completedHooks map[string]struct{},
 ) error {
 	var usage EntityPropertyBag
 	if usagePropagation != nil {
@@ -126,6 +128,12 @@ func entityExecutorRunOne(
 			return hookErr
 		}
 		for _, targetName := range hooks {
+			if completedHooks != nil {
+				if _, done := completedHooks[targetName]; done {
+					continue
+				}
+				completedHooks[targetName] = struct{}{}
+			}
 			if err := opts.TargetHookRunner(targetName); err != nil {
 				return fmt.Errorf("entity '%s' target hook '%s': %w", entityKey, targetName, err)
 			}
