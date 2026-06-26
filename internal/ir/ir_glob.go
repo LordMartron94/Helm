@@ -269,6 +269,10 @@ func globKwargNameFromNode(
 		return "include", kwargNode
 	}
 
+	if kwargNode.FindFirstKind(artifacts.NodeGlobExcludeKwarg) != nil {
+		return "exclude", kwargNode
+	}
+
 	nameNode := kwargNode.FindFirstKind(artifacts.NodeGlobKwargIdentifier)
 	if nameNode == nil {
 		return "", nil
