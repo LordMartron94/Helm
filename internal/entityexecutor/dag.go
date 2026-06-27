@@ -87,26 +87,62 @@ func entityInstanceClosure(builtIR ir.HelmIR, roots []EntityInstance) map[string
 	return needed
 }
 
-// EntityRootsFromTargetDeps collects configured entity instances referenced by a target.
+// EntityRootsFromTargetDeps collects configured entity instances referenced by a target,
+// including entity labels reachable through transitive target depends_on edges.
 func EntityRootsFromTargetDeps(builtIR ir.HelmIR, targetName string) []EntityInstance {
 	canonical, ok := ir.IRResolveTargetName(builtIR.Targets, targetName)
 	if !ok {
 		return nil
 	}
-	target := builtIR.Targets[canonical]
 	entryConfiguration := ir.HelmTargetEntryConfiguration(builtIR, targetName)
 
-	var roots []EntityInstance
-	for _, dep := range target.DependsOn {
-		if dep.EntityLabel == nil {
-			continue
+	seenTargets := make(map[string]struct{})
+	seenEntities := make(map[string]EntityInstance)
+
+	var walkTarget func(targetCanonical string)
+	walkTarget = func(targetCanonical string) {
+		if _, seen := seenTargets[targetCanonical]; seen {
+			return
 		}
-		entityDep := ir.HelmEntityDep{
-			Label:         *dep.EntityLabel,
-			Configuration: dep.EntityConfiguration,
+		seenTargets[targetCanonical] = struct{}{}
+
+		target, ok := builtIR.Targets[targetCanonical]
+		if !ok {
+			return
 		}
-		roots = append(roots, ir.HelmEntityDepResolveInstance(entityDep, entryConfiguration))
+
+		for _, dep := range target.DependsOn {
+			if dep.EntityLabel != nil {
+				entityDep := ir.HelmEntityDep{
+					Label:         *dep.EntityLabel,
+					Configuration: dep.EntityConfiguration,
+				}
+				inst := ir.HelmEntityDepResolveInstance(entityDep, entryConfiguration)
+				seenEntities[entityInstanceKey(inst)] = inst
+				continue
+			}
+
+			depCanonical, exists := ir.IRResolveTargetName(builtIR.Targets, dep.TargetName)
+			if !exists {
+				continue
+			}
+			walkTarget(depCanonical)
+		}
 	}
+
+	walkTarget(canonical)
+
+	if len(seenEntities) == 0 {
+		return nil
+	}
+
+	roots := make([]EntityInstance, 0, len(seenEntities))
+	for _, inst := range seenEntities {
+		roots = append(roots, inst)
+	}
+	sort.Slice(roots, func(i, j int) bool {
+		return entityInstanceKey(roots[i]) < entityInstanceKey(roots[j])
+	})
 	return roots
 }
 

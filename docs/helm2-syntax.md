@@ -63,6 +63,8 @@ target build_testbed_android() {
 
 Entity labels may include an `@configuration` suffix (`//libs/nexus:nexus@android`). Target `depends_on` entity edges accept `{ configuration = "android" }` options. The execution graph keys instances as `//path:name@configuration`.
 
+When an entry target runs, Helm collects **all entity labels reachable through transitive target `depends_on` edges** (for example `run_app` → `build_app` → `//libs/splash:splash`), not only entity labels declared directly on the entry target.
+
 ## Entity (artifact producer)
 
 ```helm
