@@ -249,15 +249,26 @@ func HelmInterpreterExecuteTarget(
 	}
 
 	entityOpts := entityexecutor.EntityExecutorOptions{
-		CacheRoot: execOpts.CacheRoot,
-		TargetHookRunner: func(targetName string) error {
-			return targetexecutor.TargetExecutorRunGraph(
-				result.BuiltIR,
-				targetName,
-				nil,
-				execOpts,
-			)
-		},
+		CacheRoot:    execOpts.CacheRoot,
+		DisableCache: execOpts.DisableArtifactCache,
+		RunHandler:   entityexecutor.EntityExecutorDefaultRunHandler,
+	}
+	entityOpts.TargetHookRunner = func(targetName string) error {
+		hookEntityOpts := entityOpts
+		hookEntityOpts.TargetHookRunner = nil
+		if entityErr := entityexecutor.EntityExecutorEnsureForTarget(
+			result.BuiltIR,
+			targetName,
+			hookEntityOpts,
+		); entityErr != nil {
+			return entityErr
+		}
+		return targetexecutor.TargetExecutorRunGraph(
+			result.BuiltIR,
+			targetName,
+			nil,
+			execOpts,
+		)
 	}
 	if entityErr := entityexecutor.EntityExecutorEnsureForTarget(
 		result.BuiltIR,

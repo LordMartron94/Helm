@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"helm/internal/cache"
@@ -31,7 +32,12 @@ func EntityStepCacheFingerprint(
 		buffer.WriteByte(0)
 	}
 
-	inputPaths := entityStepInputPaths(builtIR.SourceDirectory, step)
+	entityStepCacheWriteEnv(&buffer, step.Env)
+
+	inputPaths, err := entityStepCacheResolvedInputPaths(builtIR, entityKey, step)
+	if err != nil {
+		return 0, err
+	}
 	if err := cache.EntityCacheWriteInputPaths(builtIR.SourceDirectory, &buffer, inputPaths); err != nil {
 		return 0, err
 	}
@@ -54,6 +60,45 @@ func EntityStepCacheFingerprint(
 	}
 
 	return cache.EntityCacheHashStateBuffer(buffer.Bytes()), nil
+}
+
+func entityStepCacheWriteEnv(buffer *bytes.Buffer, env map[string]string) {
+	if len(env) == 0 {
+		return
+	}
+
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	buffer.WriteString("env")
+	for _, key := range keys {
+		buffer.WriteString(key)
+		buffer.WriteByte(0)
+		buffer.WriteString(env[key])
+		buffer.WriteByte(0)
+	}
+}
+
+func entityStepCacheResolvedInputPaths(builtIR ir.HelmIR, entityKey string, step EntityAdapterStep) ([]string, error) {
+	seen := make(map[string]struct{})
+	var paths []string
+	entityAppendUniquePaths(&paths, seen, entityStepInputPaths(builtIR.SourceDirectory, step))
+
+	entity, inst, err := entityLookupForInstanceKey(builtIR, entityKey)
+	if err != nil {
+		return nil, err
+	}
+
+	resolved, err := EntityResolveParameters(builtIR.SourceDirectory, builtIR, entity, inst.Configuration)
+	if err != nil {
+		return nil, err
+	}
+	entityAppendUniquePaths(&paths, seen, entityResolvedSourcePaths(resolved))
+	sort.Strings(paths)
+	return paths, nil
 }
 
 func entityStepCacheRecordKey(entityKey, outputPath string) string {
@@ -225,15 +270,18 @@ func entityStepCacheShouldSkip(
 	if !entityStepOutputsExist(absOutputs) {
 		return false, nil
 	}
-	if !entityStepInputsExist(builtIR.SourceDirectory, step) {
+	if !entityStepInputsExist(builtIR.SourceDirectory, step, entityKey, builtIR) {
 		return false, nil
 	}
 
 	return true, nil
 }
 
-func entityStepInputsExist(workspaceRoot string, step EntityAdapterStep) bool {
-	inputPaths := entityStepInputPaths(workspaceRoot, step)
+func entityStepInputsExist(workspaceRoot string, step EntityAdapterStep, entityKey string, builtIR ir.HelmIR) bool {
+	inputPaths, err := entityStepCacheResolvedInputPaths(builtIR, entityKey, step)
+	if err != nil {
+		return false
+	}
 	if len(inputPaths) == 0 {
 		return true
 	}

@@ -346,3 +346,91 @@ func testEntityStepCacheBuiltIR(dir string) ir.HelmIR {
 		},
 	}
 }
+
+func TestEntityStepCacheFingerprintIncludesAdapterInputPaths(t *testing.T) {
+	dir := t.TempDir()
+	headerRel := "libs/nexus/nexus.h"
+	headerPath := filepath.Join(dir, filepath.FromSlash(headerRel))
+	if err := os.MkdirAll(filepath.Dir(headerPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(headerPath, []byte("int nexus_v1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	builtIR := ir.HelmIR{
+		SourceDirectory: dir,
+		Mode:            ir.HelmModeWorkspace,
+		Adapters: map[string]ir.HelmAdapterDecl{
+			"compilation_database": {
+				Name: "compilation_database",
+				Parameters: []ir.HelmTargetParameter{
+					{Name: "CACHE_INPUTS"},
+					{Name: "GRAPH_PATH"},
+					{Name: "OUTPUT_PATH"},
+				},
+				Phases: []ir.HelmAdapterPhase{
+					{
+						Name: "generate",
+						Outputs: []ir.HelmArtifactInput{
+							{Kind: ir.ArtifactInputString, Literal: "compile_commands.json"},
+						},
+						Runs: []ir.HelmRunCommand{
+							{
+								Argv: []ir.HelmRunArgvElement{
+									{Literal: "infra/standards/gen_compile_commands.sh"},
+									{Literal: "compile_commands.json"},
+									{Literal: "build/graph_dump.json"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Entities: map[string]ir.HelmEntity{
+			"//compilation_database:compilation_database": {
+				Name:        "compilation_database",
+				Label:       ir.HelmLabel{Path: "compilation_database", Name: "compilation_database"},
+				AdapterName: "compilation_database",
+				SourceFile:  filepath.Join(dir, "compilation_database.helm"),
+				Parameters: map[string]ir.HelmParameterValue{
+					"CACHE_INPUTS": {
+						Kind: ir.HelmParameterArtifactItems,
+						ArtifactItems: []ir.HelmArtifactInput{
+							{Kind: ir.ArtifactInputString, Literal: headerRel},
+						},
+					},
+					"GRAPH_PATH":  {Kind: ir.HelmParameterScalar, Scalar: "build/graph_dump.json"},
+					"OUTPUT_PATH": {Kind: ir.HelmParameterScalar, Scalar: "compile_commands.json"},
+				},
+			},
+		},
+	}
+
+	step := EntityAdapterStep{
+		Argv: []string{
+			"infra/standards/gen_compile_commands.sh",
+			"compile_commands.json",
+			"build/graph_dump.json",
+		},
+		OutputPaths: []string{"compile_commands.json"},
+	}
+
+	fp1, err := EntityStepCacheFingerprint(builtIR, "//compilation_database:compilation_database", step, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(headerPath, []byte("int nexus_v2;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fp2, err := EntityStepCacheFingerprint(builtIR, "//compilation_database:compilation_database", step, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fp1 == fp2 {
+		t.Fatalf("fingerprint should change when CACHE_INPUTS path changes")
+	}
+}
