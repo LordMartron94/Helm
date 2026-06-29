@@ -524,11 +524,18 @@ func handleAdapterDeclaration(
 
 	inMatrixSection := decl.Matrix != nil
 	matrixLegOutputsDeclared := false
+	artifactsDeclared := false
 
 	for _, child := range children {
 		switch child.Kind() {
 		case artifacts.NodeMatrixBlock:
 			continue
+		case artifacts.NodeArtifactsBlock:
+			artifactScope := scope
+			if inMatrixSection {
+				artifactScope = matrixScope
+			}
+			decl.Artifacts = parseLegacyAdapterArtifacts(builder, child, artifactScope, name, &artifactsDeclared)
 		case artifacts.NodeAdapterOutputs:
 			if inMatrixSection && !matrixLegOutputsDeclared {
 				decl.MatrixLegOutputs = extractArtifactItemsFromPathArrayRoot(builder, child, matrixScope)

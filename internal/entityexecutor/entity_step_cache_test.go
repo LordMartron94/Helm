@@ -3,35 +3,11 @@ package entityexecutor
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"helm/internal/cache"
 	"helm/internal/ir"
 )
-
-func TestEntityStepCompileObjectPaths(t *testing.T) {
-	argv := []string{
-		"tools/scripts/compile_object.sh",
-		"libs/echo/src/e_message.c",
-		"build/obj/libs/echo/src/e_message.c.o",
-		"build/obj/libs/echo/src/e_message.c.d",
-		"-g",
-	}
-	sourcePath, objectPath, manifestPath, ok := entityStepCompileObjectPaths(argv)
-	if !ok {
-		t.Fatal("expected compile_object.sh step")
-	}
-	if sourcePath != "libs/echo/src/e_message.c" {
-		t.Fatalf("source = %q", sourcePath)
-	}
-	if objectPath != "build/obj/libs/echo/src/e_message.c.o" {
-		t.Fatalf("object = %q", objectPath)
-	}
-	if manifestPath != "build/obj/libs/echo/src/e_message.c.deps" {
-		t.Fatalf("manifest = %q", manifestPath)
-	}
-}
 
 func TestEntityStepCacheFingerprintChangesWhenHeaderInManifestChanges(t *testing.T) {
 	dir := t.TempDir()
@@ -69,10 +45,12 @@ func TestEntityStepCacheFingerprintChangesWhenHeaderInManifestChanges(t *testing
 			"build/obj/libs/echo/src/e_message.c.d",
 			"-g",
 		},
-		OutputPaths: []string{"build/obj/libs/echo/src/e_message.c.o"},
+		OutputPaths:          []string{"build/obj/libs/echo/src/e_message.c.o"},
+		CacheInputPaths:      []string{sourceRel},
+		DynamicManifestPaths: []string{manifestRel},
 	}
 
-	fp1, err := EntityStepCacheFingerprint(builtIR, "//libs/echo:echo", step, nil)
+	fp1, err := EntityStepCacheFingerprint(builtIR, "//libs/echo:echo", step, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +59,7 @@ func TestEntityStepCacheFingerprintChangesWhenHeaderInManifestChanges(t *testing
 		t.Fatal(err)
 	}
 
-	fp2, err := EntityStepCacheFingerprint(builtIR, "//libs/echo:echo", step, nil)
+	fp2, err := EntityStepCacheFingerprint(builtIR, "//libs/echo:echo", step, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +97,9 @@ func TestEntityStepCacheSkipsUnchangedCompileLeg(t *testing.T) {
 			objectRel,
 			"build/obj/libs/echo/src/e_message.c.d",
 		},
-		OutputPaths: []string{objectRel},
+		OutputPaths:          []string{objectRel},
+		CacheInputPaths:      []string{sourceRel},
+		DynamicManifestPaths: []string{"build/obj/libs/echo/src/e_message.c.d"},
 	}
 
 	cacheStore, err := cache.EntityCacheStoreOpen(filepath.Join(dir, ".helm", "cache"))
@@ -128,11 +108,17 @@ func TestEntityStepCacheSkipsUnchangedCompileLeg(t *testing.T) {
 	}
 	defer cache.EntityCacheStoreClose(cacheStore)
 
-	if err := entityStepCacheRecord(builtIR, "//libs/echo:echo", step, nil, cacheStore); err != nil {
+	fileCache, err := cache.FileFingerprintCacheOpen(filepath.Join(dir, ".helm", "cache"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.FileFingerprintCacheClose(fileCache)
+
+	if err := entityStepCacheRecord(builtIR, "//libs/echo:echo", step, nil, cacheStore, fileCache); err != nil {
 		t.Fatal(err)
 	}
 
-	skip, err := entityStepCacheShouldSkip(builtIR, "//libs/echo:echo", step, nil, cacheStore)
+	skip, err := entityStepCacheShouldSkip(builtIR, "//libs/echo:echo", step, nil, cacheStore, fileCache)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,10 +161,10 @@ func TestEntityExecutorRunGraphSkipsOnlyUnchangedMatrixLegs(t *testing.T) {
 	}
 
 	writeCompileDeps := func(req EntityRunRequest) error {
-		if len(req.Argv) < 3 || filepath.Base(req.Argv[0]) != "compile_object.sh" {
+		if len(req.Argv) < 4 {
 			return nil
 		}
-		manifestRel := strings.TrimSuffix(req.Argv[2], ".o") + ".deps"
+		manifestRel := req.Argv[3]
 		manifestPath := filepath.Join(dir, filepath.FromSlash(manifestRel))
 		if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
 			return err
@@ -239,7 +225,7 @@ func TestEntityExecutorRunGraphSkipsOnlyUnchangedMatrixLegs(t *testing.T) {
 
 	headerRel := "libs/nexus/nexus.h"
 	headerPath := filepath.Join(dir, filepath.FromSlash(headerRel))
-	manifestRel := "build/obj/libs/echo/src/e_message.c.deps"
+	manifestRel := "build/obj/libs/echo/src/e_message.c.d"
 	manifestPath := filepath.Join(dir, filepath.FromSlash(manifestRel))
 	if err := os.MkdirAll(filepath.Dir(headerPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -312,6 +298,14 @@ func testEntityStepCacheBuiltIR(dir string) ir.HelmIR {
 						},
 						MatrixLegOutputs: []ir.HelmArtifactInput{
 							{Kind: ir.ArtifactInputString, Literal: "build/obj/${SRC}.o"},
+						},
+						Artifacts: &ir.HelmArtifacts{
+							Inputs: []ir.HelmArtifactInput{
+								{Kind: ir.ArtifactInputString, Literal: "${SRC}"},
+							},
+							Dynamic: []ir.HelmArtifactInput{
+								{Kind: ir.ArtifactInputString, Literal: "build/obj/${SRC}.d"},
+							},
 						},
 						MatrixRuns: []ir.HelmRunCommand{
 							{
@@ -417,7 +411,7 @@ func TestEntityStepCacheFingerprintIncludesAdapterInputPaths(t *testing.T) {
 		OutputPaths: []string{"compile_commands.json"},
 	}
 
-	fp1, err := EntityStepCacheFingerprint(builtIR, "//compilation_database:compilation_database", step, nil)
+	fp1, err := EntityStepCacheFingerprint(builtIR, "//compilation_database:compilation_database", step, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +420,7 @@ func TestEntityStepCacheFingerprintIncludesAdapterInputPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fp2, err := EntityStepCacheFingerprint(builtIR, "//compilation_database:compilation_database", step, nil)
+	fp2, err := EntityStepCacheFingerprint(builtIR, "//compilation_database:compilation_database", step, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -256,18 +256,10 @@ func HelmInterpreterExecuteTarget(
 	entityOpts.TargetHookRunner = func(targetName string) error {
 		hookEntityOpts := entityOpts
 		hookEntityOpts.TargetHookRunner = nil
-		if entityErr := entityexecutor.EntityExecutorEnsureForTarget(
+		return entityexecutor.EntityExecutorEnsureForTarget(
 			result.BuiltIR,
 			targetName,
 			hookEntityOpts,
-		); entityErr != nil {
-			return entityErr
-		}
-		return targetexecutor.TargetExecutorRunGraph(
-			result.BuiltIR,
-			targetName,
-			nil,
-			execOpts,
 		)
 	}
 	if entityErr := entityexecutor.EntityExecutorEnsureForTarget(

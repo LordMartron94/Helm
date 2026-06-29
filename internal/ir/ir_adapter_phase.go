@@ -75,11 +75,18 @@ func parseAdapterPhaseBody(
 
 	inMatrixSection := phase.Matrix != nil
 	matrixLegOutputsDeclared := false
+	artifactsDeclared := false
 
 	for _, child := range children {
 		switch child.Kind() {
 		case artifacts.NodeMatrixBlock:
 			continue
+		case artifacts.NodeArtifactsBlock:
+			artifactScope := scope
+			if inMatrixSection {
+				artifactScope = matrixScope
+			}
+			phase.Artifacts = parseAdapterPhaseArtifacts(builder, child, artifactScope, decl.Name, phase.Name, &artifactsDeclared)
 		case artifacts.NodeAdapterPhaseDepends:
 			phase.DependsOn = append(phase.DependsOn, extractAdapterPhaseDepends(builder, child)...)
 		case artifacts.NodeAdapterOutputs:
@@ -89,6 +96,7 @@ func parseAdapterPhaseBody(
 				continue
 			}
 			phase.Outputs = extractArtifactItemsFromPathArrayRoot(builder, child, scope)
+			inMatrixSection = false
 		case artifacts.NodeAdapterEnv:
 			parseAdapterPhaseEnv(builder, child, scope, phase)
 			inMatrixSection = false

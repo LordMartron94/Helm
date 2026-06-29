@@ -65,6 +65,7 @@ func targetExecutorEvaluateCache(
 		depExecutionNodeIDs,
 		depStateFingerprints,
 		depOutputFingerprints,
+		opts.FileFingerprintCache,
 	)
 	if err != nil {
 		return decision, err
@@ -111,7 +112,7 @@ func targetExecutorCommitCache(
 		return 0, nil
 	}
 
-	outputFingerprint, err := targetExecutorOutputFingerprintAfterRun(builtIR, target, inv)
+	outputFingerprint, err := targetExecutorOutputFingerprintAfterRun(builtIR, target, inv, opts.FileFingerprintCache)
 	if err != nil {
 		return 0, err
 	}
@@ -134,6 +135,7 @@ func targetExecutorCommitCache(
 		depExecutionNodeIDs,
 		depStateFingerprints,
 		depOutputFingerprints,
+		opts.FileFingerprintCache,
 	)
 	if err != nil {
 		return 0, err
@@ -157,6 +159,7 @@ func targetExecutorOutputFingerprintAfterRun(
 	builtIR ir.HelmIR,
 	target ir.HelmTarget,
 	inv TargetInvocation,
+	fileCache *cache.FileFingerprintCache,
 ) (uint64, error) {
 	if target.Artifacts == nil {
 		return 0, nil
@@ -175,6 +178,7 @@ func targetExecutorOutputFingerprintAfterRun(
 		builtIR.SourceDirectory,
 		target,
 		interpCtx,
+		fileCache,
 	)
 }
 

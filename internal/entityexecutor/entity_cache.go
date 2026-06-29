@@ -20,6 +20,7 @@ func EntityCacheFingerprint(
 	outPath string,
 	sourcePaths []string,
 	usagePropagation EntityUsagePropagation,
+	fileCache *cache.FileFingerprintCache,
 ) (uint64, error) {
 	var buffer bytes.Buffer
 	if err := entityCacheWriteBaseState(&buffer, builtIR, entityKey, usagePropagation); err != nil {
@@ -27,7 +28,7 @@ func EntityCacheFingerprint(
 	}
 
 	inputPaths := EntityCacheInputPaths(builtIR, entityKey, sourcePaths)
-	if err := cache.EntityCacheWriteInputPaths(builtIR.SourceDirectory, &buffer, inputPaths); err != nil {
+	if err := cache.EntityCacheWriteInputPaths(builtIR.SourceDirectory, &buffer, inputPaths, fileCache); err != nil {
 		return 0, err
 	}
 

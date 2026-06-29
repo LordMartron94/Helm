@@ -227,7 +227,7 @@ func TestEntityCacheFingerprintMetadataOnlyDependency(t *testing.T) {
 		},
 	}
 
-	_, err := EntityCacheFingerprint(builtIR, "//libs/splash:splash", "build/lib/libsplash.so", []string{"src/a.c"}, nil)
+	_, err := EntityCacheFingerprint(builtIR, "//libs/splash:splash", "build/lib/libsplash.so", []string{"src/a.c"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

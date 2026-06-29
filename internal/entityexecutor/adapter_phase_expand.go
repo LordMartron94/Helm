@@ -82,10 +82,9 @@ func entityExpandAdapterPhases(
 					if argvErr != nil {
 						return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, argvErr)
 					}
-					plan.Steps = append(plan.Steps, EntityAdapterStep{
-						Argv:        argv,
-						OutputPaths: legOutputs,
-					})
+					if err := entityAppendAdapterStep(&plan, argv, nil, legOutputs, phase.Artifacts, helmBaseDir, legCtx); err != nil {
+						return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, err)
+					}
 				}
 			}
 			continue
@@ -107,19 +106,21 @@ func entityExpandAdapterPhases(
 			if argvErr != nil {
 				return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, argvErr)
 			}
-			step := EntityAdapterStep{Argv: argv, Env: linkEnv}
+			outputPaths := []string(nil)
 			if len(phase.Outputs) > 0 {
 				primaryOutputs, outputErr := entityExpandOutputPaths(helmBaseDir, phase.Outputs, interpCtx)
 				if outputErr != nil {
 					return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, outputErr)
 				}
-				step.OutputPaths = primaryOutputs
+				outputPaths = primaryOutputs
 				phaseOutputs[phase.Name] = append(phaseOutputs[phase.Name], primaryOutputs...)
 				if plan.PrimaryOutput == "" && len(primaryOutputs) > 0 {
 					plan.PrimaryOutput = primaryOutputs[0]
 				}
 			}
-			plan.Steps = append(plan.Steps, step)
+			if err := entityAppendAdapterStep(&plan, argv, linkEnv, outputPaths, phase.Artifacts, helmBaseDir, interpCtx); err != nil {
+				return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", entityKey, err)
+			}
 		}
 	}
 

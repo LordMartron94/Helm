@@ -154,6 +154,7 @@ func TestEntityCacheFingerprintIncludesUsage(t *testing.T) {
 		"build/lib/libecho.so",
 		[]string{"src/e.c"},
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -169,6 +170,7 @@ func TestEntityCacheFingerprintIncludesUsage(t *testing.T) {
 				"CPPFLAGS": {"-DECHO_MAX_SYSTEM_LABEL_LENGTH=15"},
 			},
 		},
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)

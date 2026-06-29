@@ -10,7 +10,6 @@ import (
 	"helm/internal/artifactresolve"
 	"helm/internal/expand"
 	"helm/internal/ir"
-	"helm/internal/workspacepath"
 	"os"
 	"sort"
 )
@@ -64,6 +63,7 @@ func CacheFingerprintState(
 	depExecutionNodeIDs []string,
 	depStateFingerprints map[string]uint64,
 	depOutputFingerprints map[string]uint64,
+	fileCache *FileFingerprintCache,
 ) (uint64, error) {
 	if target.Artifacts == nil {
 		return 0, fmt.Errorf("target '%s' has no artifacts block", target.Name)
@@ -81,12 +81,12 @@ func CacheFingerprintState(
 
 	var buffer bytes.Buffer
 	buffer.WriteString("state")
-	if err := cacheWritePaths(helmBaseDir, &buffer, inputPaths); err != nil {
+	if err := cacheWritePaths(helmBaseDir, &buffer, inputPaths, fileCache); err != nil {
 		return 0, err
 	}
 	if len(discoveredPaths) > 0 {
 		buffer.WriteString("dynamic-discovered")
-		if err := cacheWritePaths(helmBaseDir, &buffer, discoveredPaths); err != nil {
+		if err := cacheWritePaths(helmBaseDir, &buffer, discoveredPaths, fileCache); err != nil {
 			return 0, err
 		}
 	}
@@ -181,6 +181,7 @@ func CacheFingerprintOutput(
 	helmBaseDir string,
 	target ir.HelmTarget,
 	interpCtx expand.InterpolationContext,
+	fileCache *FileFingerprintCache,
 ) (uint64, error) {
 	if target.Artifacts == nil {
 		return 0, fmt.Errorf("target '%s' has no artifacts block", target.Name)
@@ -201,7 +202,7 @@ func CacheFingerprintOutput(
 
 	var buffer bytes.Buffer
 	buffer.WriteString("output")
-	if err := cacheWritePaths(helmBaseDir, &buffer, outputPaths); err != nil {
+	if err := cacheWritePaths(helmBaseDir, &buffer, outputPaths, fileCache); err != nil {
 		return 0, err
 	}
 
@@ -224,8 +225,8 @@ func CacheAggregateInstanceFingerprints(fingerprints []uint64) uint64 {
 }
 
 // EntityCacheWriteInputPaths hashes workspace-relative input paths into buffer.
-func EntityCacheWriteInputPaths(helmBaseDir string, buffer *bytes.Buffer, paths []string) error {
-	return cacheWritePaths(helmBaseDir, buffer, paths)
+func EntityCacheWriteInputPaths(helmBaseDir string, buffer *bytes.Buffer, paths []string, fileCache *FileFingerprintCache) error {
+	return cacheWritePaths(helmBaseDir, buffer, paths, fileCache)
 }
 
 // EntityCacheHashStateBuffer returns a stable aggregate hash for entity cache state.
@@ -233,9 +234,9 @@ func EntityCacheHashStateBuffer(data []byte) uint64 {
 	return hash.XXH3HasherHash64(cacheAggregateHasher, data)
 }
 
-func cacheWritePaths(helmBaseDir string, buffer *bytes.Buffer, paths []string) error {
+func cacheWritePaths(helmBaseDir string, buffer *bytes.Buffer, paths []string, fileCache *FileFingerprintCache) error {
 	for _, path := range paths {
-		fileHash, err := cacheFileContentHash(helmBaseDir, path)
+		fileHash, err := CacheFileFingerprint(helmBaseDir, path, fileCache)
 		if err != nil {
 			return err
 		}
@@ -245,18 +246,14 @@ func cacheWritePaths(helmBaseDir string, buffer *bytes.Buffer, paths []string) e
 	return nil
 }
 
-func cacheFileContentHash(helmBaseDir, relPath string) (uint64, error) {
-	absPath := workspacepath.WorkspaceAnchor(helmBaseDir, relPath)
-	if _, statErr := os.Stat(absPath); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return cacheMissingFileFingerprint, nil
-		}
-		return 0, &CacheFingerprintFileError{Path: relPath, Cause: statErr}
-	}
-
+func cacheFileContentHashFromPath(absPath string) (uint64, error) {
 	content, err := system.FileReadAllBytes(absPath)
 	if err != nil {
-		return 0, &CacheFingerprintFileError{Path: relPath, Cause: err}
+		return 0, err
 	}
 	return hash.XXH3HasherHash64(cacheFileHasher, content), nil
+}
+
+func cacheFileContentHash(helmBaseDir, relPath string) (uint64, error) {
+	return CacheFileFingerprint(helmBaseDir, relPath, nil)
 }

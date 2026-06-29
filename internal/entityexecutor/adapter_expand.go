@@ -13,9 +13,11 @@ import (
 
 // EntityAdapterStep is one spawn request produced by adapter template expansion.
 type EntityAdapterStep struct {
-	Argv        []string
-	Env         map[string]string
-	OutputPaths []string
+	Argv                 []string
+	Env                  map[string]string
+	OutputPaths          []string
+	CacheInputPaths      []string
+	DynamicManifestPaths []string
 }
 
 // EntityAdapterPlan is the full build plan for one entity (adapter-driven).
@@ -132,10 +134,9 @@ func EntityExpandAdapter(
 				if argvErr != nil {
 					return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, argvErr)
 				}
-				plan.Steps = append(plan.Steps, EntityAdapterStep{
-					Argv:        argv,
-					OutputPaths: legOutputs,
-				})
+				if err := entityAppendAdapterStep(&plan, argv, nil, legOutputs, adapter.Artifacts, helmBaseDir, legCtx); err != nil {
+					return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, err)
+				}
 			}
 		}
 	}
@@ -162,18 +163,20 @@ func EntityExpandAdapter(
 		if argvErr != nil {
 			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, argvErr)
 		}
-		step := EntityAdapterStep{Argv: argv, Env: linkEnv}
+		outputPaths := []string(nil)
 		if len(adapter.Outputs) > 0 {
 			primaryOutputs, outputErr := entityExpandOutputPaths(helmBaseDir, adapter.Outputs, interpCtx)
 			if outputErr != nil {
 				return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, outputErr)
 			}
-			step.OutputPaths = primaryOutputs
+			outputPaths = primaryOutputs
 			if plan.PrimaryOutput == "" && len(primaryOutputs) > 0 {
 				plan.PrimaryOutput = primaryOutputs[0]
 			}
 		}
-		plan.Steps = append(plan.Steps, step)
+		if err := entityAppendAdapterStep(&plan, argv, linkEnv, outputPaths, adapter.Artifacts, helmBaseDir, interpCtx); err != nil {
+			return EntityAdapterPlan{}, fmt.Errorf("entity '%s': %w", instanceKey, err)
+		}
 	}
 
 	if plan.PrimaryOutput == "" && len(adapter.Outputs) > 0 {
@@ -195,6 +198,60 @@ func entityResolvedSourcePaths(resolved EntityResolvedParameters) []string {
 		paths = append(paths, list...)
 	}
 	return paths
+}
+
+func entityResolveStepCacheBoundaries(
+	helmBaseDir string,
+	artifacts *ir.HelmArtifacts,
+	interpCtx expand.InterpolationContext,
+) ([]string, []string, error) {
+	if artifacts == nil {
+		return nil, nil, nil
+	}
+
+	var inputPaths []string
+	var dynamicPaths []string
+	var err error
+
+	if len(artifacts.Inputs) > 0 {
+		inputPaths, err = artifactresolve.ArtifactResolveInputPathsContext(helmBaseDir, artifacts, interpCtx)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if len(artifacts.Dynamic) > 0 {
+		dynamicPaths, err = artifactresolve.ArtifactResolveItemsContext(helmBaseDir, artifacts.Dynamic, interpCtx, false)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return inputPaths, dynamicPaths, nil
+}
+
+func entityAppendAdapterStep(
+	plan *EntityAdapterPlan,
+	argv []string,
+	env map[string]string,
+	outputPaths []string,
+	artifacts *ir.HelmArtifacts,
+	helmBaseDir string,
+	interpCtx expand.InterpolationContext,
+) error {
+	cacheInputs, dynamicManifests, err := entityResolveStepCacheBoundaries(helmBaseDir, artifacts, interpCtx)
+	if err != nil {
+		return err
+	}
+
+	plan.Steps = append(plan.Steps, EntityAdapterStep{
+		Argv:                 argv,
+		Env:                  env,
+		OutputPaths:          outputPaths,
+		CacheInputPaths:      cacheInputs,
+		DynamicManifestPaths: dynamicManifests,
+	})
+	return nil
 }
 
 func entityCopyScalars(scalars map[string]string) map[string]string {

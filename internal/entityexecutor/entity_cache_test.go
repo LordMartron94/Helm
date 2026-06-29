@@ -90,7 +90,7 @@ func TestEntityCacheFingerprintChangesWhenSourceChanges(t *testing.T) {
 		},
 	}
 
-	fp1, err := EntityCacheFingerprint(builtIR, "//libs/echo:echo", "build/lib/libecho.so", []string{"libs/echo/src/e.c"}, nil)
+	fp1, err := EntityCacheFingerprint(builtIR, "//libs/echo:echo", "build/lib/libecho.so", []string{"libs/echo/src/e.c"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestEntityCacheFingerprintChangesWhenSourceChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fp2, err := EntityCacheFingerprint(builtIR, "//libs/echo:echo", "build/lib/libecho.so", []string{"libs/echo/src/e.c"}, nil)
+	fp2, err := EntityCacheFingerprint(builtIR, "//libs/echo:echo", "build/lib/libecho.so", []string{"libs/echo/src/e.c"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

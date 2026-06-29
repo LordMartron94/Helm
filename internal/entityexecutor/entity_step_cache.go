@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"helm/internal/cache"
 	"helm/internal/ir"
@@ -20,6 +19,7 @@ func EntityStepCacheFingerprint(
 	entityKey string,
 	step EntityAdapterStep,
 	usagePropagation EntityUsagePropagation,
+	fileCache *cache.FileFingerprintCache,
 ) (uint64, error) {
 	var buffer bytes.Buffer
 	if err := entityCacheWriteBaseState(&buffer, builtIR, entityKey, usagePropagation); err != nil {
@@ -38,22 +38,21 @@ func EntityStepCacheFingerprint(
 	if err != nil {
 		return 0, err
 	}
-	if err := cache.EntityCacheWriteInputPaths(builtIR.SourceDirectory, &buffer, inputPaths); err != nil {
+	if err := cache.EntityCacheWriteInputPaths(builtIR.SourceDirectory, &buffer, inputPaths, fileCache); err != nil {
 		return 0, err
 	}
 
-	manifestPath := entityStepDynamicManifestPath(step.Argv)
-	if manifestPath != "" {
-		discovered, err := cache.DynamicManifestDiscoveredPathsFromManifestPaths(
+	if len(step.DynamicManifestPaths) > 0 {
+		discovered, discoverErr := cache.DynamicManifestDiscoveredPathsFromManifestPaths(
 			builtIR.SourceDirectory,
-			[]string{manifestPath},
+			step.DynamicManifestPaths,
 		)
-		if err != nil {
-			return 0, err
+		if discoverErr != nil {
+			return 0, discoverErr
 		}
 		if len(discovered) > 0 {
 			buffer.WriteString("dynamic-discovered")
-			if err := cache.EntityCacheWriteInputPaths(builtIR.SourceDirectory, &buffer, discovered); err != nil {
+			if err := cache.EntityCacheWriteInputPaths(builtIR.SourceDirectory, &buffer, discovered, fileCache); err != nil {
 				return 0, err
 			}
 		}
@@ -85,7 +84,8 @@ func entityStepCacheWriteEnv(buffer *bytes.Buffer, env map[string]string) {
 func entityStepCacheResolvedInputPaths(builtIR ir.HelmIR, entityKey string, step EntityAdapterStep) ([]string, error) {
 	seen := make(map[string]struct{})
 	var paths []string
-	entityAppendUniquePaths(&paths, seen, entityStepInputPaths(builtIR.SourceDirectory, step))
+
+	entityAppendUniquePaths(&paths, seen, step.CacheInputPaths)
 
 	entity, inst, err := entityLookupForInstanceKey(builtIR, entityKey)
 	if err != nil {
@@ -96,7 +96,10 @@ func entityStepCacheResolvedInputPaths(builtIR ir.HelmIR, entityKey string, step
 	if err != nil {
 		return nil, err
 	}
-	entityAppendUniquePaths(&paths, seen, entityResolvedSourcePaths(resolved))
+	if cacheInputs, ok := resolved.PathLists["CACHE_INPUTS"]; ok {
+		entityAppendUniquePaths(&paths, seen, cacheInputs)
+	}
+
 	sort.Strings(paths)
 	return paths, nil
 }
@@ -105,101 +108,33 @@ func entityStepCacheRecordKey(entityKey, outputPath string) string {
 	return entityKey + entityStepCacheKeySeparator + outputPath
 }
 
-func entityStepDynamicManifestPath(argv []string) string {
-	_, objectPath, manifestPath, ok := entityStepCompileObjectPaths(argv)
-	if !ok {
-		return ""
-	}
-	_ = objectPath
-	return manifestPath
-}
-
-func entityStepCompileObjectPaths(argv []string) (sourcePath, objectPath, manifestPath string, ok bool) {
-	if len(argv) < 4 {
-		return "", "", "", false
-	}
-	if filepath.Base(argv[0]) != "compile_object.sh" {
-		return "", "", "", false
-	}
-
-	sourcePath = argv[1]
-	objectPath = argv[2]
-	if !strings.HasSuffix(objectPath, ".o") {
-		return "", "", "", false
-	}
-	manifestPath = strings.TrimSuffix(objectPath, ".o") + ".deps"
-	return sourcePath, objectPath, manifestPath, true
-}
-
-func entityStepInputPaths(workspaceRoot string, step EntityAdapterStep) []string {
-	if sourcePath, _, _, ok := entityStepCompileObjectPaths(step.Argv); ok {
-		return []string{sourcePath}
-	}
-	return entityStepArtifactPathsFromArgv(workspaceRoot, step.Argv)
-}
-
-func entityStepArtifactPathsFromArgv(workspaceRoot string, argv []string) []string {
-	seen := make(map[string]struct{})
-	var paths []string
-	for _, arg := range argv {
-		if !entityStepArgvLooksLikeArtifactPath(arg) {
-			continue
-		}
-		rel, ok := entityStepWorkspaceRelativePath(workspaceRoot, arg)
-		if !ok {
-			continue
-		}
-		if _, exists := seen[rel]; exists {
-			continue
-		}
-		seen[rel] = struct{}{}
-		paths = append(paths, rel)
-	}
-	return paths
-}
-
-func entityStepArgvLooksLikeArtifactPath(arg string) bool {
-	switch {
-	case strings.HasSuffix(arg, ".o"),
-		strings.HasSuffix(arg, ".a"),
-		strings.HasSuffix(arg, ".so"),
-		strings.HasSuffix(arg, ".c"):
-		return true
-	default:
+func entityStepDynamicBootstrapMiss(workspaceRoot string, manifestPaths []string, outputPaths []string) bool {
+	if len(manifestPaths) == 0 {
 		return false
 	}
-}
 
-func entityStepWorkspaceRelativePath(workspaceRoot, arg string) (string, bool) {
-	if filepath.IsAbs(arg) {
-		rel, err := filepath.Rel(workspaceRoot, arg)
-		if err != nil {
-			return "", false
-		}
-		arg = rel
-	}
-	arg = filepath.ToSlash(arg)
-	if strings.HasPrefix(arg, "../") || arg == ".." {
-		return "", false
-	}
-	return arg, true
-}
-
-func entityStepDynamicBootstrapMiss(workspaceRoot, manifestPath string, outputPaths []string) bool {
-	if manifestPath == "" {
-		return false
-	}
-	absManifest := filepath.Join(workspaceRoot, filepath.FromSlash(manifestPath))
-	if _, err := os.Stat(absManifest); err == nil {
-		return false
-	} else if !os.IsNotExist(err) {
-		return true
-	}
 	absOutputs := make([]string, len(outputPaths))
 	for index, relPath := range outputPaths {
 		absOutputs[index] = entityCacheAbsOutputPath(workspaceRoot, relPath)
 	}
-	return !entityStepOutputsExist(absOutputs)
+	outputsExist := entityStepOutputsExist(absOutputs)
+
+	for _, manifestPath := range manifestPaths {
+		if manifestPath == "" {
+			continue
+		}
+		absManifest := filepath.Join(workspaceRoot, filepath.FromSlash(manifestPath))
+		if _, err := os.Stat(absManifest); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return true
+		}
+		if !outputsExist {
+			return true
+		}
+	}
+
+	return false
 }
 
 func entityStepOutputsExist(outputPaths []string) bool {
@@ -226,6 +161,7 @@ func entityStepCacheShouldSkip(
 	step EntityAdapterStep,
 	usagePropagation EntityUsagePropagation,
 	cacheStore *cache.EntityCacheStore,
+	fileCache *cache.FileFingerprintCache,
 ) (bool, error) {
 	if cacheStore == nil || len(step.OutputPaths) == 0 {
 		return false, nil
@@ -237,12 +173,11 @@ func entityStepCacheShouldSkip(
 		return false, nil
 	}
 
-	manifestPath := entityStepDynamicManifestPath(step.Argv)
-	if entityStepDynamicBootstrapMiss(builtIR.SourceDirectory, manifestPath, step.OutputPaths) {
+	if entityStepDynamicBootstrapMiss(builtIR.SourceDirectory, step.DynamicManifestPaths, step.OutputPaths) {
 		return false, nil
 	}
 
-	stateFingerprint, err := EntityStepCacheFingerprint(builtIR, entityKey, step, usagePropagation)
+	stateFingerprint, err := EntityStepCacheFingerprint(builtIR, entityKey, step, usagePropagation, fileCache)
 	if err != nil {
 		return false, err
 	}
@@ -300,6 +235,7 @@ func entityStepCacheRecord(
 	step EntityAdapterStep,
 	usagePropagation EntityUsagePropagation,
 	cacheStore *cache.EntityCacheStore,
+	fileCache *cache.FileFingerprintCache,
 ) error {
 	if cacheStore == nil || len(step.OutputPaths) == 0 {
 		return nil
@@ -311,7 +247,7 @@ func entityStepCacheRecord(
 		return nil
 	}
 
-	stateFingerprint, err := EntityStepCacheFingerprint(builtIR, entityKey, step, usagePropagation)
+	stateFingerprint, err := EntityStepCacheFingerprint(builtIR, entityKey, step, usagePropagation, fileCache)
 	if err != nil {
 		return err
 	}

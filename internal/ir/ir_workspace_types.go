@@ -78,6 +78,7 @@ type HelmAdapterPhase struct {
 	Outputs          []HelmArtifactInput
 	Runs             []HelmRunCommand
 	Env              map[string]HelmStringListExpr
+	Artifacts        *HelmArtifacts
 }
 
 // HelmAdapterDecl is a macro that expands into an ordered adapter sub-graph.
@@ -92,6 +93,7 @@ type HelmAdapterDecl struct {
 	MatrixRuns       []HelmRunCommand
 	Env              map[string]HelmStringListExpr
 	Runs             []HelmRunCommand
+	Artifacts        *HelmArtifacts
 }
 
 func HelmAdapterDeclUsesPhases(decl HelmAdapterDecl) bool {

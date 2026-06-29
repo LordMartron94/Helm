@@ -634,16 +634,6 @@ func handleTargetArtifacts(
 	}
 	state.artifactsDeclared = true
 
-	artifactsIR := &HelmArtifacts{}
-
-	if inputsNode := node.FindFirstKind(artifacts.NodeCacheInputs); inputsNode != nil {
-		artifactsIR.Inputs = extractInputArtifactSequence(builder, inputsNode, scope)
-	}
-
-	if outputsNode := node.FindFirstKind(artifacts.NodeCacheOutputDirectory); outputsNode != nil {
-		artifactsIR.Outputs = extractOutputArtifactSequence(builder, outputsNode, scope)
-	}
-
 	if dynamicNode := node.FindFirstKind(artifacts.NodeDynamic); dynamicNode != nil {
 		if state.dynamicDeclared {
 			emitSemanticError(
@@ -654,13 +644,10 @@ func handleTargetArtifacts(
 			)
 		} else {
 			state.dynamicDeclared = true
-			artifactsIR.Dynamic = extractDynamicArtifactSequence(builder, dynamicNode, scope)
 		}
 	}
 
-	artifactsIR.Volatile = extractArtifactsVolatile(builder, node)
-
-	currentTarget.Artifacts = artifactsIR
+	currentTarget.Artifacts = extractArtifactsFromBlock(builder, node, scope)
 }
 
 func handleTargetWorkDir(

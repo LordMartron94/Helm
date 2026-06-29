@@ -39,14 +39,26 @@ func TargetExecutorRunGraph(
 		runOpts.Targets = builtIR.Targets
 	}
 	var ownedCacheStore *cache.TargetCacheStore
-	if !runOpts.DisableArtifactCache && runOpts.CacheStore == nil && runOpts.CacheRoot != "" {
-		opened, openErr := cache.TargetCacheStoreOpen(runOpts.CacheRoot)
-		if openErr != nil {
-			return openErr
+	var ownedFileFingerprintCache *cache.FileFingerprintCache
+	if !runOpts.DisableArtifactCache && runOpts.CacheRoot != "" {
+		if runOpts.CacheStore == nil {
+			opened, openErr := cache.TargetCacheStoreOpen(runOpts.CacheRoot)
+			if openErr != nil {
+				return openErr
+			}
+			ownedCacheStore = opened
+			runOpts.CacheStore = opened
+			defer cache.TargetCacheStoreClose(ownedCacheStore)
 		}
-		ownedCacheStore = opened
-		runOpts.CacheStore = opened
-		defer cache.TargetCacheStoreClose(ownedCacheStore)
+		if runOpts.FileFingerprintCache == nil {
+			opened, openErr := cache.FileFingerprintCacheOpen(runOpts.CacheRoot)
+			if openErr != nil {
+				return openErr
+			}
+			ownedFileFingerprintCache = opened
+			runOpts.FileFingerprintCache = opened
+			defer cache.FileFingerprintCacheClose(ownedFileFingerprintCache)
+		}
 	}
 
 	for phaseIndex, phase := range plan.Phases {

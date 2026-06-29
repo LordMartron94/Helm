@@ -32,6 +32,8 @@ type TargetExecutorOptions struct {
 	BypassCache bool
 	// CacheStore is opened from CacheRoot by the graph runner when nil.
 	CacheStore *cache.TargetCacheStore
+	// FileFingerprintCache memoizes per-file content hashes for cache fingerprinting.
+	FileFingerprintCache *cache.FileFingerprintCache
 
 	// RunTranscript records phase/target boundaries and captured subprocess I/O in a log file only.
 	RunTranscript *TargetExecutorRunTranscript

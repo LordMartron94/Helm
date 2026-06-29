@@ -32,7 +32,9 @@ type EntityExecutorOptions struct {
 	TargetHookRunner EntityTargetHookRunner
 	CacheRoot        string
 	DisableCache     bool
+	FileFingerprintCache *cache.FileFingerprintCache
 	ownedCacheStore  *cache.EntityCacheStore
+	ownedFileFingerprintCache *cache.FileFingerprintCache
 }
 
 // EntityExecutorDefaultRunHandler spawns argv without a shell.
@@ -91,6 +93,15 @@ func EntityExecutorRunGraph(
 		}
 		runOpts.ownedCacheStore = opened
 		defer cache.EntityCacheStoreClose(runOpts.ownedCacheStore)
+	}
+	if !runOpts.DisableCache && runOpts.FileFingerprintCache == nil && runOpts.ownedFileFingerprintCache == nil {
+		opened, openErr := cache.FileFingerprintCacheOpen(entityCacheRoot(builtIR, runOpts.CacheRoot))
+		if openErr != nil {
+			return openErr
+		}
+		runOpts.ownedFileFingerprintCache = opened
+		runOpts.FileFingerprintCache = opened
+		defer cache.FileFingerprintCacheClose(runOpts.ownedFileFingerprintCache)
 	}
 
 	completedHooks := make(map[string]struct{})
@@ -153,6 +164,7 @@ func entityExecutorRunOne(
 				step,
 				usagePropagation,
 				opts.ownedCacheStore,
+				opts.FileFingerprintCache,
 			)
 			if skipErr != nil {
 				return skipErr
@@ -179,6 +191,7 @@ func entityExecutorRunOne(
 				step,
 				usagePropagation,
 				opts.ownedCacheStore,
+				opts.FileFingerprintCache,
 			); recordErr != nil {
 				return recordErr
 			}
